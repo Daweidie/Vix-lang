@@ -1,183 +1,197 @@
-# Virex语言编译器
+# Vix 编程语言详细介绍
+
+Vix（也称为 Velox）是一种轻量级的编译型脚本语言，旨在提供接近原生 C++ 的执行速度，同时保持脚本语言的简洁性和易用性。
+
+## 语言特性
+
+### 核心特点
+
+- **轻量级设计**：语言本身精简，易于学习和使用
+- **高性能**：编译为原生机器码，提供接近 C++ 的执行速度
+- **类型推导**：自动推断变量和表达式的类型，无需显式声明
+- **字节码中间表示**：使用字节码作为中间表示形式，简化代码生成过程
+- **多后端支持**：支持编译为原生可执行文件或 C++ 代码 也可以使用QBE后端编译为.s(GAS)文件
+
+### 数据类型
+
+Vix 支持三种基本数据类型：
+
+1. **整数（Integer）**：如 `42`, `-7`, `0`
+2. **浮点数（Float）**：如 `3.14`, `-2.5`, `0.0`
+3. **字符串（String）**：如 `"Hello"`, `"World"`
+
+### 运算符
+
+Vix 支持丰富的运算符集合：
 
 
-## 项目结构
+| 运算符 | 描述            | 示例                         |
+| ------ | --------------- | ---------------------------- |
+| `+`    | 加法/字符串连接 | `5 + 3`, `"Hello" + "World"` |
+| `-`    | 减法/负号       | `10 - 4`, `-5`               |
+| `*`    | 乘法/字符串重复 | `6 * 7`, `"Ha" * 3`          |
+| `/`    | 除法            | `15 / 3`                     |
+| `%`    | 取模            | `17 % 5`                     |
+| `**`   | 幂运算          | `2 ** 8`                     |
 
-```
-.
-├── ast/                     # AST 节点定义和实现
-│   ├── ast.c
-│   ├── ast.h
-│   ├── bytecode.c
-│   ├── bytecode.h
-│   ├── type_inference.c
-│   └── type_inference.h
-├── compiler/                # 编译器实现
-│   ├── compiler.c
-│   └── compiler.h
-├── lib/                     # 运行时库
-│   ├── vcore.hpp
-│   └── vtypes.hpp
-├── parser/                  # 解析器相关文件
-│   ├── lex.yy.c
-│   ├── parser.h
-│   ├── parser.tab.c
-│   ├── parser.tab.h
-│   └── parser.y
-├── DEVELOPER.md             # 开发者文档
-├── Makefile                 # 构建脚本
-├── README.md                # 项目说明文档
-└── main.c                   # 主程序入口
-```
+## 语法概览
 
-## 特性
+### 变量声明和赋值
 
-- 解析 Virex 语言代码
-- 生成抽象语法树(AST)
-- 支持变量声明、赋值、打印语句、数学运算等语言特性
-- 支持多种数据类型（整数、浮点数、字符串）
-- 支持数学运算和优先级
-- 支持注释
-- 编译为原生机器码，提供接近原生C++的执行速度
-- 编译时类型推导，避免运行时类型检查开销
-- 字节码中间表示，简化代码生成过程
-- 字符串操作优化，提供高效的字符串连接和重复操作
+在 Vix 中，变量在首次赋值时自动声明：
 
-## 语法示例
-
-```
-// 变量声明和赋值
-x = 10;
-y = 3.14;
-name = "Virex";
-
-// 数学运算
-result = x + y * 2;
-
-// 打印语句
-print "Hello, World!";
-print x, y, name;
-
-// 支持混合类型的打印语句
-print "The value of x is", x;
-print "Result calculation:", x, "+", y, "*", 2, "=", result;
-
-// 字符串操作
-greeting = "Hello" + " " + name;
-pattern = "ABC" * 3;  // "ABCABCABC"
-
-// toint 函数支持 64 位整数
-str_num = "123456789012345";
-int_num = toint(str_num);  // 支持大整数转换
-print int_num;
+```vix
+a = 10              // 整数变量
+b = 3.14            // 浮点数变量
+c = "Hello, Vix!"   // 字符串变量
 ```
 
-## 构建和使用
+### 输出语句
 
-### 构建
+使用 `print` 函数向控制台输出内容：
+
+```vix
+print("Hello, World!")
+print("Value of a:", a)
+```
+
+### 控制结构
+
+Vix 支持常见的控制结构：
+
+#### 条件语句
+
+```vix
+if (a > 5) {
+    print("a is greater than 5")
+} elif (a == 5) {
+    print("a is equal to 5")
+} else {
+    print("a is less than 5")
+}
+```
+
+#### 循环语句
+
+```vix
+// While 循环
+i = 0
+while (i < 3) {
+    print("While loop iteration:", i)
+    i = i + 1
+}
+
+// For 循环
+for (j ; 1 .. 3) {
+    print("For loop iteration:", j)
+}
+```
+
+### 函数
+
+Vix 内置了一些实用函数：
+
+
+| 函数           | 描述                 | 示例                 |
+| -------------- | -------------------- | -------------------- |
+| `print(...)`   | 打印值到控制台       | `print("Hello", 42)` |
+| `toint(str)`   | 将字符串转换为整数   | `toint("123")`       |
+| `tofloat(str)` | 将字符串转换为浮点数 | `tofloat("3.14")`    |
+
+使用示例：
+
+```vix
+str_num = "123"
+int_num = toint(str_num)
+float_num = tofloat(str_num)
+print("String:", str_num)
+print("Integer:", int_num)
+print("Float:", float_num)
+```
+
+## 编译和运行
+
+### 构建编译器
+
+确保系统已安装 GCC、Flex、Bison 和 Make 工具，然后运行：
 
 ```bash
-make
+make              # Linux/macOS
+mingw32-make      # Windows
 ```
 
-### 清理
+### 使用方式
 
-```bash
-make clean
+1. **解析并显示 AST 和字节码**：
+
+   ```bash
+   ./vixc program.vix
+   ```
+2. **编译为可执行文件**：
+
+   ```bash
+   ./vixc program.vix -o executable_name
+   ```
+
+3. **初始化项目（创建运行时库）**：
+
+   ```bash
+   ./vixc init
+   ```
+
+4. **编译为qbe ir**:
+   ```bash
+   ./vixc program.vix -q qbe-ir 
+   ```
+
+## 高级特性
+
+### 类型推导系统
+
+Vix 自动推导变量和表达式的类型，无需显式声明：
+
+```vix
+x = 10          // 推导为整数类型
+y = 3.14        // 推导为浮点数类型
+z = x + y       // 推导为浮点数类型（整数 + 浮点数 = 浮点数）
 ```
 
-### 重新构建
+### 字节码中间表示
 
-```bash
-make rebuild
-```
+Vix 使用VIC IR作为中间表示形式，这使得：
 
-### 使用
+- 代码生成更加简单
+- 便于优化和跨平台移植
+- 可以轻松地添加新的后端支持
 
-```bash
-./virex test.vix
-```
+### 多后端支持
 
-### 命令行参数说明
+Vix 支持多种编译后端：
 
-- `./virex <input.vix>`: 解析并显示AST和字节码
-- `./virex <input.vix> -o <output_name>`: 将Virex代码编译为可执行文件
-  - 自动生成 `<output_name>.cpp` 文件
-  - 使用 g++ 将其编译为可执行文件 `<output_name>`
-  - 自动删除临时的 `.cpp` 文件
-  - 编译成功时不输出额外信息，只在失败时显示错误
-- `./virex <input.vix> -b <bytecode_file>`: 将字节码输出到指定文件
-  - 生成纯字节码文件，不包含行号和标题
-  - 如果文件名不以 `.vbtc` 结尾，会自动添加 `.vbtc` 扩展名
-  - 文件保存在项目根目录
-- `./virex <input.vbtc> -c <cpp_file>`: 将 .vbtc 字节码文件编译为 .cpp C++ 代码文件
-  - 当输入文件是 .vbtc 文件时，使用此参数指定输出的 .cpp 文件名
-  - 生成可以直接编译的 C++ 代码
-  - 生成的 .cpp 文件保存在项目根目录
-- `./virex <input.vix> -o <output_name> -b <bytecode_file>`: 同时编译为可执行文件和输出字节码文件
-- `./virex init`: 初始化项目，创建lib目录并生成运行时库文件([vcore.hpp](file:///c%3A/Users/popol/Desktop/Virex_ver/virex/lib/vcore.hpp)和[vtypes.hpp](file:///c%3A/Users/popol/Desktop/Virex_ver/virex/lib/vtypes.hpp))
+1. **原生可执行文件**：通过 QBE 后端编译为机器码
+2. **C++ 代码**：将 Vix 代码转换为等效的 C++ 代码
+3. **VIC IR文件**：保存中间表示形式供后续处理
 
-这将输出生成的 AST 结构和字节码，或者使用 `-o` 参数将代码编译为 C++ 源文件并保存在项目根目录。
+## 扩展建议
 
-## AST 节点类型
+如果想要扩展 Vix 语言的功能，可以考虑以下几个方向：
 
-解析器会生成以下类型的 AST 节点：
+1. **添加新数据类型**：
 
-- `AST_PROGRAM`: 程序根节点
-- `AST_PRINT`: 打印语句
-- `AST_ASSIGN`: 赋值语句
-- `AST_BINOP`: 二元操作（加、减、乘、除、取模、幂运算）
-- `AST_UNARYOP`: 一元操作（正号、负号）
-- `AST_NUM_INT`: 整数字面量
-- `AST_NUM_FLOAT`: 浮点数字面量
-- `AST_STRING`: 字符串字面量
-- `AST_IDENTIFIER`: 标识符
-- `AST_EXPRESSION_LIST`: 表达式列表（用于支持多个参数的 print 语句）
+   - 在类型系统中添加新的类型枚举值
+   - 更新类型推导逻辑
+   - 添加到 C++ 类型的映射
+2. **添加新操作符**：
 
-## 开发者文档
+   - 添加语法分析规则
+   - 添加字节码指令
+   - 实现代码生成逻辑
+3. **添加新语句类型**：
 
-### 词法分析器 (lexer.l)
+   - 添加 AST 节点类型
+   - 添加语法分析规则
+   - 实现字节码生成和代码生成逻辑
 
-词法分析器使用 Flex 实现，定义了以下 token：
+## 总结
 
-- 关键字: `print`, `i32`, `i64`, `f32`, `f64`, `str`
-- 操作符: `=`, `+`, `-`, `*`, `/`, `%`, `**`
-- 分隔符: `(`, `)`, `;`
-- 字面量: 整数、浮点数、字符串
-- 标识符: 符合命名规则的变量名
--注:`;`可选
-### 语法分析器 (parser.y)
-
-语法分析器使用 Bison 实现，定义了完整的语法规则：
-
-- 程序由语句列表组成
-- 语句包括打印语句、赋值语句
-- 表达式支持数学运算和优先级
-- 支持括号改变运算优先级
-
-### AST 结构
-
-AST 节点定义在 [ast.h](file:///c%3A/Users/popol/Desktop/Virex_ver/virex/ast/ast.h) 中，主要包含：
-
-1. 节点类型枚举
-2. 二元操作符和一元操作符枚举
-3. AST 节点结构体，使用联合体存储不同类型节点的数据
-4. 节点创建函数
-5. AST 打印和内存管理函数
-
-### 编译器
-
-编译器可以将生成的字节码编译为可执行的 C++ 代码：
-
-1. 字节码指令被转换为等价的 C++ 代码
-2. 使用 `vcore` 库处理打印和其他操作
-3. 自动生成完整的 C++ 程序，包括 `main` 函数
-4. 变量使用具体类型声明，整数类型映射为 `long long`，支持完整的 64 位整数范围
-5. 生成的 C++ 文件保存在项目根目录
-
-### 扩展建议
-见DEVPOLER
-
-## 许可证
-
-详见 [LICENSE](file:///c%3A/Users/popol/Desktop/virex/LICENSE) 文件
+Vix 是一门专注于简洁性和性能的编程语言。它通过类型推导减少了代码复杂性，通过字节码中间表示和多后端支持提供了良好的可扩展性。无论是用于学习编译原理还是开发高性能应用程序，Vix 都是一个值得探索的语言

@@ -1,0 +1,179 @@
+%{
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "parser.tab.h"
+#include "../include/ast.h"
+#include "../include/compiler.h"
+extern const char* current_input_filename;
+extern YYSTYPE yylval;
+
+int yycolumn = 1;
+
+char* my_strndup(const char* str, size_t n) {
+    size_t len = strlen(str);
+    if (n < len) {
+        len = n;
+    }
+    
+    char* result = malloc(len + 1);
+    if (result) {
+        memcpy(result, str, len);
+        result[len] = '\0';
+    }
+    return result;
+}
+%}
+
+%option noyywrap
+%option yylineno
+
+/* 定义一个宏来更新列号 */
+%{
+#define UPDATE_COLUMN() \
+    do { \
+        for (int i = 0; yytext[i] != '\0'; i++) { \
+            if (yytext[i] == '\n') { \
+                yycolumn = 1; \
+            } else { \
+                yycolumn++; \
+            } \
+        } \
+    } while(0)
+
+#define GET_FIRST_COLUMN() (yycolumn - yyleng + 1)
+%}
+
+%%
+
+[ \t\r\n]           { 
+                      for (int i = 0; yytext[i] != '\0'; i++) {
+                          if (yytext[i] == '\n') {
+                              yycolumn = 1;
+                          } else if (yytext[i] == '\t') {
+                              yycolumn = ((yycolumn - 1) / 8 + 1) * 8 + 1;
+                          } else {
+                              yycolumn++;
+                          }
+                      }
+                      } 
+
+"print"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return PRINT; }
+"input"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return INPUT; }
+"toint"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TOINT; }
+"tofloat"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TOFLOAT; }
+"return"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return RETURN; }
+"fn"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FN; }
+"const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONST; }
+"->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
+"i32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
+"i64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
+"f32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F32; }
+"f64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F64; }
+"str"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_STR; }
+"void"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_VOID; }
+"if"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IF; }
+"elif"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ELIF; }
+"else"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ELSE; }
+"while"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return WHILE; }
+"break"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return BREAK; }
+"continue"          { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONTINUE; }
+"for"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FOR; }
+
+"="                 { UPDATE_COLUMN(); return ASSIGN; }
+"+="                { UPDATE_COLUMN(); return PLUS_ASSIGN; }
+"-="                { UPDATE_COLUMN(); return MINUS_ASSIGN; }
+"*="                { UPDATE_COLUMN(); return MULTIPLY_ASSIGN; }
+"/="                { UPDATE_COLUMN(); return DIVIDE_ASSIGN; }
+"%="                { UPDATE_COLUMN(); return MODULO_ASSIGN; }
+"+"                 { UPDATE_COLUMN(); return PLUS; }
+"-"                 { UPDATE_COLUMN(); return MINUS; }
+"*"                 { UPDATE_COLUMN(); return MULTIPLY; }
+"/"                 { UPDATE_COLUMN(); return DIVIDE; }
+"%"                 { UPDATE_COLUMN(); return MODULO; }
+"**"                { UPDATE_COLUMN(); return POWER; }
+"=="                { UPDATE_COLUMN(); return EQ; }
+"!="                { UPDATE_COLUMN(); return NE; }
+"<"                 { UPDATE_COLUMN(); return LT; }
+"<="                { UPDATE_COLUMN(); return LE; }
+">"                 { UPDATE_COLUMN(); return GT; }
+">="                { UPDATE_COLUMN(); return GE; }
+
+"("                 { UPDATE_COLUMN(); return LPAREN; }
+")"                 { UPDATE_COLUMN(); return RPAREN; }
+"{"                 { UPDATE_COLUMN(); return LBRACE; }
+"}"                 { UPDATE_COLUMN(); return RBRACE; }
+
+";"                 { UPDATE_COLUMN(); return SEMICOLON; }
+","                 { UPDATE_COLUMN(); return COMMA; }
+".."                { UPDATE_COLUMN(); return DOTDOT; }
+
+[a-zA-Z_][a-zA-Z0-9_]*  {
+                        int col = GET_FIRST_COLUMN();
+                        yylval.str = strdup(yytext);
+                        yylloc.first_line = yylineno;
+                        yylloc.first_column = col;
+                        yylloc.last_line = yylineno;
+                        yylloc.last_column = col + yyleng - 1;
+                        return IDENTIFIER;
+                      }
+
+[0-9]+              {
+                        int col = GET_FIRST_COLUMN();
+                        yylval.num_int = atoll(yytext);
+                        yylloc.first_line = yylineno;
+                        yylloc.first_column = col;
+                        yylloc.last_line = yylineno;
+                        yylloc.last_column = col + yyleng - 1;
+                        return NUMBER_INT;
+                      }
+
+[0-9]+"."[0-9]*      {
+                        int col = GET_FIRST_COLUMN();
+                        yylval.num_float = atof(yytext);
+                        yylloc.first_line = yylineno;
+                        yylloc.first_column = col;
+                        yylloc.last_line = yylineno;
+                        yylloc.last_column = col + yyleng - 1;
+                        return NUMBER_FLOAT;
+                      }
+
+\"[^\"\n]*\"        {
+                        int col = GET_FIRST_COLUMN();
+                        yylval.str = my_strndup(yytext + 1, yyleng - 2);
+                        yylloc.first_line = yylineno;
+                        yylloc.first_column = col;
+                        yylloc.last_line = yylineno;
+                        yylloc.last_column = col + yyleng - 1;
+                        return STRING;
+                      }
+
+\'[^\'\n]*\'        {
+                        int col = GET_FIRST_COLUMN();
+                        yylval.str = my_strndup(yytext + 1, yyleng - 2);
+                        yylloc.first_line = yylineno;
+                        yylloc.first_column = col;
+                        yylloc.last_line = yylineno;
+                        yylloc.last_column = col + yyleng - 1;
+                        return STRING;
+                      }
+
+"//".*              { UPDATE_COLUMN(); } 
+
+"/"[*]([^*]|[*]+[^*/])*[*]+"/"  { UPDATE_COLUMN(); } 
+
+.                   {
+                        char error_msg[256];
+                        snprintf(error_msg, sizeof(error_msg), "Unknown: %c", yytext[0]);
+                        report_lexical_error_with_location(error_msg, current_input_filename ? current_input_filename : "unknown", yylineno);
+                        return ERROR;
+                    }
+
+%%
+
+/*
+ *wocao tmd 这个lexer也是真tm nb啊，我tm都不知道我是怎么写出来的
+ */
+
+ 
