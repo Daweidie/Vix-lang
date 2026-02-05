@@ -407,7 +407,11 @@ void llvm_emit_from_vic_fp(FILE *vic_fp, FILE *llvm_fp) {
                     fprintf(llvm_fp, "  ; unhandled: %s\n", bline);
                 }
                 fprintf(llvm_fp, "}\n");
-                if (reg) free(reg); reg = NULL; regcap = 0;
+                if (reg) {
+                    free(reg);
+                    reg = NULL;
+                    regcap = 0;
+                }
             }
             continue;
         }

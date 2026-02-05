@@ -7,7 +7,6 @@
 #include <type_traits>
 #include <cstdint>
 #include "vtypes.hpp"
-
 namespace detail {
     inline void reverse_string(char* str, int len) {
         int start = 0;
@@ -213,6 +212,7 @@ namespace vconvert {
             return value;
         }
     };
+    
     inline vtypes::VString to_vstring(const vtypes::VString& s) { 
         return s; 
     }
@@ -262,10 +262,6 @@ namespace vconvert {
                 detail::int_to_string(v, buffer);
                 return vtypes::VString(buffer);
             }
-        } else if constexpr (std::is_pointer_v<T>) {
-            char buffer[32];
-            sprintf(buffer, "0x%p", static_cast<void*>(const_cast<std::remove_pointer_t<T>*>(v)));
-            return vtypes::VString(buffer);
         } else {
             if constexpr (std::is_same_v<T, vtypes::VString> || 
                          std::is_same_v<T, std::string> ||
@@ -280,4 +276,4 @@ namespace vconvert {
     }
 }
 
-#endif // VCONVERT_HPP
+#endif

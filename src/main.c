@@ -1,3 +1,6 @@
+/*
+vix 语言 0.0.1版本完工
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,13 +12,19 @@
 #include "../include/vic-ir/mir.h"
 #include "../include/llvm_emit.h"
 #include "../include/semantic.h"
-#include "../include/opt.h"
+#include "../include/qbe-ir/opt.h"
+
+typedef enum {
+    BACKEND_DEFAULT_CPP,  // 默认后端（C++）
+    BACKEND_QBE,          // QBE IR 后端
+    BACKEND_LLVM          // LLVM IR 后端
+} BackendType;
+
 extern FILE* yyin;
 extern ASTNode* root;
 void create_lib_files();
 void analyze_ast(TypeInferenceContext* ctx, ASTNode* node);
 const char* current_input_filename = NULL;
-
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <input.vix> [-o output_file]\n", argv[0]);
@@ -23,28 +32,40 @@ int main(int argc, char **argv) {
         fprintf(stderr, "       %s <input.vix>  -kt (generate C++ code without compiling)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix>  -q <qbe_ir_file>\n", argv[0]);
         fprintf(stderr, "       %s <input.vix>  -ir <vic_ir_file>\n", argv[0]);
-        fprintf(stderr, "       %s <input.vic> -ll <cpp_file>\n", argv[0]);
+        fprintf(stderr, "       %s <input.vix> -ll <cpp_file>\n", argv[0]);
+        fprintf(stderr, "       %s <input.vix> -o output_file --backend=qbe|llvm|gcc\n", argv[0]);
         return 1;
     }
     if (strcmp(argv[1], "init") == 0) {
         create_lib_files();
         return 0;
     }
-    
     char* output_filename = NULL;
     char* qbe_ir_filename = NULL;
     char* vic_ir_filename = NULL;
     char* llvm_ir_filename = NULL;
-    int is_vbtc_file = 0;
     int is_vic_file = 0;
     int save_cpp_file = 0;
     int keep_cpp_file = 0;
     int generate_qbe_ir = 0;
     int generate_vic_ir = 0;
     int generate_llvm_ir = 0;
-    int optimize_vic_ir = 0;
+    int do_opt = 0;
+    BackendType backend_type = BACKEND_DEFAULT_CPP;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-o") == 0) {
+        if (strncmp(argv[i], "--backend=", 10) == 0) {
+            const char* backend_str = argv[i] + 10;
+            if (strcmp(backend_str, "qbe") == 0) {
+                backend_type = BACKEND_QBE;
+            } else if (strcmp(backend_str, "llvm") == 0) {
+                backend_type = BACKEND_LLVM;
+            } else if (strcmp(backend_str, "cpp") == 0) {
+                backend_type = BACKEND_DEFAULT_CPP;
+            } else {
+                fprintf(stderr, "Error: Unknown backend '%s'. Supported backends: qbe, llvm, cpp\n", backend_str);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 output_filename = argv[i + 1];
                 save_cpp_file = 1;
@@ -62,6 +83,8 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Error: -q option requires a filename\n");
                 return 1;
             }
+        } else if (strcmp(argv[i], "-opt") == 0) {
+            do_opt = 1;
         }
         else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0 || strcmp(argv[i] , "-ver") == 0){
             printf("Vix-lang Compiler 0.1.0_rc_indev (Beta_26.01.01) by:Mincx1203 Copyright(c) 2025-2026\n");
@@ -95,32 +118,41 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Error: -ll option requires a filename\n");
                 return 1;
             }
-        } else if (strcmp(argv[i], "-opt") == 0) {
-            optimize_vic_ir = 1;
         } else if (strcmp(argv[i], "-kt") == 0) {
             keep_cpp_file = 1;
         }else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             fprintf(stderr, "usage: %s <input.vix> [-o output_file]\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> [-o output_file] [-kt]\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> -q <qbe_ir_file>\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -ir <vic_ir_file> [-opt]\n", argv[0]);
+            fprintf(stderr, "       %s <input.vix> -ir <vic_ir_file>\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> -llvm <llvm_ir_file>\n", argv[0]);
-            fprintf(stderr, "       %s <input.vic> -ll <llvm_ir_file>\n", argv[0]);
+            fprintf(stderr, "       %s <input.vix> -ll <llvm_ir_file>\n", argv[0]);
+            fprintf(stderr, "       %s <input.vix> -o output_file --backend=qbe|llvm|gcc\n", argv[0]);
             return 0;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s <input.vix> [-o output_file] [-kt] [-q qbe_file] [-ir vic_file -opt] [-llvm llvm_file] [-ll llvm_file]\n", argv[0]);
+            fprintf(stderr, "Usage: %s <input.vix> [-o output_file] [-kt] [-q qbe_file] [-ir vic_file] [-llvm llvm_file] [-ll llvm_file] [--backend=qbe|llvm|cpp]\n", argv[0]);
             return 1;
         } else {
-            is_vbtc_file = strlen(argv[i]) > 5 && strcmp(argv[i] + strlen(argv[i]) - 5, ".vbtc") == 0;
             is_vic_file = strlen(argv[i]) > 4 && strcmp(argv[i] + strlen(argv[i]) - 4, ".vic") == 0;
         }
     }
+
     FILE* input_file = fopen(argv[1], "r");
     if (!input_file) {
         perror("Failed to open file");
         return 1;
     }
+
+    // 如果指定了后端类型，相应地设置标志
+    if (backend_type == BACKEND_QBE && save_cpp_file) {
+        generate_qbe_ir = 1;
+        if (!qbe_ir_filename) qbe_ir_filename = output_filename;
+    } else if (backend_type == BACKEND_LLVM && save_cpp_file) {
+        generate_llvm_ir = 1;
+        if (!llvm_ir_filename) llvm_ir_filename = output_filename;
+    }
+
     if (is_vic_file && generate_llvm_ir) {
         char llvm_filename[256];
         if (strstr(llvm_ir_filename, ".ll") == NULL) {
@@ -190,57 +222,7 @@ int main(int argc, char **argv) {
                 fclose(input_file);
                 return 1;
             }
-            if (optimize_vic_ir) {
-                char temp_filename[] = "temp.vic";
-                FILE* temp_file = fopen(temp_filename, "w");
-                if (!temp_file) {
-                    fprintf(stderr, "Error: Cannot open output file for writing\n");
-                    fclose(vic_file);
-                    free_bytecode_gen(gen);
-                    fclose(input_file);
-                    return 1;
-                }
-                vic_gen(root, temp_file);
-                fclose(temp_file);
-                FILE* temp_read = fopen(temp_filename, "r");
-                if (!temp_read) {
-                    fprintf(stderr, "Error: Cannot open temp file for reading\n");
-                    remove(temp_filename);
-                    fclose(vic_file);
-                    free_bytecode_gen(gen);
-                    fclose(input_file);
-                    return 1;
-                }
-                fseek(temp_read, 0, SEEK_END);
-                long len = ftell(temp_read);
-                fseek(temp_read, 0, SEEK_SET);
-                char* vic_code = malloc(len + 1);
-                if (vic_code) {
-                    fread(vic_code, 1, len, temp_read);
-                    vic_code[len] = '\0';
-                }
-                fclose(temp_read);
-                char* optimized_code = optimize_code(vic_code);
-                if (optimized_code) {
-                    fputs(optimized_code, vic_file);
-                    free(optimized_code);
-                } else {
-                    fprintf(stderr, "Warning: Optimization failed, using original code\n");
-                    temp_read = fopen(temp_filename, "r");
-                    if (temp_read) {
-                        char buffer[1024];
-                        while (fgets(buffer, sizeof(buffer), temp_read)) {
-                            fputs(buffer, vic_file);
-                        }
-                        fclose(temp_read);
-                    }
-                }
-                
-                free(vic_code);
-                remove(temp_filename);
-            } else {
-                vic_gen(root, vic_file);
-            }
+            vic_gen(root, vic_file);
             fclose(vic_file);
             free_bytecode_gen(gen);
             if (root) free_ast(root);
@@ -280,6 +262,25 @@ int main(int argc, char **argv) {
                 free_ast(root);
             }
             fclose(input_file);
+            if (backend_type == BACKEND_LLVM && output_filename) {
+                size_t compile_cmd_size = strlen("clang ") + strlen(llvm_filename) + strlen(" -o ") + strlen(output_filename) + 1;
+                char *compile_cmd = malloc(compile_cmd_size);
+                if (compile_cmd == NULL) {
+                    fprintf(stderr, "Error: Failed to allocate memory for clang command\n");
+                    return 1;
+                }
+                snprintf(compile_cmd, compile_cmd_size, "clang-18 %s -o %s", llvm_filename, output_filename);
+                int compile_result = system(compile_cmd);
+                if (compile_result != 0) {
+                    fprintf(stderr, "Error: Failed to compile llvmir to executable\n");
+                    free(compile_cmd);
+                    return 1;
+                }
+                free(compile_cmd);
+                if (!keep_cpp_file) {
+                    remove(llvm_filename);
+                }
+            }
             return 0;
         }
         
@@ -298,27 +299,75 @@ int main(int argc, char **argv) {
                 fclose(input_file);
                 return 1;
             }
-            FILE* temp_vic = fopen("temp.vic", "w");
-            if (temp_vic) {
-                vic_gen(root, temp_vic);
-                fclose(temp_vic);
-                FILE* temp_vic_read = fopen("temp.vic", "r");
-                if (temp_vic_read){
-                    ir_gen(temp_vic_read, qbe_file);
-                    fclose(temp_vic_read);
-                } else {
-                    fprintf(stderr, "Error: Cannot read temporary VIC IR file\n");
-                }
-            } else {
-                fprintf(stderr, "Error: Cannot create temporary VIC IR file\n");
-            }
+            
+            // 直接从AST生成QBE IR
+            ir_gen(root, qbe_file);
+            
             fclose(qbe_file);
-            remove("temp.vic");
+            if (do_opt) {
+                /* run textual optimizer in-place */
+                qbe_opt_file(qbe_filename);
+            }
             free_bytecode_gen(gen);
             if (root) {
                 free_ast(root);
             }
             fclose(input_file);
+            if (backend_type == BACKEND_QBE && output_filename) {
+                char s_filename[2048];
+                snprintf(s_filename, sizeof(s_filename), "%s.s", output_filename);
+                size_t qbe_cmd_size = strlen("qbe -o ") + strlen(s_filename) + strlen(" ") + strlen(qbe_filename) + 1;
+                char *qbe_cmd = malloc(qbe_cmd_size);
+                if (qbe_cmd == NULL) {
+                    fprintf(stderr, "Error: Failed to allocate memory for qbe command\n");
+                    return 1;
+                }
+                snprintf(qbe_cmd, qbe_cmd_size, "qbe -o %s %s", s_filename, qbe_filename);
+                int qbe_result = system(qbe_cmd);
+                if (qbe_result != 0) {
+                    fprintf(stderr, "Error: Failed to convert ssa to asm\n");
+                    free(qbe_cmd);
+                    return 1;
+                }
+                free(qbe_cmd);
+                char o_filename[2048];
+                snprintf(o_filename, sizeof(o_filename), "%s.o", output_filename);
+                size_t as_cmd_size = strlen("as -64 ") + strlen(s_filename) + strlen(" -o ") + strlen(o_filename) + 1;
+                char *as_cmd = malloc(as_cmd_size);
+                if (as_cmd == NULL) {
+                    fprintf(stderr, "Error: Failed to allocate memory for as command\n");
+                    return 1;
+                }
+                snprintf(as_cmd, as_cmd_size, "as -64 %s -o %s", s_filename, o_filename);
+                int as_result = system(as_cmd);
+                if (as_result != 0) {
+                    fprintf(stderr, "Error: Failed to assemble object file\n");
+                    free(as_cmd);
+                    return 1;
+                }
+                free(as_cmd);
+                // 使用G++链接为可执行文件
+                size_t gpp_cmd_size = strlen("g++ -std=c++2a -O3 -flto ") + strlen(o_filename) + strlen(" -o ") + strlen(output_filename) + strlen(" -lm") + 1;
+                char *gpp_cmd = malloc(gpp_cmd_size);
+                if (gpp_cmd == NULL) {
+                    fprintf(stderr, "Error: Failed to allocate memory for g++ command\n");
+                    return 1;
+                }
+                snprintf(gpp_cmd, gpp_cmd_size, "g++ -std=c++2a -O3 -flto %s -o %s -lm", o_filename, output_filename);
+                int gpp_result = system(gpp_cmd);
+                if (gpp_result != 0) {
+                    fprintf(stderr, "Error: Failed to link executable\n");
+                    free(gpp_cmd);
+                    return 1;
+                }
+                free(gpp_cmd);
+                
+                if (!keep_cpp_file) {
+                    remove(qbe_filename);
+                    remove(s_filename);
+                    remove(o_filename);
+                }
+            }
             return 0;
         }
         if (save_cpp_file && output_filename != NULL) {
@@ -352,7 +401,7 @@ int main(int argc, char **argv) {
                     return 1;
                 }
             } else {
-                remove(cpp_filename);
+                printf("C++ code generated as %s\n", cpp_filename);
             }
         } else if (keep_cpp_file) {
             char temp_cpp_filename[] = "temp.cpp";
@@ -371,8 +420,8 @@ int main(int argc, char **argv) {
         }else {
             printf("===========================AST=======================\n");
             print_ast(root, 0);
-            printf("\n=========================VIC IR====================\n");
-            vic_gen(root, stdout);
+            printf("\n=========================QBE IR====================\n");
+            ir_gen(root, stdout);
             printf("\n=========================LLVM IR===================\n");
             FILE* temp_vic = fopen("temp.vic", "w");
             if (temp_vic) {
@@ -403,7 +452,6 @@ int main(int argc, char **argv) {
     fclose(input_file);
     return result;
 }
-
 
 void analyze_ast(TypeInferenceContext* ctx, ASTNode* node) {
     if (!node) return;
@@ -450,11 +498,14 @@ void analyze_ast(TypeInferenceContext* ctx, ASTNode* node) {
         case AST_IDENTIFIER: {
             InferredType type = get_variable_type(ctx, node->data.identifier.name);
             if (type == TYPE_UNKNOWN) {
-                report_undefined_variable_with_location(
-                    node->data.identifier.name,
-                    current_input_filename ? current_input_filename : "unknown",
-                    node->location.first_line
-                );
+                /* only report if variable truly not declared in context */
+                if (!has_variable(ctx, node->data.identifier.name)) {
+                    report_undefined_variable_with_location(
+                        node->data.identifier.name,
+                        current_input_filename ? current_input_filename : "unknown",
+                        node->location.first_line
+                    );
+                }
             }
             break;
         }
@@ -618,17 +669,72 @@ void create_lib_files() {
         fprintf(vtypes_file, "class VList {\n");
         fprintf(vtypes_file, "public:\n");
         fprintf(vtypes_file, "    std::vector<VString> items;\n");
-        fprintf(vtypes_file, "    VList() : items() {}\n");
-        fprintf(vtypes_file, "    VList(std::initializer_list<VString> init) : items(init) {}\n");
+        fprintf(vtypes_file, "    VList() : items(), _scalar_from_string(false) {}\n");
+        fprintf(vtypes_file, "    VList(std::initializer_list<VString> init) : items(init), _scalar_from_string(false) {}\n");
         fprintf(vtypes_file, "    size_t size() const { return items.size(); }\n");
         fprintf(vtypes_file, "    VString operator[](size_t i) const { return items.at(i); }\n");
         fprintf(vtypes_file, "    VString& operator[](size_t i) { return items.at(i); }\n");
+        fprintf(vtypes_file, "    void add_inplace(size_t idx, const VString& val) {\n");
+        fprintf(vtypes_file, "        if (idx > items.size()) idx = items.size();\n");
+        fprintf(vtypes_file, "        items.insert(items.begin() + idx, val);\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    VString remove(size_t idx) {\n");
+        fprintf(vtypes_file, "        VString v = items.at(idx);\n");
+        fprintf(vtypes_file, "        items.erase(items.begin() + idx);\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "        return v;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    VList& remove_inplace(size_t idx) {\n");
+        fprintf(vtypes_file, "        items.erase(items.begin() + idx);\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "        return *this;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    void push_inplace(const VString& val) {\n");
+        fprintf(vtypes_file, "        items.push_back(val);\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    VString pop() {\n");
+        fprintf(vtypes_file, "        VString v = items.back();\n");
+        fprintf(vtypes_file, "        items.pop_back();\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "        return v;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    VList& pop_inplace() {\n");
+        fprintf(vtypes_file, "        if (!items.empty()) {\n");
+        fprintf(vtypes_file, "            items.pop_back();\n");
+        fprintf(vtypes_file, "        }\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "        return *this;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    void replace_inplace(size_t idx, const VString& val) {\n");
+        fprintf(vtypes_file, "        items.at(idx) = val;\n");
+        fprintf(vtypes_file, "        _scalar_from_string = false;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    VList& operator=(const VString& s) {\n");
+        fprintf(vtypes_file, "        items.clear();\n");
+        fprintf(vtypes_file, "        items.push_back(s);\n");
+        fprintf(vtypes_file, "        _scalar_from_string = true;\n");
+        fprintf(vtypes_file, "        return *this;\n");
+        fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "    VList& operator=(VString&& s) {\n");
+        fprintf(vtypes_file, "        items.clear();\n");
+        fprintf(vtypes_file, "        items.push_back(std::move(s));\n");
+        fprintf(vtypes_file, "        _scalar_from_string = true;\n");
+        fprintf(vtypes_file, "        return *this;\n");
+        fprintf(vtypes_file, "    }\n");
         fprintf(vtypes_file, "    friend std::ostream& operator<<(std::ostream &os, const VList &l) {\n");
-        fprintf(vtypes_file, "        os << \"[\";\n");
-        fprintf(vtypes_file, "        for (size_t i = 0; i < l.items.size(); ++i) { if (i) os << \", \"; os << l.items[i]; }\n");
-        fprintf(vtypes_file, "        os << \"]\";\n");
+        fprintf(vtypes_file, "        if (l._scalar_from_string && l.items.size() == 1) {\n");
+        fprintf(vtypes_file, "            os << l.items[0];\n");
+        fprintf(vtypes_file, "        } else {\n");
+        fprintf(vtypes_file, "            os << \"[\";\n");
+        fprintf(vtypes_file, "            for (size_t i = 0; i < l.items.size(); ++i) { if (i) os << \", \"; os << l.items[i]; }\n");
+        fprintf(vtypes_file, "            os << \"]\";\n");
+        fprintf(vtypes_file, "        }\n");
         fprintf(vtypes_file, "        return os;\n");
         fprintf(vtypes_file, "    }\n");
+        fprintf(vtypes_file, "private:\n");
+        fprintf(vtypes_file, "    bool _scalar_from_string;\n");
         fprintf(vtypes_file, "};\n\n");
         fprintf(vtypes_file, "} // namespace vtypes\n\n");
         fprintf(vtypes_file, "#endif\n");
@@ -643,6 +749,8 @@ void create_lib_files() {
         fprintf(vconvert_file, "#include <cstdlib>\n");
         fprintf(vconvert_file, "#include <typeinfo>\n");
         fprintf(vconvert_file, "#include <stdexcept>\n");
+        fprintf(vconvert_file, "#include <type_traits>\n");
+        fprintf(vconvert_file, "#include <cstdint>\n");
         fprintf(vconvert_file, "#include \"vtypes.hpp\"\n");
         fprintf(vconvert_file, "namespace detail {\n");
         fprintf(vconvert_file, "    inline void reverse_string(char* str, int len) {\n");
@@ -663,7 +771,7 @@ void create_lib_files() {
         fprintf(vconvert_file, "        if (num == 0) {\n");
         fprintf(vconvert_file, "            str[i++] = '0';\n");
         fprintf(vconvert_file, "            str[i] = '\\0';\n");
-        fprintf(vconvert_file, "            return i-1;\n");
+        fprintf(vconvert_file, "            return i;\n");
         fprintf(vconvert_file, "        }\n");
         fprintf(vconvert_file, "        \n");
         fprintf(vconvert_file, "        if (num < 0) {\n");
@@ -880,11 +988,38 @@ void create_lib_files() {
         fprintf(vconvert_file, "        return vtypes::VString(buffer);\n");
         fprintf(vconvert_file, "    }\n");
         fprintf(vconvert_file, "    \n");
+        fprintf(vconvert_file, "    template<size_t N> \n");
+        fprintf(vconvert_file, "    inline vtypes::VString to_vstring(const char (&s)[N]) { \n");
+        fprintf(vconvert_file, "        return vtypes::VString(s); \n");
+        fprintf(vconvert_file, "    }\n");
+        fprintf(vconvert_file, "    \n");
         fprintf(vconvert_file, "    template<typename T> \n");
-        fprintf(vconvert_file, "    inline vtypes::VString to_vstring(const T& v) { \n");
-        fprintf(vconvert_file, "        char buffer[32];\n");
-        fprintf(vconvert_file, "        detail::int_to_string(v, buffer);\n");
-        fprintf(vconvert_file, "        return vtypes::VString(buffer);\n");
+        fprintf(vconvert_file, "    inline vtypes::VString to_vstring(const T& v) { /*模板函数，用于将任意类型转换为 VString 类型*/\n");
+        fprintf(vconvert_file, "        if constexpr (std::is_arithmetic_v<T>) {\n");
+        fprintf(vconvert_file, "            if constexpr (std::is_floating_point_v<T>) {\n");
+        fprintf(vconvert_file, "                char buffer[32];\n");
+        fprintf(vconvert_file, "                detail::double_to_string(v, buffer);\n");
+        fprintf(vconvert_file, "                return vtypes::VString(buffer);\n");
+        fprintf(vconvert_file, "            } else {\n");
+        fprintf(vconvert_file, "                char buffer[32];\n");
+        fprintf(vconvert_file, "                detail::int_to_string(v, buffer);\n");
+        fprintf(vconvert_file, "                return vtypes::VString(buffer);\n");
+        fprintf(vconvert_file, "            }\n");
+        fprintf(vconvert_file, "        } else if constexpr (std::is_pointer_v<T>) {\n");
+        fprintf(vconvert_file, "            char buffer[32];\n");
+        fprintf(vconvert_file, "            sprintf(buffer, \"0x%%p\", static_cast<void*>(const_cast<std::remove_pointer_t<T>*>(v)));\n");
+        fprintf(vconvert_file, "            return vtypes::VString(buffer);\n");
+        fprintf(vconvert_file, "        } else {\n");
+        fprintf(vconvert_file, "            if constexpr (std::is_same_v<T, vtypes::VString> || \n");
+        fprintf(vconvert_file, "                         std::is_same_v<T, std::string> ||\n");
+        fprintf(vconvert_file, "                         std::is_convertible_v<T, std::string>) {\n");
+        fprintf(vconvert_file, "                return vtypes::VString(static_cast<std::string>(v));\n");
+        fprintf(vconvert_file, "            } else if constexpr (std::is_array_v<T> && std::is_same_v<std::decay_t<T>, char*>) {\n");
+        fprintf(vconvert_file, "                return vtypes::VString(v);\n");
+        fprintf(vconvert_file, "            } else {\n");
+        fprintf(vconvert_file, "                return vtypes::VString(\"unknown_type!!!\");\n");
+        fprintf(vconvert_file, "            }\n");
+        fprintf(vconvert_file, "        }\n");
         fprintf(vconvert_file, "    }\n");
         fprintf(vconvert_file, "}\n\n");
         fprintf(vconvert_file, "#endif\n");

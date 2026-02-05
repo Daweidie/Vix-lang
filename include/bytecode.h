@@ -36,7 +36,9 @@ typedef enum {
     BC_FOR_LOOP,
     BC_FUNCTION_DEF,
     BC_CALL,
-    BC_RETURN
+    BC_RETURN,
+    BC_ADDRESS,
+    BC_DEREF
 } ByteCodeInstruction;
 
 typedef struct {

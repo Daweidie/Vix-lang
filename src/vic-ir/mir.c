@@ -5,6 +5,7 @@
 #include <setjmp.h>
 #include "../include/ast.h"
 #include "../include/vic-ir/mir.h"
+
 typedef struct {
     char** strings;
     int* string_regs;
@@ -21,6 +22,13 @@ typedef struct {
     int float_count;
     int float_capacity;
 } ConstantPool;
+
+static char* escape_str(const char* src);
+int add_string_constant(ConstantPool* pool, const char* str);
+int add_int_constant(ConstantPool* pool, long long value);
+int add_float_constant(ConstantPool* pool, double value);
+int generate_expr(ConstantPool* pool, ASTNode* node, FILE* fp);
+
 #define MAX_RECURSION_DEPTH 1000
 static int recursion_depth = 0;
 
@@ -132,6 +140,18 @@ void preprocess_ast_for_constants(ConstantPool* pool, ASTNode* node) {
         case AST_FUNCTION: {
             if (node->data.function.body) {
                 preprocess_ast_for_constants(pool, node->data.function.body);
+            }
+            break;
+        }
+        case AST_STRUCT_DEF: {
+            if (node->data.struct_def.fields) {
+                preprocess_ast_for_constants(pool, node->data.struct_def.fields);
+            }
+            break;
+        }
+        case AST_STRUCT_LITERAL: {
+            if (node->data.struct_literal.fields) {
+                preprocess_ast_for_constants(pool, node->data.struct_literal.fields);
             }
             break;
         }
@@ -368,17 +388,59 @@ int generate_expr(ConstantPool* pool, ASTNode* node, FILE* fp) {
         }
         case AST_CALL: {
             int result_reg = reg_counter++;
-            int* arg_regs = NULL;
             int arg_count = 0;
-            
             if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST) {
                 arg_count = node->data.call.args->data.expression_list.expression_count;
-                arg_regs = malloc(sizeof(int) * arg_count);
-                
+            }
+
+            /*像 obj.method(，，，) 这样的方法调用表示为 AST_INDEX 其中 index 是标识符*/
+            if (node->data.call.func->type == AST_INDEX) {
+                ASTNode* target = node->data.call.func->data.index.target;
+                ASTNode* method = node->data.call.func->data.index.index;
+                if (!method || method->type != AST_IDENTIFIER) {
+                    fprintf(fp, "    ; error: method name not identifier\n");
+                    return result_reg;
+                }
+                int target_reg = generate_expr(pool, target, fp);
+
+                int* arg_regs = malloc(sizeof(int) * (arg_count + 1));
+                arg_regs[0] = target_reg;
                 for (int i = 0; i < arg_count; i++) {
-                    arg_regs[i] = generate_expr(pool, 
-                                                node->data.call.args->data.expression_list.expressions[i], 
-                                                fp);
+                    arg_regs[i+1] = generate_expr(pool, node->data.call.args->data.expression_list.expressions[i], fp);
+                }
+
+                const char* mname = method->data.identifier.name;
+                const char* fn = NULL;
+                if (strcmp(mname, "add!") == 0) fn = "list_add_inplace";
+                else if (strcmp(mname, "remove") == 0) fn = "list_remove";
+                else if (strcmp(mname, "remove!") == 0) fn = "list_remove_inplace";
+                else if (strcmp(mname, "push!") == 0) fn = "list_push_inplace";
+                else if (strcmp(mname, "push") == 0) fn = "list_push_inplace";  // 让普通push也映射到原地修改
+                else if (strcmp(mname, "pop") == 0) fn = "list_pop";
+                else if (strcmp(mname, "pop!") == 0) fn = "list_pop_inplace";
+                else if (strcmp(mname, "replace!") == 0) fn = "list_replace_inplace";
+                else fn = NULL;
+
+                if (!fn) {
+                    fprintf(fp, "    ; error: unknown method %s\n", mname);
+                    free(arg_regs);
+                    return result_reg;
+                }
+
+                fprintf(fp, "    r%d = call %s(", result_reg, fn);
+                for (int i = 0; i < arg_count + 1; i++) {
+                    if (i > 0) fprintf(fp, ", ");
+                    fprintf(fp, "r%d", arg_regs[i]);
+                }
+                fprintf(fp, ")\n");
+                free(arg_regs);
+                return result_reg;
+            }
+            int* arg_regs = NULL;
+            if (arg_count > 0) {
+                arg_regs = malloc(sizeof(int) * arg_count);
+                for (int i = 0; i < arg_count; i++) {
+                    arg_regs[i] = generate_expr(pool, node->data.call.args->data.expression_list.expressions[i], fp);
                 }
             }
             char* func_name = NULL;
@@ -395,8 +457,26 @@ int generate_expr(ConstantPool* pool, ASTNode* node, FILE* fp) {
                 fprintf(fp, "r%d", arg_regs[i]);
             }
             fprintf(fp, ")\n");
-            
             if (arg_regs) free(arg_regs);
+            return result_reg;
+        }
+        case AST_EXPRESSION_LIST: {
+            int count = node->data.expression_list.expression_count;
+            int* regs = NULL;
+            if (count > 0) {
+                regs = malloc(sizeof(int) * count);
+                for (int i = 0; i < count; i++) {
+                    regs[i] = generate_expr(pool, node->data.expression_list.expressions[i], fp);
+                }
+            }
+            int result_reg = reg_counter++;
+            fprintf(fp, "    r%d = call list_new(", result_reg);
+            for (int i = 0; i < count; i++) {
+                if (i > 0) fprintf(fp, ", ");
+                fprintf(fp, "r%d", regs[i]);
+            }
+            fprintf(fp, ")\n");
+            if (regs) free(regs);
             return result_reg;
         }
         case AST_INPUT: {
@@ -417,9 +497,85 @@ int generate_expr(ConstantPool* pool, ASTNode* node, FILE* fp) {
             fprintf(fp, "    r%d = call tofloat(r%d)\n", result_reg, expr_reg);
             return result_reg;
         }
+        case AST_STRUCT_DEF: {
+            fprintf(fp, "struct %s {\n", node->data.struct_def.name);
+            if (node->data.struct_def.fields && node->data.struct_def.fields->type == AST_EXPRESSION_LIST) {
+                int field_count = node->data.struct_def.fields->data.expression_list.expression_count;
+                for (int i = 0; i < field_count; i++) {
+                    ASTNode* field = node->data.struct_def.fields->data.expression_list.expressions[i];
+                    if (field->type == AST_ASSIGN && field->data.assign.left->type == AST_IDENTIFIER) {
+                        fprintf(fp, "  %s: ", field->data.assign.left->data.identifier.name);
+                        
+                        NodeType right_type = field->data.assign.right->type;
+                        if (right_type == AST_TYPE_INT32) {
+                            fprintf(fp, "i32");
+                        } else if (right_type == AST_TYPE_INT64) {
+                            fprintf(fp, "i64");
+                        } else if (right_type == AST_TYPE_FLOAT32) {
+                            fprintf(fp, "f32");
+                        } else if (right_type == AST_TYPE_FLOAT64) {
+                            fprintf(fp, "f64");
+                        } else if (right_type == AST_TYPE_STRING) {
+                            fprintf(fp, "ptr");
+                        } else if (right_type == AST_TYPE_VOID) {
+                            fprintf(fp, "void");
+                        } else {
+                            fprintf(fp, "unknown");
+                        }
+                        fprintf(fp, "\n");
+                    }
+                }
+            }
+            fprintf(fp, "}\n\n");
+            return -1; // 结构体定义不产生值
+        }
+        case AST_STRUCT_LITERAL: {
+            if (node->data.struct_literal.type_name && node->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                const char* struct_name = node->data.struct_literal.type_name->data.identifier.name;
+                int result_reg = reg_counter++;// 为结构体实例分配空间
+                fprintf(fp, "    r%d = alloc_struct %s\n", result_reg, struct_name);
+                if (node->data.struct_literal.fields && node->data.struct_literal.fields->type == AST_EXPRESSION_LIST) {
+                    int field_count = node->data.struct_literal.fields->data.expression_list.expression_count;
+                    for (int i = 0; i < field_count; i++) {
+                        ASTNode* field = node->data.struct_literal.fields->data.expression_list.expressions[i];
+                        
+                        if (field->type == AST_ASSIGN && field->data.assign.left->type == AST_IDENTIFIER) {
+                            const char* field_name = field->data.assign.left->data.identifier.name;
+                            int value_reg = generate_expr(pool, field->data.assign.right, fp);
+                            
+                            fprintf(fp, "    store_field r%d, %s, r%d\n", result_reg, field_name, value_reg);
+                        }
+                    }
+                }
+                return result_reg;
+            }
+            return -1; // 类型名无效时返回-1
+        }
+        case AST_INDEX: {
+            int target_reg = generate_expr(pool, node->data.index.target, fp);
+            
+            if (target_reg == -1) return -1;
+            
+            if (node->data.index.index && node->data.index.index->type == AST_IDENTIFIER) {
+                const char* field_name = node->data.index.index->data.identifier.name;
+                int result_reg = reg_counter++;
+                
+                fprintf(fp, "    r%d = load_field r%d, %s\n", result_reg, target_reg, field_name);
+                return result_reg;
+            } else {
+                int index_reg = generate_expr(pool, node->data.index.index, fp);
+                if (index_reg == -1) return -1;
+                
+                int result_reg = reg_counter++;
+                
+                fprintf(fp, "    r%d = load_index r%d, r%d\n", result_reg, target_reg, index_reg);
+                return result_reg;
+            }
+        }
+        
         default:
             fprintf(fp, "    ;unknown expr\n");
-            return reg_counter++;
+            return -1;
     }
 }
 
@@ -433,8 +589,19 @@ void generate_statement(ConstantPool* pool, ASTNode* node, FILE* fp) {
             break;
         }
         case AST_ASSIGN: {
-            int right_reg = generate_expr(pool, node->data.assign.right, fp);
-            if (node->data.assign.left->type == AST_IDENTIFIER) {
+            if (node->data.assign.left && node->data.assign.left->type == AST_INDEX) {
+                ASTNode* target = node->data.assign.left->data.index.target;
+                ASTNode* field = node->data.assign.left->data.index.index;
+                
+                if (target->type == AST_IDENTIFIER && field->type == AST_IDENTIFIER) {
+                    int right_reg = generate_expr(pool, node->data.assign.right, fp);
+                    int target_reg = reg_counter++;
+                    fprintf(fp, "    r%d = load_name %s\n", target_reg, target->data.identifier.name);
+                    
+                    fprintf(fp, "    store_field r%d, %s, r%d\n", target_reg, field->data.identifier.name, right_reg);
+                }
+            } else if (node->data.assign.left->type == AST_IDENTIFIER) {
+                int right_reg = generate_expr(pool, node->data.assign.right, fp);
                 fprintf(fp, "    store_name %s, r%d\n", node->data.assign.left->data.identifier.name, right_reg);
             }
             break;
@@ -588,6 +755,54 @@ void generate_functions(ConstantPool* pool, ASTNode* node, FILE* fp, int* has_ma
             break;
     }
 }
+void generate_all_struct_defs(ConstantPool* pool, ASTNode* node, FILE* fp) {
+    // Suppress unused parameter warning
+    (void)pool;
+    
+    if (!node) return;
+    
+    switch (node->type) {
+        case AST_PROGRAM: {
+            for (int i = 0; i < node->data.program.statement_count; i++) {
+                if (node->data.program.statements[i]->type == AST_STRUCT_DEF) {
+                    ASTNode* struct_node = node->data.program.statements[i];
+                    fprintf(fp, "struct %s {\n", struct_node->data.struct_def.name);
+                    
+                    if (struct_node->data.struct_def.fields && struct_node->data.struct_def.fields->type == AST_EXPRESSION_LIST) {
+                        int field_count = struct_node->data.struct_def.fields->data.expression_list.expression_count;
+                        for (int j = 0; j < field_count; j++) {
+                            ASTNode* field = struct_node->data.struct_def.fields->data.expression_list.expressions[j];
+                            if (field->type == AST_ASSIGN && field->data.assign.left->type == AST_IDENTIFIER) {
+                                fprintf(fp, "  %s: ", field->data.assign.left->data.identifier.name);
+                                NodeType right_type = field->data.assign.right->type;
+                                if (right_type == AST_TYPE_INT32) {
+                                    fprintf(fp, "i32");
+                                } else if (right_type == AST_TYPE_INT64) {
+                                    fprintf(fp, "i64");
+                                } else if (right_type == AST_TYPE_FLOAT32) {
+                                    fprintf(fp, "f32");
+                                } else if (right_type == AST_TYPE_FLOAT64) {
+                                    fprintf(fp, "f64");
+                                } else if (right_type == AST_TYPE_STRING) {
+                                    fprintf(fp, "ptr");
+                                } else if (right_type == AST_TYPE_VOID) {
+                                    fprintf(fp, "void");
+                                } else {
+                                    fprintf(fp, "unknown");
+                                }
+                                fprintf(fp, "\n");
+                            }
+                        }
+                    }
+                    fprintf(fp, "}\n\n");
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
 
 void vic_gen(ASTNode* ast, FILE* fp) {
     if (!fp || !ast) return;
@@ -600,15 +815,20 @@ void vic_gen(ASTNode* ast, FILE* fp) {
     fprintf(fp, "; Vic ir from ast\n");
     preprocess_ast_for_constants(pool, ast);
     generate_data_section(pool, fp);
-    int has_main = 0;
-    generate_functions(pool, ast, fp, &has_main);
-    fprintf(fp, "\nfunction main() {\n");
+    
+    generate_all_struct_defs(pool, ast, fp);
+    int dummy_has_main = 0;
+    generate_functions(pool, ast, fp, &dummy_has_main);
+    fprintf(fp, "function main() {\n");
     if (ast && ast->type == AST_PROGRAM) {
         for (int i = 0; i < ast->data.program.statement_count; i++) {
             if (ast->data.program.statements[i]->type != AST_FUNCTION) {
-                generate_statement(pool, ast->data.program.statements[i], fp);
+                if (ast->data.program.statements[i]->type != AST_STRUCT_DEF) {
+                    generate_statement(pool, ast->data.program.statements[i], fp);
+                }
             }
-            else if (strcmp(ast->data.program.statements[i]->data.function.name, "main") == 0) {
+            else if (ast->data.program.statements[i]->type == AST_FUNCTION && 
+                     strcmp(ast->data.program.statements[i]->data.function.name, "main") == 0) {
                 generate_statement(pool, ast->data.program.statements[i]->data.function.body, fp);
             }
         }

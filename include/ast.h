@@ -38,6 +38,7 @@ typedef enum {
     AST_TYPE_FLOAT64,
     AST_TYPE_STRING,
     AST_TYPE_VOID,
+    AST_TYPE_POINTER,  // 添加指针类型
     AST_EXPRESSION_LIST,
     AST_INDEX,
     AST_INPUT,
@@ -51,6 +52,8 @@ typedef enum {
     AST_FUNCTION,
     AST_RETURN,
     AST_CALL
+    , AST_STRUCT_DEF
+    , AST_STRUCT_LITERAL
 } NodeType;
 
 typedef enum {
@@ -73,11 +76,20 @@ typedef enum {
 typedef enum {
     OP_MINUS,    // -
     OP_PLUS      // +
+    , OP_ADDRESS  // & 取地址
+    , OP_DEREF    // @ 解引用
 } UnaryOpType;
+
+// 新增可变性标记枚举
+typedef enum {
+    MUTABILITY_IMMUTABLE = 0,  // 不可变
+    MUTABILITY_MUTABLE         // 可变
+} MutabilityType;
 
 typedef struct ASTNode {
     NodeType type;
     Location location;// 位置信息
+    MutabilityType mutability; // 可变性标记
     union {
         struct {
             struct ASTNode** statements;
@@ -97,6 +109,7 @@ typedef struct ASTNode {
         struct {
             struct ASTNode* left;
             struct ASTNode* right;
+            MutabilityType mutability; // 可变性标记
         } assign;
         struct {
             struct ASTNode* left;
@@ -154,6 +167,14 @@ typedef struct ASTNode {
             struct ASTNode* args;
         } call;
         struct {
+            char* name; /* struct name */
+            struct ASTNode* fields; /* expression list of assign nodes (identifier:type) */
+        } struct_def;
+        struct {
+            struct ASTNode* type_name; /* identifier node */
+            struct ASTNode* fields; /* expression list of assign nodes (identifier:expr) */
+        } struct_literal;
+        struct {
             struct ASTNode* expr;
         } return_stmt;
     } data;
@@ -168,6 +189,7 @@ ASTNode* create_print_node_with_location(ASTNode* expr, Location location);
 ASTNode* create_print_node_with_yyltype(ASTNode* expr, void* yylloc);
 ASTNode* create_input_node(ASTNode* prompt);
 ASTNode* create_input_node_with_location(ASTNode* prompt, Location location);
+ASTNode* create_input_node_with_yyltype(ASTNode* prompt, void* yylloc);
 ASTNode* create_toint_node(ASTNode* expr);
 ASTNode* create_toint_node_with_location(ASTNode* expr, Location location);
 ASTNode* create_toint_node_with_yyltype(ASTNode* expr, void* yylloc);
@@ -181,6 +203,7 @@ void add_expression_to_list(ASTNode* list, ASTNode* expr);
 ASTNode* create_assign_node(ASTNode* left, ASTNode* right);
 ASTNode* create_assign_node_with_location(ASTNode* left, ASTNode* right, Location location);
 ASTNode* create_assign_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc);
+ASTNode* create_assign_node_with_mutability(ASTNode* left, ASTNode* right, MutabilityType mutability);
 ASTNode* create_const_node(ASTNode* left, ASTNode* right);
 ASTNode* create_const_node_with_location(ASTNode* left, ASTNode* right, Location location);
 ASTNode* create_const_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc);
@@ -229,8 +252,13 @@ ASTNode* create_call_node_with_yyltype(ASTNode* func, ASTNode* args, void* yyllo
 ASTNode* create_index_node(ASTNode* target, ASTNode* index);
 ASTNode* create_index_node_with_location(ASTNode* target, ASTNode* index, Location location);
 ASTNode* create_index_node_with_yyltype(ASTNode* target, ASTNode* index, void* yylloc);
+ASTNode* create_struct_def_node(const char* name, ASTNode* fields);
+ASTNode* create_struct_def_node_with_location(const char* name, ASTNode* fields, Location location);
+ASTNode* create_struct_def_node_with_yyltype(const char* name, ASTNode* fields, void* yylloc);
+ASTNode* create_struct_literal_node(ASTNode* type_name, ASTNode* fields);
+ASTNode* create_struct_literal_node_with_location(ASTNode* type_name, ASTNode* fields, Location location);
+ASTNode* create_struct_literal_node_with_yyltype(ASTNode* type_name, ASTNode* fields, void* yylloc);
 void free_ast(ASTNode* node);
 void print_ast(ASTNode* node, int indent);
 
 #endif//AST_H
-

@@ -4,6 +4,149 @@
 #include <stdlib.h>
 #include <string.h>
 extern const char* current_input_filename;
+typedef struct StructDef {
+    char* name;
+    ASTNode* fields;
+    struct StructDef* next;
+} StructDef;
+static StructDef* g_struct_definitions = NULL;
+typedef struct VarStructMap {
+    char* var_name;
+    char* struct_name;
+    struct VarStructMap* next;
+} VarStructMap;
+
+static VarStructMap* g_var_struct_map = NULL;
+
+static void clear_var_struct_map() {
+    VarStructMap* cur = g_var_struct_map;
+    while (cur) {
+        VarStructMap* next = cur->next;
+        free(cur->var_name);
+        free(cur->struct_name);
+        free(cur);
+        cur = next;
+    }
+    g_var_struct_map = NULL;
+}
+
+static void add_var_struct_mapping(const char* var_name, const char* struct_name) {
+    if (!var_name || !struct_name) return;
+    VarStructMap* m = malloc(sizeof(VarStructMap));
+    if (!m) return;
+    m->var_name = malloc(strlen(var_name) + 1);
+    m->struct_name = malloc(strlen(struct_name) + 1);
+    if (!m->var_name || !m->struct_name) {
+        free(m->var_name);
+        free(m->struct_name);
+        free(m);
+        return;
+    }
+    strcpy(m->var_name, var_name);
+    strcpy(m->struct_name, struct_name);
+    m->next = g_var_struct_map;
+    g_var_struct_map = m;
+}
+
+static const char* find_var_struct_mapping(const char* var_name) {
+    VarStructMap* cur = g_var_struct_map;
+    while (cur) {
+        if (strcmp(cur->var_name, var_name) == 0) return cur->struct_name;
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+static int levenshtein_distance(const char* s, const char* t) {
+    if (!s || !t) return 1000000;
+    int ls = strlen(s);
+    int lt = strlen(t);
+    int *v0 = malloc((lt + 1) * sizeof(int));
+    int *v1 = malloc((lt + 1) * sizeof(int));
+    if (!v0 || !v1) {
+        free(v0); free(v1);
+        return 1000000;
+    }
+    for (int i = 0; i <= lt; i++) v0[i] = i;
+    for (int i = 0; i < ls; i++) {
+        v1[0] = i + 1;
+        for (int j = 0; j < lt; j++) {
+            int cost = (s[i] == t[j]) ? 0 : 1;
+            int deletion = v0[j + 1] + 1;
+            int insertion = v1[j] + 1;
+            int substitution = v0[j] + cost;
+            int mv = deletion < insertion ? deletion : insertion;
+            v1[j + 1] = mv < substitution ? mv : substitution;
+        }
+        int *tmp = v0; v0 = v1; v1 = tmp;
+    }
+    int res = v0[lt];
+    free(v0); free(v1);
+    return res;
+}
+
+static ASTNode* find_field_in_struct(StructDef* def, const char* field_name) {
+    if (!def || !def->fields || def->fields->type != AST_EXPRESSION_LIST) return NULL;
+    int fc = def->fields->data.expression_list.expression_count;
+    for (int i = 0; i < fc; i++) {
+        ASTNode* f = def->fields->data.expression_list.expressions[i];
+        if (f && f->type == AST_ASSIGN && f->data.assign.left && f->data.assign.left->type == AST_IDENTIFIER) {
+            if (strcmp(f->data.assign.left->data.identifier.name, field_name) == 0) return f;
+        }
+    }
+    return NULL;
+}
+
+static const char* find_closest_field_name(StructDef* def, const char* field_name) {
+    if (!def || !def->fields || !field_name) return NULL;
+    int fc = def->fields->data.expression_list.expression_count;
+    const char* best = NULL;
+    int bestd = 1000000;
+    for (int i = 0; i < fc; i++) {
+        ASTNode* f = def->fields->data.expression_list.expressions[i];
+        if (f && f->type == AST_ASSIGN && f->data.assign.left && f->data.assign.left->type == AST_IDENTIFIER) {
+            const char* fname = f->data.assign.left->data.identifier.name;
+            int d = levenshtein_distance(field_name, fname);
+            if (d < bestd) { bestd = d; best = fname; }
+        }
+    }
+    if (bestd <= 2) return best;
+    return NULL;
+}
+static StructDef* find_struct_definition(const char* name) {
+    StructDef* current = g_struct_definitions;
+    while (current) {
+        if (strcmp(current->name, name) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+static int add_struct_definition(const char* name, ASTNode* fields) {
+    if (!name) return 0;
+    
+    StructDef* existing = find_struct_definition(name);
+    if (existing) {// 结构体已存在 不重复添加
+        return 0;
+    }
+    
+    StructDef* new_def = malloc(sizeof(StructDef));
+    if (!new_def) return 0;
+    
+    new_def->name = malloc(strlen(name) + 1);
+    if (!new_def->name) {
+        free(new_def);
+        return 0;
+    }
+    strcpy(new_def->name, name);
+    new_def->fields = fields;
+    new_def->next = g_struct_definitions;
+    g_struct_definitions = new_def;
+    
+    return 1;
+}
+
 SymbolTable* create_symbol_table(SymbolTable* parent) {
     SymbolTable* table = malloc(sizeof(SymbolTable));
     if (!table) return NULL;
@@ -13,10 +156,12 @@ SymbolTable* create_symbol_table(SymbolTable* parent) {
 }
 
 static Symbol* create_symbol(const char* name, SymbolType type, InferredType inferred_type) {
+    if (!name) return NULL;
     Symbol* sym = malloc(sizeof(Symbol));
     if (!sym) return NULL;
     
-    sym->name = malloc(strlen(name) + 1);
+    size_t name_len = strlen(name);
+    sym->name = malloc(name_len + 1);
     if (!sym->name) {
         free(sym);
         return NULL;
@@ -25,17 +170,23 @@ static Symbol* create_symbol(const char* name, SymbolType type, InferredType inf
     
     sym->type = type;
     sym->inferred_type = inferred_type;
+    sym->is_mutable_pointer = 0;
     sym->next = NULL;
     
     return sym;
 }
 
 int add_symbol(SymbolTable* table, const char* name, SymbolType type, InferredType inferred_type) {
+    return add_symbol_with_mutability(table, name, type, inferred_type, 0);
+}
+
+int add_symbol_with_mutability(SymbolTable* table, const char* name, SymbolType type, InferredType inferred_type, int is_mutable_pointer) {
     if (!table || !name) return 0;
     
     Symbol* sym = create_symbol(name, type, inferred_type);
     if (!sym) return 0;
     
+    sym->is_mutable_pointer = is_mutable_pointer;
     sym->next = table->head;
     table->head = sym;
     
@@ -96,7 +247,7 @@ static VisitedNode* add_visited_node(ASTNode* node, VisitedNode* visited_list) {
     return new_visited;
 }
 
-static VisitedNode* remove_visited_node(ASTNode* node, VisitedNode* visited_list) {
+/* static VisitedNode* remove_visited_node(ASTNode* node, VisitedNode* visited_list) {
     if (!visited_list) return NULL;
     
     if (visited_list->node == node) {
@@ -105,16 +256,23 @@ static VisitedNode* remove_visited_node(ASTNode* node, VisitedNode* visited_list
         return next;
     }
     return visited_list;
-}
+} */
 
-static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTable* table, VisitedNode* visited_list);
-
-int check_undefined_symbols(ASTNode* node) {
-    SymbolTable* global_table = create_symbol_table(NULL);
-    if (!global_table) return 1;
-    int result = check_undefined_symbols_in_node_with_visited(node, global_table, NULL);
-    destroy_symbol_table(global_table);
-    return result;
+static int is_lvalue_mutable(ASTNode* node, SymbolTable* table) {
+    if (!node) return 0;
+    
+    if (node->type == AST_IDENTIFIER) {
+        Symbol* sym = lookup_symbol(table, node->data.identifier.name);
+        if (sym && sym->is_mutable_pointer) {
+            return 1;
+        }
+    } else if (node->type == AST_UNARYOP && node->data.unaryop.op == OP_DEREF) {
+        return is_lvalue_mutable(node->data.unaryop.expr, table);
+    } else if (node->type == AST_INDEX) {
+        return is_lvalue_mutable(node->data.index.target, table);
+    }
+    
+    return 0;
 }
 
 static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTable* table, VisitedNode* visited_list) {
@@ -142,6 +300,22 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
         }
         
         case AST_ASSIGN: {
+            if (node->data.assign.left && 
+                node->data.assign.left->type == AST_UNARYOP && 
+                node->data.assign.left->data.unaryop.op == OP_DEREF) {
+                
+                if (!is_lvalue_mutable(node->data.assign.left->data.unaryop.expr, table)) {
+                    const char* filename = current_input_filename ? current_input_filename : "unknown";
+                    int line = (node->data.assign.left->location.first_line > 0) ? node->data.assign.left->location.first_line : 1;
+                    char buf[512];
+                    snprintf(buf, sizeof(buf), 
+                        "Cannot assign to dereference of an immutable pointer\n"
+                        "Fix: Declare the pointer as mutable using 'mut' (mut ptr = &var)");
+                    report_semantic_error_with_location(buf, filename, line);
+                    errors_found++;
+                }
+            }
+            
             errors_found += check_undefined_symbols_in_node_with_visited(node->data.assign.right, table, new_visited_list);
             if (node->data.assign.left && node->data.assign.left->type == AST_IDENTIFIER) {
                 Symbol* existing = lookup_symbol(table, node->data.assign.left->data.identifier.name);
@@ -153,7 +327,15 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                     report_semantic_error_with_location(buf, filename, line);
                     errors_found++;
                 } else {
-                    add_symbol(table, node->data.assign.left->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN);
+                    // 检查是否是可变指针声明
+                    int is_mutable = (node->data.assign.left->mutability == MUTABILITY_MUTABLE);
+                    add_symbol_with_mutability(table, node->data.assign.left->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN, is_mutable);
+                    if (node->data.assign.right && node->data.assign.right->type == AST_STRUCT_LITERAL &&
+                        node->data.assign.right->data.struct_literal.type_name &&
+                        node->data.assign.right->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                        const char* sname = node->data.assign.right->data.struct_literal.type_name->data.identifier.name;
+                        add_var_struct_mapping(node->data.assign.left->data.identifier.name, sname);
+                    }
                 }
             }
             break;
@@ -170,6 +352,12 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                     errors_found++;
                 } else {
                     add_symbol(table, node->data.assign.left->data.identifier.name, SYMBOL_CONSTANT, TYPE_UNKNOWN);
+                    if (node->data.assign.right && node->data.assign.right->type == AST_STRUCT_LITERAL &&
+                        node->data.assign.right->data.struct_literal.type_name &&
+                        node->data.assign.right->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                        const char* sname = node->data.assign.right->data.struct_literal.type_name->data.identifier.name;
+                        add_var_struct_mapping(node->data.assign.left->data.identifier.name, sname);
+                    }
                 }
             }
             break;
@@ -200,6 +388,11 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                     if (param->type == AST_IDENTIFIER) {
                         add_symbol(func_scope, param->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN);
                     }
+                    else if (param->type == AST_ASSIGN && param->data.assign.left->type == AST_IDENTIFIER) {
+                        int is_mut = 0;
+                        if (param->mutability == MUTABILITY_MUTABLE) is_mut = 1;
+                        add_symbol_with_mutability(func_scope, param->data.assign.left->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN, is_mut);
+                    }
                 }
             }
             if (node->data.function.body) {
@@ -229,9 +422,77 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
             }
             break;
         }
+        case AST_STRUCT_DEF: {
+            add_struct_definition(node->data.struct_def.name, node->data.struct_def.fields);
+            if (node->data.struct_def.fields) {
+                errors_found += check_undefined_symbols_in_node_with_visited(node->data.struct_def.fields, table, new_visited_list);
+            }
+            break;
+        }
+        case AST_STRUCT_LITERAL: {// 检查结构体字面量类型名是否已定义
+            if (node->data.struct_literal.type_name && node->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                const char* struct_name = node->data.struct_literal.type_name->data.identifier.name;
+                StructDef* struct_def = find_struct_definition(struct_name);
+                if (!struct_def) {
+                    const char* filename = current_input_filename ? current_input_filename : "unknown";
+                    int line = (node->data.struct_literal.type_name->location.first_line > 0) ? node->data.struct_literal.type_name->location.first_line : 1;
+                    int column = (node->data.struct_literal.type_name->location.first_column > 0) ? node->data.struct_literal.type_name->location.first_column : 1;
+                    report_undefined_identifier_with_location_and_column(struct_name, filename, line, column);
+                    errors_found++;
+                }
+            }
+            if (node->data.struct_literal.fields) {
+                errors_found += check_undefined_symbols_in_node_with_visited(node->data.struct_literal.fields, table, new_visited_list);
+            }
+            break;
+        }
         case AST_INDEX: {
             errors_found += check_undefined_symbols_in_node_with_visited(node->data.index.target, table, new_visited_list);
-            errors_found += check_undefined_symbols_in_node_with_visited(node->data.index.index, table, new_visited_list);
+            /*如果是结构体字段访问，我们不应该检查字段名是否为标识符
+            而是应该检查字段名是否是结构体的有效字段*/
+            if (node->data.index.index && node->data.index.index->type == AST_IDENTIFIER) {
+                // like obj.field
+                const char* field_name = node->data.index.index->data.identifier.name;
+                const char* struct_name = NULL;
+                if (node->data.index.target && node->data.index.target->type == AST_STRUCT_LITERAL) {
+                    if (node->data.index.target->data.struct_literal.type_name &&
+                        node->data.index.target->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                        struct_name = node->data.index.target->data.struct_literal.type_name->data.identifier.name;
+                    }
+                }
+                if (!struct_name && node->data.index.target && node->data.index.target->type == AST_IDENTIFIER) {
+                    const char* varname = node->data.index.target->data.identifier.name;
+                    struct_name = find_var_struct_mapping(varname);
+                }
+
+                if (struct_name) {
+                    StructDef* def = find_struct_definition(struct_name);
+                    if (def) {
+                        ASTNode* found = find_field_in_struct(def, field_name);
+                        if (!found) {
+                            const char* filename = current_input_filename ? current_input_filename : "unknown";
+                            int line = (node->data.index.index->location.first_line > 0) ? node->data.index.index->location.first_line : 1;
+                          //int column = (node->data.index.index->location.first_column > 0) ? node->data.index.index->location.first_column : 1;
+                            const char* suggestion = find_closest_field_name(def, field_name);
+                            char buf[512];
+                            if (suggestion) {
+                                snprintf(buf, sizeof(buf),
+                                    "Field '%s' does not exist in struct '%s'.\n"
+                                    "Did you mean is '%s'?", 
+                                    field_name, struct_name, suggestion);
+                            } else {
+                                snprintf(buf, sizeof(buf),
+                                    "Field '%s' does not exist in struct '%s'.", 
+                                    field_name, struct_name);
+                            }
+                            report_semantic_error_with_location(buf, filename, line);
+                            errors_found++;
+                        }
+                    }
+                }
+            } else {
+                errors_found += check_undefined_symbols_in_node_with_visited(node->data.index.index, table, new_visited_list);
+            }
             break;
         }
         
@@ -319,10 +580,31 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
     
     /*释放当前添加的访问标记节点，但不释放整个访问列表
     因为访问列表是由调用者管理的*/
-    free(new_visited_list);
+    VisitedNode* to_free = new_visited_list;
+    new_visited_list = new_visited_list->next;
+    free(to_free);
     
     return errors_found;
 }
+
+int check_undefined_symbols(ASTNode* node) {
+    StructDef* current = g_struct_definitions;
+    while (current) {
+        StructDef* next = current->next;
+        free(current->name);
+        free(current);
+        current = next;
+    }
+    g_struct_definitions = NULL;
+    clear_var_struct_map();
+    
+    SymbolTable* global_table = create_symbol_table(NULL);
+    if (!global_table) return 1;
+    int result = check_undefined_symbols_in_node_with_visited(node, global_table, NULL);
+    destroy_symbol_table(global_table);
+    return result;
+}
+
 int is_variable_used_in_node(ASTNode* node, const char* var_name) {
     if (!node || !var_name) return 0;
     
@@ -519,7 +801,7 @@ int check_unused_variables(ASTNode* node, SymbolTable* table) {
     free_variable_usage(usage_list);
     return warnings_found;
 }
-int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, VariableUsage** usage_list) {
+int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct VariableUsage** usage_list) {
     if (!node) return 0;
     
     int warnings_found = 0;
@@ -588,6 +870,18 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, Variabl
                             int param_line = (param->location.first_line > 0) ? param->location.first_line : line;
                             int param_column = (param->location.first_column > 0) ? param->location.first_column : column;
                             VariableUsage* new_usage = add_variable_to_usage_with_column(*usage_list, param->data.identifier.name, param_line, param_column);
+                            *usage_list = new_usage;
+                        }
+                    }
+                    else if (param->type == AST_ASSIGN && param->data.assign.left->type == AST_IDENTIFIER) {
+                        int is_mut = 0;
+                        if (param->mutability == MUTABILITY_MUTABLE) is_mut = 1;
+                        add_symbol_with_mutability(func_scope, param->data.assign.left->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN, is_mut);
+                        VariableUsage* var_usage = find_variable_in_usage(*usage_list, param->data.assign.left->data.identifier.name);
+                        if (!var_usage) {
+                            int param_line = (param->location.first_line > 0) ? param->location.first_line : line;
+                            int param_column = (param->location.first_column > 0) ? param->location.first_column : column;
+                            VariableUsage* new_usage = add_variable_to_usage_with_column(*usage_list, param->data.assign.left->data.identifier.name, param_line, param_column);
                             *usage_list = new_usage;
                         }
                     }
@@ -697,7 +991,9 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, Variabl
         }
         case AST_INDEX: {
             if (node->data.index.target) warnings_found += check_unused_variables_with_usage(node->data.index.target, table, usage_list);
-            if (node->data.index.index) warnings_found += check_unused_variables_with_usage(node->data.index.index, table, usage_list);
+            if (node->data.index.index && node->data.index.index->type != AST_IDENTIFIER) {
+                if (node->data.index.index) warnings_found += check_unused_variables_with_usage(node->data.index.index, table, usage_list);
+            }
             break;
         }
         

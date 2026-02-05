@@ -1,5 +1,5 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -fno-stack-protector
+CC = cc
+CFLAGS = -Wall -Wextra -std=c99 -fno-stack-protector -Werror
 CPPFLAGS = -I../include -D_POSIX_C_SOURCE=200809L
 BISON = bison
 FLEX = flex
@@ -9,9 +9,9 @@ SEMANTIC_SRC = semantic/semantic.c
 BYTECODE_SRC = bytecode/bytecode.c
 COMPILER_SRC = compiler/backend-cpp/atc.c
 PARSER_SRC = parser/parser.tab.c parser/lex.yy.c
-IR_SRC = qbe-ir/ir.c vic-ir/mir.c
+IR_SRC = qbe-ir/ir.c qbe-ir/struct.c vic-ir/mir.c
 LLVM_SRC = compiler/backend-llvm/emit.c
-OPT_SRC = vic-ir/opt/opt.c
+OPT_SRC = qbe-ir/opt/opt.c
 UTILS_SRC = utils/error.c
 SRC = main.c $(AST_SRC) $(SEMANTIC_SRC) $(BYTECODE_SRC) $(COMPILER_SRC) $(PARSER_SRC) $(IR_SRC) $(LLVM_SRC) $(OPT_SRC) $(UTILS_SRC)
 OBJ = $(SRC:.c=.o)
@@ -55,12 +55,14 @@ compiler/backend-llvm/emit.o: compiler/backend-llvm/emit.c ../include/llvm_emit.
 qbe-ir/ir.o: qbe-ir/ir.c ../include/qbe-ir/ir.h ../include/bytecode.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
+qbe-ir/struct.o: qbe-ir/struct.c ../include/struct.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+
+qbe-ir/opt/opt.o: qbe-ir/opt/opt.c ../include/qbe-ir/opt.h ../include/qbe-ir/ir.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+
 vic-ir/mir.o: vic-ir/mir.c ../include/vic-ir/mir.h ../include/bytecode.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
-
-vic-ir/opt/opt.o: vic-ir/opt/opt.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
-
 parser/parser.tab.o: parser/parser.tab.c parser/parser.tab.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 

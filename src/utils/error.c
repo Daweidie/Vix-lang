@@ -102,7 +102,7 @@ static void show_error_context_with_column_and_length(int line_number, int colum
             fputc(' ', stderr);
         }
     }
-    for (int i = 0; i < length && (column - 1 + i) < strlen(line_content) && line_content[column - 1 + i] != '\0'; i++) {
+    for (int i = 0; i < length && (column - 1 + i) < (int)strlen(line_content) && line_content[column - 1 + i] != '\0'; i++) {
         fputc('^', stderr);
     }
     fprintf(stderr, "\n");
@@ -283,16 +283,16 @@ void report_simple_error_with_length(ErrorLevel level, ErrorType error_type, con
     const char* suggestion = NULL;
     switch (error_type) {
         case ERROR_UNDEFINED:
-            suggestion = "Declare the identifier before use or check for typos.";
+            suggestion = "Declare the identifier before use or check for typos";
             break;
         case ERROR_REDEFINITION:
-            suggestion = "Remove or rename the previous declaration to avoid conflicts.";
+            suggestion = "Remove or rename the previous declaration to avoid conflicts";
             break;
         case ERROR_TYPE:
-            suggestion = "Check types or add an explicit cast/convert the expression.";
+            suggestion = "Check types or add an explicit cast/convert the expression";
             break;
         case ERROR_SYNTAX:
-            suggestion = "Check syntax near the indicated location (missing token/parenthesis).";
+            suggestion = "Check syntax near the indicated location (missing token/parenthesis)";
             break;
         default:
             suggestion = NULL;
@@ -601,4 +601,33 @@ void cleanup_error_handler() {
         free(source_content);
         source_content = NULL;
     }
+}
+
+void report_struct_field_missing_with_location_and_suggestion(const char* struct_name, const char* field_name, const char* suggestion, const char* filename, int line, int column) {
+    const char* old_filename = current_filename;
+    int old_line = current_line;
+    int old_column = current_column;
+
+    current_filename = filename ? filename : "unknown";
+    current_line = line;
+    current_column = column;
+
+    char buffer[512];
+    if (struct_name && field_name) {
+        snprintf(buffer, sizeof(buffer), "struct '%s' has no field: '%s'", struct_name, field_name);
+    } else if (field_name) {
+        snprintf(buffer, sizeof(buffer), "struct has no field: '%s'", field_name);
+    } else {
+        snprintf(buffer, sizeof(buffer), "struct has no such field");
+    }
+
+    report_simple_error_with_length(ERROR_LEVEL_ERROR, ERROR_UNDEFINED, buffer, field_name ? (int)strlen(field_name) : 1);
+
+    if (suggestion) {
+        fprintf(stderr, "Fix: did you mean '%s'?\n", suggestion);
+    }
+
+    current_filename = old_filename;
+    current_line = old_line;
+    current_column = old_column;
 }

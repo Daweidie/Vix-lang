@@ -14,6 +14,8 @@ static void compile_const(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out
 static void compile_if(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, int* decl, ASTNode* node);
 static void compile_function(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, int* decl, ASTNode* node);
 static int check_function_has_return(ASTNode* node);
+static const char* node_type_to_cpp_string(NodeType t);
+static void compile_struct_def(FILE* out, ASTNode* node);
 static void emit_expression(FILE* out, ASTNode* node) {
     if (!node) { fprintf(out, "/*null*/0"); return; }
     switch (node->type) {
@@ -31,10 +33,20 @@ static void emit_expression(FILE* out, ASTNode* node) {
                 fprintf(out, "(-");
                 emit_expression(out, node->data.unaryop.expr);
                 fprintf(out, ")");
-            } else {
-                fprintf(out, "(+");
+            } else if (node->data.unaryop.op == OP_PLUS) {
+                fprintf(out, "(");
                 emit_expression(out, node->data.unaryop.expr);
                 fprintf(out, ")");
+            } else if (node->data.unaryop.op == OP_ADDRESS) {
+                fprintf(out, "(&(");
+                emit_expression(out, node->data.unaryop.expr);
+                fprintf(out, "))");
+            } else if (node->data.unaryop.op == OP_DEREF) {
+                fprintf(out, "*(");
+                emit_expression(out, node->data.unaryop.expr);
+                fprintf(out, ")");
+            } else {
+                fprintf(out, "/*unop*/0");
             }
             break;
         case AST_BINOP: {
@@ -61,23 +73,136 @@ static void emit_expression(FILE* out, ASTNode* node) {
                 emit_expression(out, node->data.binop.right);
                 fprintf(out, ")");
             } else {
-                fprintf(out, "(");
-                emit_expression(out, node->data.binop.left);
-                fprintf(out, "%s", op);
-                emit_expression(out, node->data.binop.right);
-                fprintf(out, ")");
+                if (node->data.binop.op == OP_ADD) {
+                    int left_is_addr = (node->data.binop.left->type == AST_UNARYOP && node->data.binop.left->data.unaryop.op == OP_ADDRESS);
+                    int right_is_num = (node->data.binop.right->type == AST_NUM_INT || node->data.binop.right->type == AST_NUM_FLOAT);
+                    int left_is_num = (node->data.binop.left->type == AST_NUM_INT || node->data.binop.left->type == AST_NUM_FLOAT);
+                    int right_is_addr = (node->data.binop.right->type == AST_UNARYOP && node->data.binop.right->data.unaryop.op == OP_ADDRESS);
+                    if ((left_is_addr || right_is_addr) && (left_is_num || right_is_num)) {// 特殊处理：地址 + 数值 或 数值 + 地址
+                        fprintf(out, "(");
+                        emit_expression(out, node->data.binop.left);
+                        fprintf(out, ")");
+                        fprintf(out, "%s", op);
+                        fprintf(out, "(");
+                        emit_expression(out, node->data.binop.right);
+                        fprintf(out, ")");
+                    } else {
+                        fprintf(out, "(");
+                        emit_expression(out, node->data.binop.left);
+                        fprintf(out, "%s", op);
+                        emit_expression(out, node->data.binop.right);
+                        fprintf(out, ")");
+                    }
+                } else {
+                    fprintf(out, "(");
+                    emit_expression(out, node->data.binop.left);
+                    fprintf(out, "%s", op);
+                    emit_expression(out, node->data.binop.right);
+                    fprintf(out, ")");
+                }
             }
             break;
         }
         case AST_CALL: {
-            fprintf(out, "%s(", node->data.call.func->data.identifier.name);
-            if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST) {
-                for (int i = 0; i < node->data.call.args->data.expression_list.expression_count; i++) {
-                    if (i > 0) fprintf(out, ", ");
-                    emit_expression(out, node->data.call.args->data.expression_list.expressions[i]);
+            /*支持成员调用，如 obj.method(...)，其中 func 可以是 AST_INDEX*/
+            if (node->data.call.func->type == AST_INDEX) {
+                ASTNode* target = node->data.call.func->data.index.target;
+                ASTNode* method = node->data.call.func->data.index.index;
+                if (!method || method->type != AST_IDENTIFIER) {
+                    fprintf(out, "/*call: method name invalid*/0");
+                    break;
                 }
+                const char* mname = method->data.identifier.name;
+
+                if (strcmp(mname, "add!") == 0) {
+                    /* obj.add!(idx, val) -> (target).add_inplace((size_t)idx, to_vstring(val)) */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").add_inplace((size_t)(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 0) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[0]);
+                    } else {
+                        fprintf(out, "0");
+                    }
+                    fprintf(out, "), vconvert::to_vstring(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 1) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[1]);
+                    } else {
+                        fprintf(out, "\"\"");
+                    }
+                    fprintf(out, "))");
+                } else if (strcmp(mname, "remove") == 0) {
+                    /* obj.remove(idx) -> (target).remove((size_t)idx) */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").remove((size_t)(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 0) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[0]);
+                    } else {
+                        fprintf(out, "0");
+                    }
+                    fprintf(out, "))");
+                } else if (strcmp(mname, "remove!") == 0) {
+                    /* obj.remove!(idx) -> (target).remove_inplace((size_t)idx)*/
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").remove_inplace((size_t)(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 0) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[0]);
+                    } else {
+                        fprintf(out, "0");
+                    }
+                    fprintf(out, "))");
+                } else if (strcmp(mname, "push!") == 0) {
+                    /* obj.push!(val) -> (target).push_inplace(to_vstring(val)) */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").push_inplace(vconvert::to_vstring(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 0) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[0]);
+                    } else {
+                        fprintf(out, "\"\"");
+                    }
+                    fprintf(out, "))");
+                } else if (strcmp(mname, "push") == 0) {
+                    /* obj.push(val) -> (target).push_inplace(to_vstring(val)), 但现在也改为原地修改 */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").push_inplace(vconvert::to_vstring(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 0) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[0]);
+                    } else {
+                        fprintf(out, "\"\"");
+                    }
+                    fprintf(out, "))");
+                } else if (strcmp(mname, "pop") == 0) {
+                    /* obj.pop() -> (target).pop() */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").pop()");
+                } else if (strcmp(mname, "pop!") == 0) {
+                    /* obj.pop!() -> (target).pop_inplace() - 原地修改版本 */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").pop_inplace()");
+                } else if (strcmp(mname, "replace!") == 0) {
+                    /* obj.replace!(idx, val) -> (target).replace_inplace((size_t)idx, to_vstring(val)) */
+                    fprintf(out, "("); emit_expression(out, target); fprintf(out, ").replace_inplace((size_t)(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 0) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[0]);
+                    } else {
+                        fprintf(out, "0");
+                    }
+                    fprintf(out, "), vconvert::to_vstring(");
+                    if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST && node->data.call.args->data.expression_list.expression_count > 1) {
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[1]);
+                    } else {
+                        fprintf(out, "\"\"");
+                    }
+                    fprintf(out, "))");
+                } else {
+                    fprintf(out, "/*unknown method:%s*/0", mname);
+                }
+                break;
             }
-            fprintf(out, ")");
+            if (node->data.call.func->type == AST_IDENTIFIER) {
+                fprintf(out, "%s(", node->data.call.func->data.identifier.name);
+                if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST) {
+                    for (int i = 0; i < node->data.call.args->data.expression_list.expression_count; i++) {
+                        if (i > 0) fprintf(out, ", ");
+                        emit_expression(out, node->data.call.args->data.expression_list.expressions[i]);
+                    }
+                }
+                fprintf(out, ")");
+            } else {
+                fprintf(out, "/*call: func not identifier*/0");
+            }
             break;
         }
         case AST_IDENTIFIER: {
@@ -101,13 +226,47 @@ static void emit_expression(FILE* out, ASTNode* node) {
             break;
         }
         case AST_INDEX: {
-            /* index from 0-based */
-            /* emit target.items.at((size_t)index) */
-            fprintf(out, "(");
-            emit_expression(out, node->data.index.target);
-            fprintf(out, ").items.at((size_t)(");
-            emit_expression(out, node->data.index.index);
-            fprintf(out, "))");
+            /* index from 0 based */
+            /* 如果索引是标识符 => 结构体字段访问：a.field 或 a.length */
+            if (node->data.index.index && node->data.index.index->type == AST_IDENTIFIER) {
+                const char* field_name = node->data.index.index->data.identifier.name;
+                if (strcmp(field_name, "length") == 0) {
+                    fprintf(out, "(");
+                    emit_expression(out, node->data.index.target);
+                    fprintf(out, ").items.size()");
+                } else {//将 a[name] 形式的标识符索引视为结构体字段访问 a.name
+                    fprintf(out, "(");
+                    emit_expression(out, node->data.index.target);
+                    fprintf(out, ").%s", field_name);
+                }
+            } else {
+                fprintf(out, "(");
+                emit_expression(out, node->data.index.target);
+                fprintf(out, ")[");
+                emit_expression(out, node->data.index.index);
+                fprintf(out, "]");
+            }
+            break;
+        }
+        case AST_STRUCT_LITERAL: {
+            if (node->data.struct_literal.type_name && node->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                const char* sname = node->data.struct_literal.type_name->data.identifier.name;
+                fprintf(out, "([](){ %s __tmp; ", sname);
+                if (node->data.struct_literal.fields && node->data.struct_literal.fields->type == AST_EXPRESSION_LIST) {
+                    int fc = node->data.struct_literal.fields->data.expression_list.expression_count;
+                    for (int i = 0; i < fc; i++) {
+                        ASTNode* f = node->data.struct_literal.fields->data.expression_list.expressions[i];
+                        if (f->type == AST_ASSIGN && f->data.assign.left->type == AST_IDENTIFIER) {
+                            fprintf(out, "__tmp.%s = ", f->data.assign.left->data.identifier.name);
+                            emit_expression(out, f->data.assign.right);
+                            fprintf(out, "; ");
+                        }
+                    }
+                }
+                fprintf(out, "return __tmp; })()");
+            } else {
+                fprintf(out, "/*struct literal: invalid type*/0");
+            }
             break;
         }
         default:
@@ -115,6 +274,45 @@ static void emit_expression(FILE* out, ASTNode* node) {
             break;
     }
 }//该函数emit_expression用于将AST中的表达式节点转换为C++代码并输出到文件 根据节点类型 递归处理不同表达式
+
+static const char* node_type_to_cpp_string(NodeType t) {
+    switch (t) {
+        case AST_TYPE_INT32:
+        case AST_TYPE_INT64:
+            return "long long";
+        case AST_TYPE_FLOAT32:
+        case AST_TYPE_FLOAT64:
+            return "float";
+        case AST_TYPE_STRING:
+            return "VString";
+        case AST_TYPE_VOID:
+            return "void";
+        case AST_TYPE_POINTER:
+            return "long long*";
+        default:
+            return "auto";
+    }
+}
+
+static void compile_struct_def(FILE* out, ASTNode* node) {
+    if (!node || node->type != AST_STRUCT_DEF) return;
+    if (!node->data.struct_def.name) return;
+    fprintf(out, "struct %s {\n", node->data.struct_def.name);
+    if (node->data.struct_def.fields && node->data.struct_def.fields->type == AST_EXPRESSION_LIST) {
+        int fc = node->data.struct_def.fields->data.expression_list.expression_count;
+        for (int i = 0; i < fc; i++) {
+            ASTNode* f = node->data.struct_def.fields->data.expression_list.expressions[i];
+            if (f->type == AST_ASSIGN && f->data.assign.left->type == AST_IDENTIFIER) {
+                const char* fname = f->data.assign.left->data.identifier.name;
+                NodeType rt = f->data.assign.right->type;
+                const char* cpp_t = node_type_to_cpp_string(rt);
+                fprintf(out, "    %s %s;\n", cpp_t, fname);
+            }
+        }
+    }
+    fprintf(out, "};\n\n");
+}
+
 
 void compile_ast_to_cpp_with_types(ByteCodeGen* gen, TypeInferenceContext* ctx, ASTNode* root, FILE* out) {
     fprintf(out, "#include <iostream>\n");
@@ -127,6 +325,14 @@ void compile_ast_to_cpp_with_types(ByteCodeGen* gen, TypeInferenceContext* ctx, 
     fprintf(out, "using namespace vtypes;\n");
     fprintf(out, "using namespace vconvert;\n\n");
     if (root && root->type == AST_PROGRAM) {
+        /* 先生成结构体定义 */
+        for (int i = 0; i < root->data.program.statement_count; i++) {
+            ASTNode* stmt = root->data.program.statements[i];
+            if (stmt && stmt->type == AST_STRUCT_DEF) {
+                compile_struct_def(out, stmt);
+            }
+        }
+
         for (int i = 0; i < root->data.program.statement_count; i++) {
             ASTNode* stmt = root->data.program.statements[i];
             if (stmt && stmt->type == AST_FUNCTION && 
@@ -218,6 +424,24 @@ static void compile_print(FILE* out, ASTNode* node) {
 static void compile_assign(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, int* decl, ASTNode* node) {
     ASTNode* left = node->data.assign.left;
     ASTNode* right = node->data.assign.right;
+    /* 支持结构体字段赋值：obj.field = expr */
+    if (left->type == AST_INDEX && left->data.index.index && left->data.index.index->type == AST_IDENTIFIER) {
+        fprintf(out, "    ");
+        emit_expression(out, left->data.index.target);
+        fprintf(out, ".%s = ", left->data.index.index->data.identifier.name);
+        emit_expression(out, right);
+        fprintf(out, ";\n");
+        return;
+    }
+    if (left->type == AST_UNARYOP && left->data.unaryop.op == OP_DEREF) {
+        fprintf(out, "    ");
+        fprintf(out, "(*(");
+        emit_expression(out, left->data.unaryop.expr);
+        fprintf(out, ")) = ");
+        emit_expression(out, right);
+        fprintf(out, ";\n");
+        return;
+    }
     if (left->type != AST_IDENTIFIER) return;
     const char* name = left->data.identifier.name;
     int idx = get_variable_index(gen, name);
@@ -263,30 +487,41 @@ static void compile_assign(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* ou
         }
         return;
     }
+    
     if (idx >= 0 && idx < MAX_VARS) {
-        if (!decl[idx]) {
-            if (t != TYPE_UNKNOWN) {
-                fprintf(out, "    %s %s = ", tstr, name);
-                if ((t == TYPE_INT) && right->type == AST_STRING) {
-                    fprintf(out, "to_int(");
-                    emit_expression(out, right);
-                    fprintf(out, ")");
-                } else if ((t == TYPE_FLOAT) && right->type == AST_STRING) {
-                    fprintf(out, "to_double(");
-                    emit_expression(out, right);
-                    fprintf(out, ")");
-                } else if ((t == TYPE_STRING) && (right->type == AST_NUM_INT || right->type == AST_NUM_FLOAT)) {
-                    fprintf(out, "to_vstring(");
-                    emit_expression(out, right);
-                    fprintf(out, ")");
-                } else {
-                    emit_expression(out, right);
-                }
+        if (!decl[idx]) {// 检测是否是取地址操作，如果是则声明为指针类型
+            if (right->type == AST_UNARYOP && right->data.unaryop.op == OP_ADDRESS) {
+                fprintf(out, "    auto %s = ", name);//偷懒
+                emit_expression(out, right);
                 fprintf(out, ";\n");
-            } else {
+            } else if (right->type == AST_UNARYOP && right->data.unaryop.op == OP_DEREF) {
                 fprintf(out, "    auto %s = ", name);
                 emit_expression(out, right);
                 fprintf(out, ";\n");
+            } else {
+                if (t != TYPE_UNKNOWN) {
+                    fprintf(out, "    %s %s = ", tstr, name);
+                    if ((t == TYPE_INT) && right->type == AST_STRING) {
+                        fprintf(out, "to_int(");
+                        emit_expression(out, right);
+                        fprintf(out, ")");
+                    } else if ((t == TYPE_FLOAT) && right->type == AST_STRING) {
+                        fprintf(out, "to_double(");
+                        emit_expression(out, right);
+                        fprintf(out, ")");
+                    } else if ((t == TYPE_STRING) && (right->type == AST_NUM_INT || right->type == AST_NUM_FLOAT)) {
+                        fprintf(out, "to_vstring(");
+                        emit_expression(out, right);
+                        fprintf(out, ")");
+                    } else {
+                        emit_expression(out, right);
+                    }
+                    fprintf(out, ";\n");
+                } else {
+                    fprintf(out, "    auto %s = ", name);
+                    emit_expression(out, right);
+                    fprintf(out, ";\n");
+                }
             }
             decl[idx] = 1;
         } else {
@@ -295,9 +530,19 @@ static void compile_assign(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* ou
             fprintf(out, ";\n");
         }
     } else {
-        fprintf(out, "    auto %s = ", name);
-        emit_expression(out, right);
-        fprintf(out, ";\n");
+        if (right->type == AST_UNARYOP && right->data.unaryop.op == OP_ADDRESS) {
+            fprintf(out, "    auto %s = ", name);
+            emit_expression(out, right);
+            fprintf(out, ";\n");
+        } else if (right->type == AST_UNARYOP && right->data.unaryop.op == OP_DEREF) {
+            fprintf(out, "    auto %s = ", name);
+            emit_expression(out, right);
+            fprintf(out, ";\n");
+        } else {
+            fprintf(out, "    auto %s = ", name);
+            emit_expression(out, right);
+            fprintf(out, ";\n");
+        }
     }
 }
 
@@ -347,12 +592,16 @@ static void compile_for(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, 
     if (var_index >= 0 && var_index < MAX_VARS) {
         decl[var_index] = 1;
     }
-    /* foreach: if end == null iterate by index from 0..start.items.size()-1 */
+    /* foreach: if end == null iterate by index from 0..start.size()-1 */
     if (node->data.for_stmt.end == NULL) {
-        fprintf(out, "    for (long long %s = 0; %s < (long long)(", loop_var_name, loop_var_name);
+        fprintf(out, "    {\n");
+        fprintf(out, "        auto __iter = ");
         emit_expression(out, node->data.for_stmt.start);
-        fprintf(out, ").items.size(); %s++) {\n", loop_var_name);
+        fprintf(out, ";\n");
+        fprintf(out, "        for(size_t __idx = 0; __idx < __iter.size(); __idx++) {\n");
+        fprintf(out, "            auto %s = __iter[__idx];\n", loop_var_name);
         compile_node(gen, ctx, out, decl, node->data.for_stmt.body);
+        fprintf(out, "        }\n");
         fprintf(out, "    }\n");
         return;
     }
@@ -390,6 +639,15 @@ void compile_function(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, in
             if (i > 0) fprintf(out, ", ");
             ASTNode* param = node->data.function.params->data.expression_list.expressions[i];
             if (param->type == AST_IDENTIFIER) {
+                fprintf(out, "auto %s", param->data.identifier.name);
+            }
+            else if (param->type == AST_ASSIGN && param->data.assign.left->type == AST_IDENTIFIER) {
+                const char* param_name = param->data.assign.left->data.identifier.name;
+                NodeType param_type = param->data.assign.right->type;
+                const char* cpp_type = node_type_to_cpp_string(param_type);
+                fprintf(out, "%s %s", cpp_type, param_name);
+            }
+            else {
                 fprintf(out, "auto %s", param->data.identifier.name);
             }
         }

@@ -153,8 +153,276 @@ ASTNode* create_assign_node(ASTNode* left, ASTNode* right) {
     return create_assign_node_with_location(left, right, loc);
 }
 
-ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* right, Location location) {
+ASTNode* create_assign_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc) {
     ASTNode* node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    node->location.first_line = loc->first_line;
+    node->location.first_column = loc->first_column;
+    node->location.last_line = loc->last_line;
+    node->location.last_column = loc->last_column;
+    node->type = AST_ASSIGN;
+    node->data.assign.left = left;
+    node->data.assign.right = right;
+    node->mutability = MUTABILITY_IMMUTABLE;//默认为不可变
+    
+    return node;
+}
+
+ASTNode* create_assign_node_with_mutability(ASTNode* left, ASTNode* right, MutabilityType mutability) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    
+    node->type = AST_ASSIGN;
+    node->data.assign.left = left;
+    node->data.assign.right = right;
+    node->mutability = mutability;
+    
+    return node;
+}
+
+ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* right, Location location) {
+    if (left->type == AST_STRING && right->type == AST_STRING) {// 尝试进行常量折叠优化
+        if (op == OP_ADD || op == OP_CONCAT) {//尝试进行字符串拼接
+            size_t len1 = strlen(left->data.string.value);
+            size_t len2 = strlen(right->data.string.value);
+            char* result = malloc(len1 + len2 + 1);
+            strcpy(result, left->data.string.value);
+            strcat(result, right->data.string.value);
+            ASTNode* new_node = create_string_node_with_location(result, location);// 创建新的字符串节点并释放临时节点
+            free(result);
+            free_ast(left);
+            free_ast(right);
+            return new_node;
+        }
+        else if (op == OP_MUL || op == OP_REPEAT) {
+            //右操作数不是数字，故不做任何操作
+        }
+    }
+    else if (left->type == AST_STRING && (right->type == AST_NUM_INT || right->type == AST_NUM_FLOAT)) {
+        if (op == OP_MUL || op == OP_REPEAT) {
+            char* str_val = left->data.string.value;
+            int repeat_times;
+            if (right->type == AST_NUM_INT) {
+                repeat_times = (int)right->data.num_int.value;
+            } else {
+                repeat_times = (int)right->data.num_float.value;
+            }
+            
+            if (repeat_times < 0) repeat_times = 0;
+            
+            size_t str_len = strlen(str_val);
+            size_t total_len = str_len * repeat_times;
+            char* result = malloc(total_len + 1);
+            result[0] = '\0';
+            
+            for (int i = 0; i < repeat_times; i++) {
+                strcat(result, str_val);
+            }
+            
+            // 创建新的字符串节点并释放临时节点
+            ASTNode* new_node = create_string_node_with_location(result, location);
+            free(result);
+            free_ast(left);
+            free_ast(right);
+            return new_node;
+        }
+    }
+    else if (left->type == AST_NUM_INT && right->type == AST_NUM_INT) {
+        switch(op) {
+            case OP_ADD: {
+                ASTNode* new_node = create_num_int_node_with_location(
+                    left->data.num_int.value + right->data.num_int.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_SUB: {
+                ASTNode* new_node = create_num_int_node_with_location(
+                    left->data.num_int.value - right->data.num_int.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_MUL: {
+                ASTNode* new_node = create_num_int_node_with_location(
+                    left->data.num_int.value * right->data.num_int.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_DIV: {
+                if (right->data.num_int.value != 0) {
+                    ASTNode* new_node = create_num_int_node_with_location(
+                        left->data.num_int.value / right->data.num_int.value, 
+                        location
+                    );
+                    free_ast(left);
+                    free_ast(right);
+                    return new_node;
+                }
+                break;
+            }
+            case OP_MOD: {
+                if (right->data.num_int.value != 0) {
+                    ASTNode* new_node = create_num_int_node_with_location(
+                        left->data.num_int.value % right->data.num_int.value, 
+                        location
+                    );
+                    free_ast(left);
+                    free_ast(right);
+                    return new_node;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    else if (left->type == AST_NUM_FLOAT && right->type == AST_NUM_FLOAT) {
+        switch(op) {
+            case OP_ADD: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_float.value + right->data.num_float.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_SUB: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_float.value - right->data.num_float.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_MUL: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_float.value * right->data.num_float.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_DIV: {
+                if (right->data.num_float.value != 0.0) {
+                    ASTNode* new_node = create_num_float_node_with_location(
+                        left->data.num_float.value / right->data.num_float.value, 
+                        location
+                    );
+                    free_ast(left);
+                    free_ast(right);
+                    return new_node;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    // 混合整数和浮点数
+    else if (left->type == AST_NUM_INT && right->type == AST_NUM_FLOAT) {
+        switch(op) {
+            case OP_ADD: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_int.value + right->data.num_float.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_SUB: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_int.value - right->data.num_float.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_MUL: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_int.value * right->data.num_float.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_DIV: {
+                if (right->data.num_float.value != 0.0) {
+                    ASTNode* new_node = create_num_float_node_with_location(
+                        left->data.num_int.value / right->data.num_float.value, 
+                        location
+                    );
+                    free_ast(left);
+                    free_ast(right);
+                    return new_node;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    else if (left->type == AST_NUM_FLOAT && right->type == AST_NUM_INT) {
+        switch(op) {
+            case OP_ADD: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_float.value + right->data.num_int.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_SUB: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_float.value - right->data.num_int.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_MUL: {
+                ASTNode* new_node = create_num_float_node_with_location(
+                    left->data.num_float.value * right->data.num_int.value, 
+                    location
+                );
+                free_ast(left);
+                free_ast(right);
+                return new_node;
+            }
+            case OP_DIV: {
+                if (right->data.num_int.value != 0) {
+                    ASTNode* new_node = create_num_float_node_with_location(
+                        left->data.num_float.value / right->data.num_int.value, 
+                        location
+                    );
+                    free_ast(left);
+                    free_ast(right);
+                    return new_node;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    ASTNode* node = malloc(sizeof(ASTNode));// 如果不能折叠，则创建正常的二元操作节点
     node->type = AST_BINOP;
     node->location = location;
     node->data.binop.op = op;
@@ -248,8 +516,12 @@ ASTNode* create_type_node_with_location(NodeType type, Location location) {
 }
 
 ASTNode* create_type_node(NodeType type) {
-    Location loc = {1, 1, 1, 1};
-    return create_type_node_with_location(type, loc);
+    ASTNode* node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    Location loc = {0};
+    node->type = type;
+    node->location = loc;
+    return node;
 }
 
 ASTNode* create_if_node_with_location(ASTNode* condition, ASTNode* then_body, ASTNode* else_body, Location location) {
@@ -404,6 +676,47 @@ ASTNode* create_call_node_with_yyltype(ASTNode* func, ASTNode* args, void* yyllo
     node->data.call.args = args;
     return node;
 }
+
+ASTNode* create_struct_def_node_with_location(const char* name, ASTNode* fields, Location location) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = AST_STRUCT_DEF;
+    node->location = location;
+    node->data.struct_def.name = malloc(strlen(name) + 1);
+    strcpy(node->data.struct_def.name, name);
+    node->data.struct_def.fields = fields;
+    return node;
+}
+
+ASTNode* create_struct_def_node(const char* name, ASTNode* fields) {
+    Location loc = {1,1,1,1};
+    return create_struct_def_node_with_location(name, fields, loc);
+}
+
+ASTNode* create_struct_def_node_with_yyltype(const char* name, ASTNode* fields, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = { loc->first_line, loc->first_column, loc->last_line, loc->last_column };
+    return create_struct_def_node_with_location(name, fields, location);
+}
+
+ASTNode* create_struct_literal_node_with_location(ASTNode* type_name, ASTNode* fields, Location location) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = AST_STRUCT_LITERAL;
+    node->location = location;
+    node->data.struct_literal.type_name = type_name;
+    node->data.struct_literal.fields = fields;
+    return node;
+}
+
+ASTNode* create_struct_literal_node(ASTNode* type_name, ASTNode* fields) {
+    Location loc = type_name ? type_name->location : (Location){1,1,1,1};
+    return create_struct_literal_node_with_location(type_name, fields, loc);
+}
+
+ASTNode* create_struct_literal_node_with_yyltype(ASTNode* type_name, ASTNode* fields, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = { loc->first_line, loc->first_column, loc->last_line, loc->last_column };
+    return create_struct_literal_node_with_location(type_name, fields, location);
+}
 ASTNode* create_index_node_with_location(ASTNode* target, ASTNode* index, Location location) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = AST_INDEX;
@@ -508,17 +821,6 @@ ASTNode* create_print_node_with_yyltype(ASTNode* expr, void* yylloc) {
         loc->last_column
     };
     return create_print_node_with_location(expr, location);
-}
-
-ASTNode* create_assign_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc) {
-    YYLTYPE* loc = (YYLTYPE*)yylloc;
-    Location location = {
-        loc->first_line,
-        loc->first_column,
-        loc->last_line,
-        loc->last_column
-    };
-    return create_assign_node_with_location(left, right, location);
 }
 
 ASTNode* create_const_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc) {
@@ -697,6 +999,7 @@ void free_ast(ASTNode* node) {
         case AST_TYPE_FLOAT64:
         case AST_TYPE_STRING:
         case AST_TYPE_VOID:
+        case AST_TYPE_POINTER:  // 添加对AST_TYPE_POINTER类型的处理
             break;
             
         case AST_IF:
@@ -741,6 +1044,14 @@ void free_ast(ASTNode* node) {
             if (node->data.call.args) {
                 free_ast(node->data.call.args);
             }
+            break;
+        case AST_STRUCT_DEF:
+            free(node->data.struct_def.name);
+            if (node->data.struct_def.fields) free_ast(node->data.struct_def.fields);
+            break;
+        case AST_STRUCT_LITERAL:
+            if (node->data.struct_literal.type_name) free_ast(node->data.struct_literal.type_name);
+            if (node->data.struct_literal.fields) free_ast(node->data.struct_literal.fields);
             break;
             
         case AST_RETURN:
@@ -820,39 +1131,39 @@ void print_ast(ASTNode* node, int indent) {
             printf("Continue\n");
             break;
         case AST_BINOP:
-            printf("BinaryOp: ");
-            switch (node->data.binop.op) {
-                case OP_ADD: printf("+\n"); break;
-                case OP_SUB: printf("-\n"); break;
-                case OP_MUL: printf("*\n"); break;
-                case OP_DIV: printf("/\n"); break;
-                case OP_MOD: printf("%%\n"); break;
-                case OP_POW: printf("**\n"); break;
-                case OP_CONCAT: printf("concat+\n"); break;
-                case OP_REPEAT: printf("repeat*\n"); break;
-                case OP_EQ: printf("==\n"); break;
-                case OP_NE: printf("!=\n"); break;
-                case OP_LT: printf("<\n"); break;
-                case OP_LE: printf("<=\n"); break;
-                case OP_GT: printf(">\n"); break;
-                case OP_GE: printf(">=\n"); break;
-            }
+            printf("Binary Operation (%s):\n", 
+                   node->data.binop.op == OP_ADD ? "+" :
+                   node->data.binop.op == OP_SUB ? "-" :
+                   node->data.binop.op == OP_MUL ? "*" :
+                   node->data.binop.op == OP_DIV ? "/" :
+                   node->data.binop.op == OP_MOD ? "%" :
+                   node->data.binop.op == OP_POW ? "**" :
+                   node->data.binop.op == OP_EQ ? "==" :
+                   node->data.binop.op == OP_NE ? "!=" :
+                   node->data.binop.op == OP_LT ? "<" :
+                   node->data.binop.op == OP_LE ? "<=" :
+                   node->data.binop.op == OP_GT ? ">" :
+                   node->data.binop.op == OP_GE ? ">=" : "unknown");
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Left:\n");
+            print_ast(node->data.binop.left, indent + 2);
+            for (int i = 0; i < indent + 1; i++) printf("  ");
+            printf("Right:\n");
+            print_ast(node->data.binop.right, indent + 2);
+            return;
             print_ast(node->data.binop.left, indent + 1);
             print_ast(node->data.binop.right, indent + 1);
             break;
         case AST_UNARYOP:
-            printf("UnaryOp: ");
-            switch (node->data.unaryop.op) {
-                case OP_MINUS: printf("-\n"); break;
-                case OP_PLUS: printf("+\n"); break;
-            }
+            printf("Unary Operation (%s):\n", 
+                   node->data.unaryop.op == OP_MINUS ? "-" : "+");
             print_ast(node->data.unaryop.expr, indent + 1);
             break;
         case AST_NUM_INT:
             printf("Integer: %lld\n", node->data.num_int.value);
             break;
         case AST_NUM_FLOAT:
-            printf("Float: %f\n", node->data.num_float.value);
+            printf("Float: %g\n", node->data.num_float.value);
             break;
         case AST_STRING:
             printf("String: \"%s\"\n", node->data.string.value);
@@ -873,22 +1184,47 @@ void print_ast(ASTNode* node, int indent) {
             print_ast(node->data.tofloat.expr, indent + 1);
             break;
         case AST_EXPRESSION_LIST:
-            printf("ExpressionList:\n");
+            printf("Expression List:\n");
             for (int i = 0; i < node->data.expression_list.expression_count; i++) {
-                print_ast(node->data.expression_list.expressions[i], indent + 1);
+                // Check if this is an annotated parameter (assign node with identifier and type)
+                if (node->data.expression_list.expressions[i]->type == AST_ASSIGN &&
+                    node->data.expression_list.expressions[i]->data.assign.left->type == AST_IDENTIFIER &&
+                    (node->data.expression_list.expressions[i]->data.assign.right->type == AST_TYPE_INT32 ||
+                     node->data.expression_list.expressions[i]->data.assign.right->type == AST_TYPE_INT64 ||
+                     node->data.expression_list.expressions[i]->data.assign.right->type == AST_TYPE_FLOAT32 ||
+                     node->data.expression_list.expressions[i]->data.assign.right->type == AST_TYPE_FLOAT64 ||
+                     node->data.expression_list.expressions[i]->data.assign.right->type == AST_TYPE_STRING ||
+                     node->data.expression_list.expressions[i]->data.assign.right->type == AST_TYPE_VOID)) {
+                    // Print as annotated parameter
+                    for (int j = 0; j < indent + 1; j++) printf("  ");
+                    printf("Annotated Parameter: %s : ", 
+                           node->data.expression_list.expressions[i]->data.assign.left->data.identifier.name);
+                    
+                    switch(node->data.expression_list.expressions[i]->data.assign.right->type) {
+                        case AST_TYPE_INT32: printf("i32\n"); break;
+                        case AST_TYPE_INT64: printf("i64\n"); break;
+                        case AST_TYPE_FLOAT32: printf("f32\n"); break;
+                        case AST_TYPE_FLOAT64: printf("f64\n"); break;
+                        case AST_TYPE_STRING: printf("string\n"); break;
+                        case AST_TYPE_VOID: printf("void\n"); break;
+                        default: printf("unknown\n"); break;
+                    }
+                } else {
+                    print_ast(node->data.expression_list.expressions[i], indent + 1);
+                }
             }
             break;
         case AST_TYPE_INT32:
-            printf("Type: int32\n");
+            printf("Type: i32\n");
             break;
         case AST_TYPE_INT64:
-            printf("Type: int64\n");
+            printf("Type: i64\n");
             break;
         case AST_TYPE_FLOAT32:
-            printf("Type: float32\n");
+            printf("Type: f32\n");
             break;
         case AST_TYPE_FLOAT64:
-            printf("Type: float64\n");
+            printf("Type: f64\n");
             break;
         case AST_TYPE_STRING:
             printf("Type: string\n");
@@ -914,6 +1250,15 @@ void print_ast(ASTNode* node, int indent) {
             printf("Call:\n");
             if (node->data.call.func) print_ast(node->data.call.func, indent + 1);
             if (node->data.call.args) print_ast(node->data.call.args, indent + 1);
+            break;
+        case AST_STRUCT_DEF:
+            printf("StructDef: %s\n", node->data.struct_def.name);
+            if (node->data.struct_def.fields) print_ast(node->data.struct_def.fields, indent + 1);
+            break;
+        case AST_STRUCT_LITERAL:
+            printf("StructLiteral:\n");
+            if (node->data.struct_literal.type_name) print_ast(node->data.struct_literal.type_name, indent + 1);
+            if (node->data.struct_literal.fields) print_ast(node->data.struct_literal.fields, indent + 1);
             break;
         case AST_RETURN:
             printf("Return:\n");

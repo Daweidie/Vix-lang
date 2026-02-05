@@ -28,8 +28,8 @@ char* my_strndup(const char* str, size_t n) {
 
 %option noyywrap
 %option yylineno
-
-/* 定义一个宏来更新列号 */
+%option nounput
+%option noinput
 %{
 #define UPDATE_COLUMN() \
     do { \
@@ -63,9 +63,11 @@ char* my_strndup(const char* str, size_t n) {
 "input"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return INPUT; }
 "toint"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TOINT; }
 "tofloat"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TOFLOAT; }
+"string"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_STR; }
 "return"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return RETURN; }
 "fn"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FN; }
 "const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONST; }
+"mut"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MUT; }
 "->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
 "i32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
 "i64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
@@ -80,6 +82,8 @@ char* my_strndup(const char* str, size_t n) {
 "break"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return BREAK; }
 "continue"          { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONTINUE; }
 "for"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FOR; }
+
+"struct"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return STRUCT; }
 
 "="                 { UPDATE_COLUMN(); return ASSIGN; }
 "+="                { UPDATE_COLUMN(); return PLUS_ASSIGN; }
@@ -106,12 +110,16 @@ char* my_strndup(const char* str, size_t n) {
 "}"                 { UPDATE_COLUMN(); return RBRACE; }
 "["                 { UPDATE_COLUMN(); return LBRACKET; }
 "]"                 { UPDATE_COLUMN(); return RBRACKET; }
+"@"                 { UPDATE_COLUMN(); return AT; }
+"&"                 { UPDATE_COLUMN(); return AMPERSAND; }
 
 ";"                 { UPDATE_COLUMN(); return SEMICOLON; }
 ","                 { UPDATE_COLUMN(); return COMMA; }
 ".."                { UPDATE_COLUMN(); return DOTDOT; }
+"."                 { UPDATE_COLUMN(); return DOT; }
+":"                 { UPDATE_COLUMN(); return COLON; }
 
-[a-zA-Z_][a-zA-Z0-9_]*  {
+[a-zA-Z_][a-zA-Z0-9_]*!?  {
                         int col = GET_FIRST_COLUMN();
                         yylval.str = strdup(yytext);
                         yylloc.first_line = yylineno;

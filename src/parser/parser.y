@@ -23,20 +23,23 @@ ASTNode* root;
 }
 
 %token <str> IDENTIFIER STRING
-%token CONST
+%token STRUCT COLON
+%token CONST MUT  // 添加MUT关键字
 %token <num_int> NUMBER_INT
 %token <num_float> NUMBER_FLOAT
-%token PRINT INPUT TOINT TOFLOAT TYPE_I32 TYPE_I64 TYPE_F32 TYPE_F64 TYPE_STR FN ARROW RETURN TYPE_VOID
+%token PRINT INPUT TOINT TOFLOAT TYPE_I32 TYPE_I64 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID
+%token AT AMPERSAND
 %token IF ELSE ELIF WHILE FOR BREAK CONTINUE
 %token ASSIGN PLUS_ASSIGN MINUS_ASSIGN MULTIPLY_ASSIGN DIVIDE_ASSIGN MODULO_ASSIGN
 %token PLUS MINUS MULTIPLY DIVIDE MODULO POWER
 %token EQ NE LT LE GT GE
-%token DOTDOT LBRACKET RBRACKET
+%token DOT DOTDOT LBRACKET RBRACKET
 %token LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA
 %token ERROR
 
 %type <node> program statement_list statement 
-%type <node> type param_list function_definition
+%type <node> struct_fields struct_field struct_init_fields struct_init_field
+%type <node> type param_list function_definition lvalue
 %type <node> print_statement assignment_statement compound_assignment_statement
 %type <node> input_statement if_statement while_statement for_statement
 %type <node> expression expression_list term factor power factor_unary comparison
@@ -78,22 +81,46 @@ statement_list
 statement
     : print_statement SEMICOLON     { $$ = $1; }
     | assignment_statement SEMICOLON { $$ = $1; }
+    | lvalue ASSIGN expression SEMICOLON { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    | identifier COLON expression SEMICOLON { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    | identifier COLON type ASSIGN expression SEMICOLON { 
+        $$ = create_assign_node_with_yyltype($1, $5, (YYLTYPE*) &@$); 
+    }
+    | MUT identifier ASSIGN expression SEMICOLON { 
+        $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$); 
+        $2->mutability = MUTABILITY_MUTABLE;
+    }
+    | MUT identifier COLON type ASSIGN expression SEMICOLON { 
+        $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$); 
+        $2->mutability = MUTABILITY_MUTABLE;
+    }
     | CONST identifier ASSIGN expression SEMICOLON { $$ = create_const_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
     | compound_assignment_statement SEMICOLON { $$ = $1; }
     | input_statement SEMICOLON     { $$ = $1; }
     | if_statement                  { $$ = $1; }
     | while_statement               { $$ = $1; }
-    | for_statement                 { $$ = $1; }
+    | for_statement               { $$ = $1; }
     | print_statement               { $$ = $1; }
     | assignment_statement          { $$ = $1; }
+    | lvalue ASSIGN expression { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | compound_assignment_statement { $$ = $1; }
     | input_statement               { $$ = $1; }
     | function_definition           { $$ = $1; }
+    | STRUCT IDENTIFIER LBRACE struct_fields RBRACE { $$ = create_struct_def_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
     | RETURN expression SEMICOLON  { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | RETURN expression            { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | expression SEMICOLON         { $$ = $1; }
     | expression                   { $$ = $1; }
     | CONST identifier ASSIGN expression { $$ = create_const_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
+    | identifier COLON expression { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    | MUT identifier ASSIGN expression { 
+        $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$); 
+        $2->mutability = MUTABILITY_MUTABLE;
+    }
+    | MUT identifier COLON type ASSIGN expression { 
+        $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$); 
+        $2->mutability = MUTABILITY_MUTABLE;
+    }
     | BREAK SEMICOLON               { $$ = create_break_node_with_yyltype((YYLTYPE*) &@$); }
     | CONTINUE SEMICOLON            { $$ = create_continue_node_with_yyltype((YYLTYPE*) &@$); }
     | BREAK                         { $$ = create_break_node_with_yyltype((YYLTYPE*) &@$); }
@@ -110,6 +137,24 @@ input_expression
         $$ = create_input_node_with_yyltype(prompt, (YYLTYPE*) &@$); 
     }
     ;
+struct_field
+    : IDENTIFIER COLON type { $$ = create_assign_node_with_yyltype(create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$), $3, (YYLTYPE*) &@$); }
+    ;
+
+struct_fields
+    : /* empty */ { $$ = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); }
+    | struct_field { ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); add_expression_to_list(list, $1); $$ = list; }
+    | struct_fields COMMA struct_field { add_expression_to_list($1, $3); $$ = $1; }
+    ;
+struct_init_field
+    : IDENTIFIER COLON expression { $$ = create_assign_node_with_yyltype(create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$), $3, (YYLTYPE*) &@$); }
+    ;
+
+struct_init_fields
+    : /* empty */ { $$ = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); }
+    | struct_init_field { ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); add_expression_to_list(list, $1); $$ = list; }
+    | struct_init_fields COMMA struct_init_field { add_expression_to_list($1, $3); $$ = $1; }
+    ;
 
 type
     : TYPE_I32 { $$ = create_type_node(AST_TYPE_INT32); }
@@ -118,11 +163,54 @@ type
     | TYPE_F64 { $$ = create_type_node(AST_TYPE_FLOAT64); }
     | TYPE_STR { $$ = create_type_node(AST_TYPE_STRING); }
     | TYPE_VOID { $$ = create_type_node(AST_TYPE_VOID); }
+    | TYPE_PTR LPAREN type RPAREN { $$ = create_type_node(AST_TYPE_POINTER); }
+    | AMPERSAND TYPE_I32 { $$ = create_type_node(AST_TYPE_POINTER); }
+    | AMPERSAND TYPE_I64 { $$ = create_type_node(AST_TYPE_POINTER); }
+    | AMPERSAND TYPE_F32 { $$ = create_type_node(AST_TYPE_POINTER); }
+    | AMPERSAND TYPE_F64 { $$ = create_type_node(AST_TYPE_POINTER); }
+    | AMPERSAND TYPE_STR { $$ = create_type_node(AST_TYPE_POINTER); }
     ;
 
 param_list
-    : identifier { ASTNode* list = create_expression_list_node(); add_expression_to_list(list, $1); $$ = list; }
+    : identifier { ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); add_expression_to_list(list, $1); $$ = list; }
+    | identifier COLON type {
+        ASTNode* id_node = create_identifier_node_with_yyltype($1->data.identifier.name, (YYLTYPE*) &@$);
+        ASTNode* annotated_param = create_assign_node_with_yyltype(id_node, $3, (YYLTYPE*) &@$);
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        add_expression_to_list(list, annotated_param);
+        $$ = list;
+    }
+    | MUT identifier {
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* id_node = create_identifier_node_with_yyltype($2->data.identifier.name, (YYLTYPE*) &@$);
+        add_expression_to_list(list, id_node);
+        $$ = list;
+    }
+    | MUT identifier COLON type {
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* id_node = create_identifier_node_with_yyltype($2->data.identifier.name, (YYLTYPE*) &@$);
+        ASTNode* annotated_param = create_assign_node_with_mutability(id_node, $4, MUTABILITY_MUTABLE);
+        add_expression_to_list(list, annotated_param);
+        $$ = list;
+    }
     | param_list COMMA identifier { add_expression_to_list($1, $3); $$ = $1; }
+    | param_list COMMA identifier COLON type {
+        ASTNode* id_node = create_identifier_node_with_yyltype($3->data.identifier.name, (YYLTYPE*) &@$);
+        ASTNode* annotated_param = create_assign_node_with_yyltype(id_node, $5, (YYLTYPE*) &@$);
+        add_expression_to_list($1, annotated_param);
+        $$ = $1;
+    }
+    | param_list COMMA MUT identifier {
+        ASTNode* id_node = create_identifier_node_with_yyltype($4->data.identifier.name, (YYLTYPE*) &@$);
+        add_expression_to_list($1, id_node);
+        $$ = $1;
+    }
+    | param_list COMMA MUT identifier COLON type {
+        ASTNode* id_node = create_identifier_node_with_yyltype($4->data.identifier.name, (YYLTYPE*) &@$);
+        ASTNode* annotated_param = create_assign_node_with_mutability(id_node, $6, MUTABILITY_MUTABLE);
+        add_expression_to_list($1, annotated_param);
+        $$ = $1;
+    }
     ;
 
 function_definition
@@ -150,6 +238,12 @@ print_statement
 
 assignment_statement
     : identifier ASSIGN expression  { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    ;
+
+lvalue
+    : identifier                    { $$ = $1; }
+    | factor_unary DOT identifier   { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
     ;
 
 compound_assignment_statement
@@ -230,15 +324,25 @@ for_statement
         ASTNode* end   = $6;
         $$ = create_for_node_with_yyltype(var, start, end, $8, (YYLTYPE*) &@$);
     }
-    | FOR LPAREN identifier SEMICOLON expression RPAREN block_statement {//some foreach style
+    | FOR LPAREN identifier SEMICOLON expression RPAREN block_statement {
         ASTNode* var = $3;
         ASTNode* iterable = $5;
         $$ = create_for_node_with_yyltype(var, iterable, NULL, $7, (YYLTYPE*) &@$);
     }
+    | FOR LPAREN IDENTIFIER identifier SEMICOLON expression RPAREN block_statement {
+        ASTNode* var = $4;
+        ASTNode* iterable = $6;
+        $$ = create_for_node_with_yyltype(var, iterable, NULL, $8, (YYLTYPE*) &@$);
+    }
     ;
 
 expression_list
-    : expression COMMA expression   { 
+    : expression                    { 
+                                      ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+                                      add_expression_to_list(list, $1);
+                                      $$ = list;
+                                    }
+    | expression COMMA expression   { 
                                       ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
                                       add_expression_to_list(list, $1);
                                       add_expression_to_list(list, $3);
@@ -249,6 +353,7 @@ expression_list
                                       $$ = $1;
                                     }
     ;
+
 
 expression
     : comparison                    { $$ = $1; }
@@ -291,7 +396,20 @@ factor_unary
         ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); 
         $$ = create_call_node_with_yyltype(id, $3, (YYLTYPE*) &@$); 
     }
+    | factor_unary DOT IDENTIFIER { $$ = create_index_node_with_yyltype($1, create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$), (YYLTYPE*) &@$); }
+    | factor_unary DOT IDENTIFIER LPAREN RPAREN { 
+        ASTNode* method = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
+        ASTNode* mem = create_index_node_with_yyltype($1, method, (YYLTYPE*) &@$);
+        $$ = create_call_node_with_yyltype(mem, NULL, (YYLTYPE*) &@$);
+    }
+    | factor_unary DOT IDENTIFIER LPAREN expression_list RPAREN { 
+        ASTNode* method = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
+        ASTNode* mem = create_index_node_with_yyltype($1, method, (YYLTYPE*) &@$);
+        $$ = create_call_node_with_yyltype(mem, $5, (YYLTYPE*) &@$);
+    }
     | factor_unary LBRACKET expression RBRACKET { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    | IDENTIFIER LBRACE RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, list, (YYLTYPE*) &@$); }
+    | IDENTIFIER LBRACE struct_init_fields RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, $3, (YYLTYPE*) &@$); }
     | literal                       { $$ = $1; }
     | identifier                    { $$ = $1; }
     | toint_expression              { $$ = $1; }
@@ -299,6 +417,9 @@ factor_unary
     | input_expression              { $$ = $1; }
     | PLUS factor_unary             { $$ = create_unaryop_node(OP_PLUS, $2); }
     | MINUS factor_unary            { $$ = create_unaryop_node(OP_MINUS, $2); }
+    | MULTIPLY factor_unary         { $$ = create_unaryop_node(OP_DEREF, $2); }
+    | AMPERSAND factor_unary        { $$ = create_unaryop_node(OP_ADDRESS, $2); }
+    | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
     | LPAREN expression RPAREN      { $$ = $2; }
     ;
 

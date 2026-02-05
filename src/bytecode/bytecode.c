@@ -1,5 +1,5 @@
 /*
-实现了Velox语言的字节码生成系统，
+实现了Vix语言的字节码生成系统，
 包含创建字节码，
 管理字节码列表，
 将AST转换为字节码以及打印字节码等功能
@@ -301,22 +301,42 @@ void generate_bytecode_unaryop(ByteCodeGen* gen, ASTNode* node) {
     if (node->type != AST_UNARYOP) return;
     generate_bytecode(gen, node->data.unaryop.expr);
     
-    ByteCode* bc = create_bytecode(BC_NEG); // 默认值
+    ByteCode* bc = create_bytecode(BC_NEG);
     bc->operand.triaddr.result = gen->tmp_counter;
-    bc->operand.triaddr.operand1 = gen->bytecode->count - 1;
-    bc->operand.triaddr.operand2 = -1; // 一元运算只需要一个操作数
-    
+    gen->tmp_counter++;
+
+    int expr_instr_index = gen->bytecode->count - 1;
+    ByteCode* expr_bc = &gen->bytecode->codes[expr_instr_index];
+
     switch (node->data.unaryop.op) {
         case OP_MINUS:
             bc->op = BC_NEG;
+            bc->operand.triaddr.operand1 = expr_instr_index;
+            bc->operand.triaddr.operand2 = -1;
             break;
         case OP_PLUS:
             bc->op = BC_POS;
+            bc->operand.triaddr.operand1 = expr_instr_index;
+            bc->operand.triaddr.operand2 = -1;
+            break;
+        case OP_ADDRESS: {
+            bc->op = BC_ADDRESS;
+            if (expr_bc->op == BC_LOAD_NAME) {
+                bc->operand.triaddr.operand1 = expr_bc->operand.var_index;
+            } else {
+                bc->operand.triaddr.operand1 = expr_instr_index;
+            }
+            bc->operand.triaddr.operand2 = -1;
+            break;
+        }
+        case OP_DEREF:
+            bc->op = BC_DEREF;
+            bc->operand.triaddr.operand1 = expr_instr_index;
+            bc->operand.triaddr.operand2 = -1;
             break;
     }
     
     add_bytecode_full(gen, bc);
-    gen->tmp_counter++;
 }
 
 void generate_bytecode_if(ByteCodeGen* gen, ASTNode* node) {
@@ -609,6 +629,16 @@ void print_bytecode(ByteCodeList* list) {
                 break;
             case BC_POS:
                 printf("POS %%r%d, %%r%d\n", 
+                       list->codes[i].operand.triaddr.result,
+                       list->codes[i].operand.triaddr.operand1);
+                break;
+            case BC_ADDRESS:
+                printf("ADDRESS %%r%d, %%r%d\n", 
+                       list->codes[i].operand.triaddr.result,
+                       list->codes[i].operand.triaddr.operand1);
+                break;
+            case BC_DEREF:
+                printf("DEREF %%r%d, %%r%d\n", 
                        list->codes[i].operand.triaddr.result,
                        list->codes[i].operand.triaddr.operand1);
                 break;

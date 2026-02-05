@@ -50,6 +50,8 @@ void cleanup_error_handler();
 void report_simple_error(ErrorLevel level, ErrorType error_type, const char* msg);
 void report_unused_variable_warning(const char* variable_name, const char* filename, int line);
 void report_unused_variable_warning_with_location(const char* variable_name, const char* filename, int line, int column);
+// Report a missing struct field with location and an optional suggestion
+void report_struct_field_missing_with_location_and_suggestion(const char* struct_name, const char* field_name, const char* suggestion, const char* filename, int line, int column);
 void compile_to_cpp_with_types(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* output_file);
 const char* get_variable_name(ByteCodeGen* gen, int index);
 void bytecode_to_cpp(ByteCodeGen* gen, ByteCode* bytecode, FILE* output_file, TypeInferenceContext* ctx, int instr_index, int* jump_targets, int* jump_sources, int* jump_types);

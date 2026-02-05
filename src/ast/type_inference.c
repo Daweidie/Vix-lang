@@ -6,8 +6,6 @@
 #include <string.h>
 #include <ctype.h>
 extern const char* current_input_filename;
-
-/* 前向声明以避免在 infer_type 中使用时出现隐式声明 */
 static InferredType infer_index_type(TypeInferenceContext* ctx, ASTNode* node);
 
 TypeInferenceContext* create_type_inference_context() {
@@ -74,7 +72,36 @@ InferredType infer_type(TypeInferenceContext* ctx, ASTNode* node) {
         }
             
         case AST_UNARYOP: {
-            return infer_type(ctx, node->data.unaryop.expr);
+            if (node->data.unaryop.op == OP_DEREF) {
+                ASTNode* inner = node->data.unaryop.expr;// 对于解引用操作，判断内部表达式的类型
+                if (inner && inner->type == AST_UNARYOP && inner->data.unaryop.op == OP_ADDRESS) {
+                    return infer_type(ctx, inner->data.unaryop.expr);// 如果是 @(&x) 形式，返回 x 的类型
+                } else if (inner && inner->type == AST_BINOP && inner->data.binop.op == OP_ADD) {// 如果是 @(ptr + offset) 形式，需要获取ptr指向的类型
+                    ASTNode* left = inner->data.binop.left;
+                    ASTNode* right = inner->data.binop.right;
+                    ASTNode* ptr_expr = NULL;
+                    if (left && left->type == AST_UNARYOP && left->data.unaryop.op == OP_ADDRESS) {
+                        ptr_expr = left->data.unaryop.expr;
+                    } else if (right && right->type == AST_UNARYOP && right->data.unaryop.op == OP_ADDRESS) {
+                        ptr_expr = right->data.unaryop.expr;
+                    } else if (left && left->type == AST_IDENTIFIER) {
+                        ptr_expr = left;
+                    }
+                    
+                    if (ptr_expr) {
+                        return infer_type(ctx, ptr_expr);
+                    }
+                }
+                return infer_type(ctx, node->data.unaryop.expr);// 默认情况：返回内部表达式的类型
+            } else if (node->data.unaryop.op == OP_ADDRESS) {
+                /*对于取地址操作，返回指针类型，指向被取地址的对象的类型
+                inner_type = infer_type(ctx, node->data.unaryop.expr);
+                这里需要存储指针类型和它指向的类型
+                暂时返回内部表达式的类型，但实际实现需要更复杂的类型系统*/
+                return TYPE_POINTER;
+            } else {
+                return infer_type(ctx, node->data.unaryop.expr);
+            }
         }
         
         case AST_INPUT: {
@@ -87,6 +114,44 @@ InferredType infer_type(TypeInferenceContext* ctx, ASTNode* node) {
         }
         case AST_INDEX: {
             return infer_index_type(ctx, node);
+        }
+        case AST_CALL: {
+            /* handle method calls like obj.method(...) where method may be list ops */
+            if (node->data.call.func && node->data.call.func->type == AST_INDEX) {
+                ASTNode* target = node->data.call.func->data.index.target;
+                ASTNode* method = node->data.call.func->data.index.index;
+                if (method && method->type == AST_IDENTIFIER) {
+                    const char* mname = method->data.identifier.name;
+                    /* determine element type if target is a list */
+                    InferredType elem_type = TYPE_UNKNOWN;
+                    InferredType targ_type = infer_type(ctx, target);
+                    if (targ_type == TYPE_LIST) {
+                        if (target->type == AST_IDENTIFIER) {
+                            const char* name = target->data.identifier.name;
+                            for (int i = 0; i < ctx->count; i++) {
+                                if (strcmp(ctx->variables[i].name, name) == 0) {
+                                    elem_type = ctx->variables[i].element_type;
+                                    break;
+                                }
+                            }
+                        } else if (target->type == AST_EXPRESSION_LIST) {
+                            if (target->data.expression_list.expression_count > 0) {
+                                elem_type = infer_type(ctx, target->data.expression_list.expressions[0]);
+                            }
+                        }
+                    }
+
+                    if (strcmp(mname, "remove") == 0 || strcmp(mname, "pop") == 0) {
+                        
+                        return elem_type != TYPE_UNKNOWN ? elem_type : TYPE_STRING;// 确保pop/remove返回元素类型而不是列表类型
+                    }
+                    if (strcmp(mname, "add!") == 0 || strcmp(mname, "push!") == 0 || strcmp(mname, "replace!") == 0 || 
+                        strcmp(mname, "push") == 0 || strcmp(mname, "remove!") == 0 || strcmp(mname, "pop!") == 0) {
+                        return TYPE_UNKNOWN;// 表示这是一个原地修改操作
+                    }
+                }
+            }
+            return TYPE_UNKNOWN;
         }
         
         case AST_TOINT: {
@@ -106,6 +171,14 @@ InferredType infer_type(TypeInferenceContext* ctx, ASTNode* node) {
                         elem_type = infer_type(ctx, node->data.assign.right->data.expression_list.expressions[0]);
                     }
                     set_variable_list_type(ctx, node->data.assign.left->data.identifier.name, TYPE_LIST, elem_type);
+                } else if (right_type == TYPE_POINTER) {
+                    if (node->data.assign.right && node->data.assign.right->type == AST_UNARYOP && node->data.assign.right->data.unaryop.op == OP_ADDRESS) {
+                        ASTNode* inner = node->data.assign.right->data.unaryop.expr;
+                        InferredType target = infer_type(ctx, inner);
+                        set_variable_pointer_type(ctx, node->data.assign.left->data.identifier.name, target);
+                    } else {
+                        set_variable_pointer_type(ctx, node->data.assign.left->data.identifier.name, TYPE_UNKNOWN);
+                    }
                 } else {
                     set_variable_type(ctx, node->data.assign.left->data.identifier.name, right_type);
                 }
@@ -142,6 +215,7 @@ void set_variable_list_type(TypeInferenceContext* ctx, const char* var_name, Inf
     strcpy(ctx->variables[ctx->count].name, var_name);
     ctx->variables[ctx->count].type = list_type;
     ctx->variables[ctx->count].element_type = element_type;
+    ctx->variables[ctx->count].pointer_target_type = TYPE_UNKNOWN; // 默认没有指针目标类型
     ctx->count++;
 }
 
@@ -163,6 +237,7 @@ void set_variable_type(TypeInferenceContext* ctx, const char* var_name, Inferred
         if (strcmp(ctx->variables[i].name, var_name) == 0) {
             ctx->variables[i].type = type;
             ctx->variables[i].element_type = TYPE_UNKNOWN;
+            ctx->variables[i].pointer_target_type = TYPE_UNKNOWN; // 重置指针目标类型
             return;
         }
     }
@@ -175,7 +250,41 @@ void set_variable_type(TypeInferenceContext* ctx, const char* var_name, Inferred
     strcpy(ctx->variables[ctx->count].name, var_name);
     ctx->variables[ctx->count].type = type;
     ctx->variables[ctx->count].element_type = TYPE_UNKNOWN;
+    ctx->variables[ctx->count].pointer_target_type = TYPE_UNKNOWN; // 初始化指针目标类型
     ctx->count++;
+}
+void set_variable_pointer_type(TypeInferenceContext* ctx, const char* var_name, InferredType target_type) {
+    if (!ctx || !var_name) return;
+    for (int i = 0; i < ctx->count; i++) {
+        if (strcmp(ctx->variables[i].name, var_name) == 0) {
+            ctx->variables[i].type = TYPE_POINTER;
+            ctx->variables[i].pointer_target_type = target_type;
+            ctx->variables[i].element_type = TYPE_UNKNOWN;
+            return;
+        }
+    }
+    if (ctx->count >= ctx->capacity) {
+        ctx->capacity = ctx->capacity == 0 ? 10 : ctx->capacity * 2;
+        ctx->variables = realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
+    }
+    
+    ctx->variables[ctx->count].name = malloc(strlen(var_name) + 1);
+    strcpy(ctx->variables[ctx->count].name, var_name);
+    ctx->variables[ctx->count].type = TYPE_POINTER;
+    ctx->variables[ctx->count].element_type = TYPE_UNKNOWN;
+    ctx->variables[ctx->count].pointer_target_type = target_type;
+    ctx->count++;
+}
+InferredType get_variable_pointer_target_type(TypeInferenceContext* ctx, const char* var_name) {
+    if (!ctx || !var_name) return TYPE_UNKNOWN;
+    
+    for (int i = 0; i < ctx->count; i++) {
+        if (strcmp(ctx->variables[i].name, var_name) == 0) {
+            return ctx->variables[i].pointer_target_type;
+        }
+    }
+    
+    return TYPE_UNKNOWN;
 }
 
 const char* type_to_cpp_string(InferredType type) {
@@ -188,6 +297,8 @@ const char* type_to_cpp_string(InferredType type) {
             return "VString";
         case TYPE_LIST:
             return "VList";
+        case TYPE_POINTER:
+            return "void*";
         default:
             return "auto"; 
     }
@@ -249,4 +360,12 @@ InferredType infer_type_from_value(const char* value) {
     }
     
     return TYPE_INT;
+}
+
+int has_variable(TypeInferenceContext* ctx, const char* var_name) {
+    if (!ctx || !var_name) return 0;
+    for (int i = 0; i < ctx->count; i++) {
+        if (strcmp(ctx->variables[i].name, var_name) == 0) return 1;
+    }
+    return 0;
 }
