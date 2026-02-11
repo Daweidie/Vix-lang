@@ -759,6 +759,37 @@ ASTNode* create_index_node_with_yyltype(ASTNode* target, ASTNode* index, void* y
     };
     return create_index_node_with_location(target, index, location);
 }
+
+ASTNode* create_member_access_node(ASTNode* object, ASTNode* field) {
+    Location loc = {
+        object->location.first_line,
+        object->location.first_column,
+        field->location.last_line,
+        field->location.last_column
+    };
+    return create_member_access_node_with_location(object, field, loc);
+}
+
+ASTNode* create_member_access_node_with_location(ASTNode* object, ASTNode* field, Location location) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = AST_MEMBER_ACCESS;
+    node->location = location;
+    node->data.member_access.object = object;
+    node->data.member_access.field = field;
+    return node;
+}
+
+ASTNode* create_member_access_node_with_yyltype(ASTNode* object, ASTNode* field, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = {
+        loc->first_line,
+        loc->first_column,
+        loc->last_line,
+        loc->last_column
+    };
+    return create_member_access_node_with_location(object, field, location);
+}
+
 ASTNode* create_toint_node_with_yyltype(ASTNode* expr, void* yylloc) {
     YYLTYPE* loc = (YYLTYPE*)yylloc;
     Location location = {
@@ -1044,6 +1075,10 @@ void free_ast(ASTNode* node) {
             free_ast(node->data.index.target);
             free_ast(node->data.index.index);
             break;
+        case AST_MEMBER_ACCESS:
+            free_ast(node->data.member_access.object);
+            free_ast(node->data.member_access.field);
+            break;
             
         case AST_FUNCTION:
             free(node->data.function.name);
@@ -1142,6 +1177,11 @@ void print_ast(ASTNode* node, int indent) {
             printf("Index:\n");
             print_ast(node->data.index.target, indent + 1);
             print_ast(node->data.index.index, indent + 1);
+            break;
+        case AST_MEMBER_ACCESS:
+            printf("Member Access:\n");
+            print_ast(node->data.member_access.object, indent + 1);
+            print_ast(node->data.member_access.field, indent + 1);
             break;
         case AST_BREAK:
             printf("Break\n");

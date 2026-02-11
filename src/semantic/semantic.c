@@ -605,6 +605,60 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
             break;
         }
         
+        case AST_MEMBER_ACCESS: {
+            errors_found += check_undefined_symbols_in_node_with_visited(node->data.member_access.object, table, new_visited_list);
+            /*
+            处理结构体字段访问，检查字段名是否为标识符
+            并验证字段名是否是结构体的有效字段
+            */
+            if (node->data.member_access.field && node->data.member_access.field->type == AST_IDENTIFIER) {
+                // like obj.field
+                const char* field_name = node->data.member_access.field->data.identifier.name;
+                const char* struct_name = NULL;
+                if (node->data.member_access.object && node->data.member_access.object->type == AST_STRUCT_LITERAL) {
+                    if (node->data.member_access.object->data.struct_literal.type_name &&
+                        node->data.member_access.object->data.struct_literal.type_name->type == AST_IDENTIFIER) {
+                        struct_name = node->data.member_access.object->data.struct_literal.type_name->data.identifier.name;
+                    }
+                }
+                if (!struct_name && node->data.member_access.object && node->data.member_access.object->type == AST_IDENTIFIER) {
+                    const char* varname = node->data.member_access.object->data.identifier.name;
+                    struct_name = find_var_struct_mapping(varname);
+                }
+
+                if (struct_name) {
+                    StructDef* def = find_struct_definition(struct_name);
+                    if (def) {
+                        ASTNode* found = find_field_in_struct(def, field_name);
+                        if (!found) {
+                            const char* filename = current_input_filename ? current_input_filename : "unknown";
+                            int line = (node->data.member_access.field->location.first_line > 0) ? node->data.member_access.field->location.first_line : 1;
+                            //int column = (node->data.member_access.field->location.first_column > 0) ? node->data.member_access.field->location.first_column : 1;
+                            const char* suggestion = find_closest_field_name(def, field_name);
+                            char buf[512];
+                            if (suggestion) {
+                                snprintf(buf, sizeof(buf),
+                                    "Field '%s' does not exist in struct '%s'.\n"
+                                    "Did you mean is '%s'?", 
+                                    field_name, struct_name, suggestion);
+                            } else {
+                                snprintf(buf, sizeof(buf),
+                                    "Field '%s' does not exist in struct '%s'.", 
+                                    field_name, struct_name);
+                            }
+                            report_semantic_error_with_location(buf, filename, line);
+                            errors_found++;
+                        }
+                    }
+                }
+            } else {
+                if (node->data.member_access.field) {
+                    errors_found += check_undefined_symbols_in_node_with_visited(node->data.member_access.field, table, new_visited_list);
+                }
+            }
+            break;
+        }
+        
         case AST_BINOP:
         case AST_UNARYOP: {
             if (node->type == AST_BINOP) {
@@ -842,6 +896,10 @@ int is_variable_used_in_node(ASTNode* node, const char* var_name) {
         }
         case AST_INDEX: {
             return is_variable_used_in_node(node->data.index.target, var_name) || is_variable_used_in_node(node->data.index.index, var_name);
+        }
+        
+        case AST_MEMBER_ACCESS: {
+            return is_variable_used_in_node(node->data.member_access.object, var_name) || is_variable_used_in_node(node->data.member_access.field, var_name);
         }
         
         case AST_NUM_INT:
@@ -1103,6 +1161,14 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
             if (node->data.index.target) warnings_found += check_unused_variables_with_usage(node->data.index.target, table, usage_list);
             if (node->data.index.index && node->data.index.index->type != AST_IDENTIFIER) {
                 if (node->data.index.index) warnings_found += check_unused_variables_with_usage(node->data.index.index, table, usage_list);
+            }
+            break;
+        }
+        
+        case AST_MEMBER_ACCESS: {
+            if (node->data.member_access.object) warnings_found += check_unused_variables_with_usage(node->data.member_access.object, table, usage_list);
+            if (node->data.member_access.field && node->data.member_access.field->type != AST_IDENTIFIER) {
+                if (node->data.member_access.field) warnings_found += check_unused_variables_with_usage(node->data.member_access.field, table, usage_list);
             }
             break;
         }

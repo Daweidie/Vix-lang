@@ -246,7 +246,7 @@ assignment_statement
 
 lvalue
     : identifier                    { $$ = $1; }
-    | factor_unary DOT identifier   { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
+    | factor_unary DOT identifier   { $$ = create_member_access_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | factor_unary LBRACKET expression RBRACKET { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
     ;
@@ -419,15 +419,15 @@ factor_unary
     | AMPERSAND factor_unary        { $$ = create_unaryop_node(OP_ADDRESS, $2); }
     | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
     | LPAREN expression RPAREN      { $$ = $2; }
-    | factor_unary DOT IDENTIFIER { $$ = create_index_node_with_yyltype($1, create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$), (YYLTYPE*) &@$); }
+    | factor_unary DOT IDENTIFIER { $$ = create_member_access_node_with_yyltype($1, create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$), (YYLTYPE*) &@$); }
     | factor_unary DOT IDENTIFIER LPAREN RPAREN { 
         ASTNode* method = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
-        ASTNode* mem = create_index_node_with_yyltype($1, method, (YYLTYPE*) &@$);
+        ASTNode* mem = create_member_access_node_with_yyltype($1, method, (YYLTYPE*) &@$);
         $$ = create_call_node_with_yyltype(mem, NULL, (YYLTYPE*) &@$);
     }
     | factor_unary DOT IDENTIFIER LPAREN expression_list RPAREN { 
         ASTNode* method = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
-        ASTNode* mem = create_index_node_with_yyltype($1, method, (YYLTYPE*) &@$);
+        ASTNode* mem = create_member_access_node_with_yyltype($1, method, (YYLTYPE*) &@$);
         $$ = create_call_node_with_yyltype(mem, $5, (YYLTYPE*) &@$);
     }
     | factor_unary LBRACKET expression RBRACKET { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }

@@ -38,10 +38,11 @@ typedef enum {
     AST_TYPE_FLOAT64,
     AST_TYPE_STRING,
     AST_TYPE_VOID,
-    AST_TYPE_POINTER,  // 添加指针类型
+    AST_TYPE_POINTER,
     AST_TYPE_LIST,
     AST_EXPRESSION_LIST,
-    AST_INDEX,
+    AST_INDEX,// 数组/列表索引访问
+    AST_MEMBER_ACCESS,//结构体字段访问
     AST_INPUT,
     AST_TOINT,
     AST_TOFLOAT,
@@ -105,6 +106,10 @@ typedef struct ASTNode {
             struct ASTNode* target;
             struct ASTNode* index;
         } index;
+        struct {
+            struct ASTNode* object;
+            struct ASTNode* field;
+        } member_access;
         struct {
             struct ASTNode* left;
             struct ASTNode* right;
@@ -256,6 +261,9 @@ ASTNode* create_call_node_with_yyltype(ASTNode* func, ASTNode* args, void* yyllo
 ASTNode* create_index_node(ASTNode* target, ASTNode* index);
 ASTNode* create_index_node_with_location(ASTNode* target, ASTNode* index, Location location);
 ASTNode* create_index_node_with_yyltype(ASTNode* target, ASTNode* index, void* yylloc);
+ASTNode* create_member_access_node(ASTNode* object, ASTNode* field);
+ASTNode* create_member_access_node_with_location(ASTNode* object, ASTNode* field, Location location);
+ASTNode* create_member_access_node_with_yyltype(ASTNode* object, ASTNode* field, void* yylloc);
 ASTNode* create_struct_def_node(const char* name, ASTNode* fields);
 ASTNode* create_struct_def_node_with_location(const char* name, ASTNode* fields, Location location);
 ASTNode* create_struct_def_node_with_yyltype(const char* name, ASTNode* fields, void* yylloc);
@@ -264,5 +272,4 @@ ASTNode* create_struct_literal_node_with_location(ASTNode* type_name, ASTNode* f
 ASTNode* create_struct_literal_node_with_yyltype(ASTNode* type_name, ASTNode* fields, void* yylloc);
 void free_ast(ASTNode* node);
 void print_ast(ASTNode* node, int indent);
-
 #endif//AST_H

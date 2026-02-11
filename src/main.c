@@ -591,16 +591,6 @@ void analyze_ast(TypeInferenceContext* ctx, ASTNode* node) {
                 analyze_ast(ctx, node->data.program.statements[i]);
             }
             break;
-            
-        case AST_ASSIGN:
-            infer_type(ctx, node->data.assign.right);
-            if (node->data.assign.left->type == AST_IDENTIFIER) {
-                set_variable_type(ctx, node->data.assign.left->data.identifier.name, 
-                    infer_type(ctx, node->data.assign.right));
-            }
-            analyze_ast(ctx, node->data.assign.left);
-            analyze_ast(ctx, node->data.assign.right);
-            break;
         case AST_CONST:
             infer_type(ctx, node->data.assign.right);
             if (node->data.assign.left->type == AST_IDENTIFIER) {
@@ -610,7 +600,6 @@ void analyze_ast(TypeInferenceContext* ctx, ASTNode* node) {
             analyze_ast(ctx, node->data.assign.left);
             analyze_ast(ctx, node->data.assign.right);
             break;
-            
         case AST_PRINT:
             analyze_ast(ctx, node->data.print.expr);
             break;
