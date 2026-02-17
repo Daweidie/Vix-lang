@@ -24,6 +24,52 @@ char* my_strndup(const char* str, size_t n) {
     }
     return result;
 }
+char* process_escape_sequences(const char* input, size_t input_len) {
+    char* result = malloc(input_len + 1);
+    size_t result_idx = 0;
+    for (size_t i = 0; i < input_len; i++) {//对于extern的printf
+        if (input[i] == '\\' && i + 1 < input_len) {
+            switch (input[i + 1]) {
+                case 'n':
+                    result[result_idx++] = '\n';
+                    i++;
+                    break;
+                case 't':
+                    result[result_idx++] = '\t';
+                    i++;
+                    break;
+                case 'r':
+                    result[result_idx++] = '\r';
+                    i++;
+                    break;
+                case '\\':
+                    result[result_idx++] = '\\';
+                    i++;
+                    break;
+                case '"':
+                    result[result_idx++] = '"';
+                    i++;
+                    break;
+                case '\'':
+                    result[result_idx++] = '\'';
+                    i++;
+                    break;
+                case '0':
+                    result[result_idx++] = '\0';
+                    i++;
+                    break;
+                default:
+                    result[result_idx++] = input[i];
+                    break;
+            }
+        } else {
+            result[result_idx++] = input[i];
+        }
+    }
+    
+    result[result_idx] = '\0';
+    return result;
+}
 %}
 
 %option noyywrap
@@ -66,6 +112,7 @@ char* my_strndup(const char* str, size_t n) {
 "string"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_STR; }
 "return"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return RETURN; }
 "fn"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FN; }
+"extern"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return EXTERN; }
 "const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONST; }
 "mut"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MUT; }
 "->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
@@ -85,12 +132,14 @@ char* my_strndup(const char* str, size_t n) {
 "continue"          { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONTINUE; }
 "for"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FOR; }
 "in"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IN; }
-
+"global"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return GLOBAL; }
 "struct"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return STRUCT; }
+"and"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return AND; }
+"or"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return OR; }
 
 "="                 { UPDATE_COLUMN(); return ASSIGN; }
 "+="                { UPDATE_COLUMN(); return PLUS_ASSIGN; }
-"-="                { UPDATE_COLUMN(); return MINUS_ASSIGN; }
+"-="                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MINUS_ASSIGN; }
 "*="                { UPDATE_COLUMN(); return MULTIPLY_ASSIGN; }
 "/="                { UPDATE_COLUMN(); return DIVIDE_ASSIGN; }
 "%="                { UPDATE_COLUMN(); return MODULO_ASSIGN; }
@@ -118,6 +167,7 @@ char* my_strndup(const char* str, size_t n) {
 
 ";"                 { UPDATE_COLUMN(); return SEMICOLON; }
 ","                 { UPDATE_COLUMN(); return COMMA; }
+"..."               { UPDATE_COLUMN(); return DOTDOTDOT; }
 ".."                { UPDATE_COLUMN(); return DOTDOT; }
 "."                 { UPDATE_COLUMN(); return DOT; }
 ":"                 { UPDATE_COLUMN(); return COLON; }
@@ -152,9 +202,11 @@ char* my_strndup(const char* str, size_t n) {
                         return NUMBER_FLOAT;
                       }
 
-\"[^\"\n]*\"        {
+\"([^\"\\]|\\[\"\\nrt0\\'])+\"        {
                         int col = GET_FIRST_COLUMN();
-                        yylval.str = my_strndup(yytext + 1, yyleng - 2);
+                        char* raw_str = my_strndup(yytext + 1, yyleng - 2);
+                        yylval.str = process_escape_sequences(raw_str, strlen(raw_str));
+                        free(raw_str);
                         yylloc.first_line = yylineno;
                         yylloc.first_column = col;
                         yylloc.last_line = yylineno;
@@ -162,14 +214,14 @@ char* my_strndup(const char* str, size_t n) {
                         return STRING;
                       }
 
-\'[^\'\n]*\'        {
+\'[^\']{1}\'        {
                         int col = GET_FIRST_COLUMN();
                         yylval.str = my_strndup(yytext + 1, yyleng - 2);
                         yylloc.first_line = yylineno;
                         yylloc.first_column = col;
                         yylloc.last_line = yylineno;
                         yylloc.last_column = col + yyleng - 1;
-                        return STRING;
+                        return CHAR_LITERAL;
                       }
 
 "//".*              { UPDATE_COLUMN(); } 
@@ -188,5 +240,3 @@ char* my_strndup(const char* str, size_t n) {
 /*
  *wocao tmd 这个lexer也是真tm nb啊，我tm都不知道我是怎么写出来的
  */
-
- 

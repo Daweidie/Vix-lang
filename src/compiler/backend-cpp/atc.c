@@ -6,6 +6,9 @@
 #include <math.h>
 #define MAX_VARS 1024
 
+#define MAX_RECURSION_DEPTH 1000
+static int current_recursion_depth = 0;
+
 static void emit_expression_with_context(FILE* out, ASTNode* node, int in_struct_literal, TypeInferenceContext* ctx);
 static void compile_node(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, int* decl, ASTNode* node);
 static void compile_program(ByteCodeGen* gen, TypeInferenceContext* ctx, FILE* out, int* decl, ASTNode* node);
@@ -18,8 +21,17 @@ static int check_function_has_return(ASTNode* node);
 static const char* get_param_type_string(TypeInferenceContext* ctx, ASTNode* param);
 static void compile_struct_def(FILE* out, ASTNode* node);
 
+
 static void emit_expression_with_context(FILE* out, ASTNode* node, int in_struct_literal, TypeInferenceContext* ctx) {
     if (!node) { fprintf(out, "/*null*/0"); return; }
+    
+    // 检查递归深度，防止栈溢出
+    if (current_recursion_depth >= MAX_RECURSION_DEPTH) {
+        fprintf(out, "/*recursion limit reached*/0");
+        return;
+    }
+    current_recursion_depth++;
+    
     switch (node->type) {
         case AST_NUM_INT:
             fprintf(out, "%lldLL", node->data.num_int.value);
@@ -360,10 +372,19 @@ static void emit_expression_with_context(FILE* out, ASTNode* node, int in_struct
         case AST_MEMBER_ACCESS: {
             if (node->data.member_access.field && node->data.member_access.field->type == AST_IDENTIFIER) {
                 const char* field_name = node->data.member_access.field->data.identifier.name;
+                
+                // 检查是否是.length属性访问
                 if (strcmp(field_name, "length") == 0) {
-                    fprintf(out, "(");
-                    emit_expression_with_context(out, node->data.member_access.object, in_struct_literal, ctx);
-                    fprintf(out, ").items.size()");
+                    // 使用预计算的数组长度
+                    int array_length = get_array_length(node->data.member_access.object);
+                    if (array_length >= 0) {
+                        fprintf(out, "%d", array_length);
+                    } else {
+                        // fallback到原来的实现
+                        fprintf(out, "(");
+                        emit_expression_with_context(out, node->data.member_access.object, in_struct_literal, ctx);
+                        fprintf(out, ").items.size()");
+                    }
                 } else {
                     int is_struct = 0;
                     int is_list = 0;
@@ -428,6 +449,9 @@ static void emit_expression_with_context(FILE* out, ASTNode* node, int in_struct
             fprintf(out, "/*expr_unhandled*/0");
             break;
     }
+    
+    // 递归完成后减少深度计数
+    current_recursion_depth--;
 }
 
 static const char* node_type_to_cpp_string(NodeType t, const char* type_name) {

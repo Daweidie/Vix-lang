@@ -1,18 +1,18 @@
-obj fn PersonA(age:i32,name:string)
+obj PersonA(age:i32,name:string)
 {
     field age = age
     field name = name
-    meth hello(self)
+    hello(self)
     {
         print("ciallo ! my name is " + self.name)
     }
-    meth out_age(self)
+    out_age(self)
     {
         print("I am " + self.age + " years old")
     }
 
 }
-impl PersonA:public
+impl PersonA -> public
 {
     hello as greeting,
     out_age as age

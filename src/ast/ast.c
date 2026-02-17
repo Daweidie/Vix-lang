@@ -1,10 +1,11 @@
 #include "../include/ast.h"
-#ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告
-#include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告
+#include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
+#endif
 
 ASTNode* create_program_node_with_location(Location location) {
     ASTNode* node = malloc(sizeof(ASTNode));
@@ -119,6 +120,7 @@ ASTNode* create_expression_list_node_with_location(Location location) {
     node->location = location;
     node->data.expression_list.expressions = NULL;
     node->data.expression_list.expression_count = 0;
+    node->data.expression_list.precomputed_length = -1;  // -1表示未计算
     return node;
 }
 
@@ -559,6 +561,20 @@ ASTNode* create_list_type_node(ASTNode* element_type) {
     Location loc = {0};
     return create_list_type_node_with_location(element_type, loc);
 }
+ASTNode* create_fixed_size_list_type_node_with_location(ASTNode* element_type, long long size, Location location) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    node->type = AST_TYPE_FIXED_SIZE_LIST;
+    node->location = location;
+    node->data.fixed_size_list_type.element_type = element_type;
+    node->data.fixed_size_list_type.size = size;
+    return node;
+}
+
+ASTNode* create_fixed_size_list_type_node(ASTNode* element_type, long long size) {
+    Location loc = {0};
+    return create_fixed_size_list_type_node_with_location(element_type, size, loc);
+}
 
 ASTNode* create_if_node_with_location(ASTNode* condition, ASTNode* then_body, ASTNode* else_body, Location location) {
     ASTNode* node = malloc(sizeof(ASTNode));
@@ -629,6 +645,9 @@ ASTNode* create_function_node_with_location(const char* name, ASTNode* params, A
     node->data.function.params = params;
     node->data.function.return_type = return_type;
     node->data.function.body = body;
+    node->data.function.is_extern = 0;
+    node->data.function.linkage = NULL;
+    node->data.function.vararg = 0;
     return node;
 }
 
@@ -641,6 +660,31 @@ ASTNode* create_function_node(const char* name, ASTNode* params, ASTNode* return
         loc.last_column = body->location.last_column;
     }
     return create_function_node_with_location(name, params, return_type, body, loc);
+}
+
+ASTNode* create_extern_function_node_with_location(const char* name, ASTNode* params, ASTNode* return_type, const char* linkage, Location location) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = AST_FUNCTION;
+    node->location = location;
+    node->data.function.name = malloc(strlen(name) + 1);
+    strcpy(node->data.function.name, name);
+    node->data.function.params = params;
+    node->data.function.return_type = return_type;
+    node->data.function.body = NULL;
+    node->data.function.is_extern = 1;
+    if (linkage) {
+        node->data.function.linkage = malloc(strlen(linkage) + 1);
+        strcpy(node->data.function.linkage, linkage);
+    } else {
+        node->data.function.linkage = NULL;
+    }
+    node->data.function.vararg = 0;
+    return node;
+}
+
+ASTNode* create_extern_function_node(const char* name, ASTNode* params, ASTNode* return_type, const char* linkage) {
+    Location loc = {0,0,0,0};
+    return create_extern_function_node_with_location(name, params, return_type, linkage, loc);
 }
 
 ASTNode* create_break_node_with_location(Location location) {
@@ -1000,6 +1044,62 @@ ASTNode* create_identifier_node_with_yyltype(const char* name, void* yylloc) {
     return create_identifier_node_with_location(name, location);
 }
 
+ASTNode* create_global_node_with_location(ASTNode* identifier, ASTNode* type, ASTNode* initializer, Location location) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = AST_GLOBAL;
+    node->location = location;
+    node->mutability = MUTABILITY_IMMUTABLE;//global cannt bian
+    node->data.global_decl.identifier = identifier;
+    node->data.global_decl.type = type;
+    node->data.global_decl.initializer = initializer;
+    return node;
+}
+
+ASTNode* create_global_node(ASTNode* identifier, ASTNode* type, ASTNode* initializer) {
+    Location loc = {1, 1, 1, 1};
+    if (identifier) loc = identifier->location;
+    else if (initializer) loc = initializer->location;
+    return create_global_node_with_location(identifier, type, initializer, loc);
+}
+
+ASTNode* create_global_node_with_yyltype(ASTNode* identifier, ASTNode* type, ASTNode* initializer, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = {
+        loc->first_line,
+        loc->first_column,
+        loc->last_line,
+        loc->last_column
+    };
+    return create_global_node_with_location(identifier, type, initializer, location);
+}
+
+ASTNode* create_char_node(char value) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    if (!node) {
+        fprintf(stderr, "Failed to allocate memory for ASTNode\n");
+        exit(1);
+    }
+    node->type = AST_CHAR;
+    node->data.character.value = value;
+    node->mutability = MUTABILITY_IMMUTABLE;
+    node->location.first_line = 0;
+    node->location.first_column = 0;
+    node->location.last_line = 0;
+    node->location.last_column = 0;
+    return node;
+}
+
+ASTNode* create_char_node_with_location(char value, Location location) {
+    ASTNode* node = create_char_node(value);
+    node->location = location;
+    return node;
+}
+
+ASTNode* create_char_node_with_yyltype(char value, void* yylloc) {
+    Location loc = *(Location*)yylloc;
+    return create_char_node_with_location(value, loc);
+}
+
 void free_ast(ASTNode* node) {
     if (!node) return;
     
@@ -1056,23 +1156,32 @@ void free_ast(ASTNode* node) {
             free(node->data.string.value);
             break;
             
+        case AST_CHAR:
+            break;
+            
         case AST_IDENTIFIER:
             free(node->data.identifier.name);
             break;
             
         case AST_TYPE_INT32:
         case AST_TYPE_INT64:
-        case AST_TYPE_INT8:  // 添加对AST_TYPE_INT8类型的处理
+        case AST_TYPE_INT8:
         case AST_TYPE_FLOAT32:
         case AST_TYPE_FLOAT64:
         case AST_TYPE_STRING:
         case AST_TYPE_VOID:
-        case AST_TYPE_POINTER:  // 添加对AST_TYPE_POINTER类型的处理
+        case AST_TYPE_POINTER:
             break;
             
         case AST_TYPE_LIST:
             if (node->data.list_type.element_type) {
                 free_ast(node->data.list_type.element_type);
+            }
+            break;
+            
+        case AST_TYPE_FIXED_SIZE_LIST:
+            if (node->data.fixed_size_list_type.element_type) {
+                free_ast(node->data.fixed_size_list_type.element_type);
             }
             break;
             
@@ -1115,6 +1224,9 @@ void free_ast(ASTNode* node) {
             if (node->data.function.body) {
                 free_ast(node->data.function.body);
             }
+            if (node->data.function.linkage) {
+                free(node->data.function.linkage);
+            }
             break;
             
         case AST_CALL:
@@ -1137,11 +1249,21 @@ void free_ast(ASTNode* node) {
                 free_ast(node->data.return_stmt.expr);
             }
             break;
-
+        case AST_GLOBAL:
+            if (node->data.global_decl.identifier) {
+                free_ast(node->data.global_decl.identifier);
+            }
+            if (node->data.global_decl.type) {
+                free_ast(node->data.global_decl.type);
+            }
+            if (node->data.global_decl.initializer) {
+                free_ast(node->data.global_decl.initializer);
+            }
+            break;
             
         case AST_NUM_INT:
         case AST_NUM_FLOAT:
-        case AST_NIL:  // 添加对nil节点的处理
+        case AST_NIL:
         case AST_BREAK:
         case AST_CONTINUE:
             break;
@@ -1227,7 +1349,9 @@ void print_ast(ASTNode* node, int indent) {
                    node->data.binop.op == OP_LT ? "<" :
                    node->data.binop.op == OP_LE ? "<=" :
                    node->data.binop.op == OP_GT ? ">" :
-                   node->data.binop.op == OP_GE ? ">=" : "unknown");
+                   node->data.binop.op == OP_GE ? ">=" :
+                   node->data.binop.op == OP_AND ? "and" :
+                   node->data.binop.op == OP_OR ? "or" : "unknown");
             for (int i = 0; i < indent + 1; i++) printf("  ");
             printf("Left:\n");
             print_ast(node->data.binop.left, indent + 2);
@@ -1254,6 +1378,9 @@ void print_ast(ASTNode* node, int indent) {
             break;
         case AST_STRING:
             printf("String: \"%s\"\n", node->data.string.value);
+            break;
+        case AST_CHAR:
+            printf("Char: '%c'\n", node->data.character.value);
             break;
         case AST_IDENTIFIER:
             printf("Identifier: %s\n", node->data.identifier.name);
@@ -1336,7 +1463,16 @@ void print_ast(ASTNode* node, int indent) {
             printf("\n");
             break;
         case AST_FUNCTION:
-            printf("Function: %s\n", node->data.function.name);
+            if (node->data.function.is_extern) {
+                printf("Extern Function: %s", node->data.function.name);
+                if (node->data.function.linkage) {
+                    printf(" (linkage: \"%s\")", node->data.function.linkage);
+                }
+                if (node->data.function.vararg) printf(" [vararg]");
+                printf("\n");
+            } else {
+                printf("Function: %s\n", node->data.function.name);
+            }
             for (int i = 0; i < indent + 1; i++) printf("  ");
             printf("Params:\n");
             if (node->data.function.params) {
@@ -1366,8 +1502,41 @@ void print_ast(ASTNode* node, int indent) {
             printf("Return:\n");
             if (node->data.return_stmt.expr) print_ast(node->data.return_stmt.expr, indent + 1);
             break;
+        case AST_GLOBAL:
+            printf("Global Declaration:\n");
+            if (node->data.global_decl.identifier) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Identifier: ");
+                print_ast(node->data.global_decl.identifier, 0);
+            }
+            if (node->data.global_decl.type) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Type: ");
+                print_ast(node->data.global_decl.type, 0);
+            }
+            if (node->data.global_decl.initializer) {
+                for (int i = 0; i < indent + 1; i++) printf("  ");
+                printf("Initializer:\n");
+                print_ast(node->data.global_decl.initializer, indent + 2);
+            }
+            break;
         default:
             printf("Unknown node type!!!: %d\n", node->type);
             break;
     }
+}
+
+int get_array_length(ASTNode* node) {
+    if (!node || node->type != AST_EXPRESSION_LIST) {
+        return -1;
+    }
+    
+    // 如果已经预计算过，直接返回
+    if (node->data.expression_list.precomputed_length >= 0) {
+        return node->data.expression_list.precomputed_length;
+    }
+    
+    // 首次计算并缓存
+    node->data.expression_list.precomputed_length = node->data.expression_list.expression_count;
+    return node->data.expression_list.precomputed_length;
 }

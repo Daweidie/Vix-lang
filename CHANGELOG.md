@@ -67,3 +67,7 @@
 
 - will do
   完善llvm后端
+
+## 25/2/17 更新日志
+1. 移除emit.c文件中的VIC IR到LLVM IR转换实现
+2. 由于项目架构调整，删除了原来的emit.c文件中完整的vic ir到llvm ir转换功能实现。该文件包含了从vic中间表示解析并生成llvm ir的完整逻辑

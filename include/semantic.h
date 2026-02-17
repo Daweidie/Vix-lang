@@ -36,4 +36,4 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
 void report_undefined_identifier_with_location_and_column(const char* identifier, const char* filename, int line, int column);
 void report_undefined_function_with_location_and_column(const char* identifier, const char* filename, int line, int column);
 
-#endif // SEMANTIC_H
+#endif /*SEMANTIC_H*/

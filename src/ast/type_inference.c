@@ -78,6 +78,9 @@ InferredType infer_type(TypeInferenceContext* ctx, ASTNode* node) {
     if (!node) return TYPE_UNKNOWN;
     
     switch (node->type) {
+        case AST_CHAR:
+            return TYPE_INT8;
+            
         case AST_NUM_INT:
             return TYPE_INT;
             
@@ -110,6 +113,9 @@ InferredType infer_type(TypeInferenceContext* ctx, ASTNode* node) {
         case AST_BINOP: {
             InferredType left_type = infer_type(ctx, node->data.binop.left);
             InferredType right_type = infer_type(ctx, node->data.binop.right);
+            if (node->data.binop.op == OP_AND || node->data.binop.op == OP_OR) {
+                return TYPE_BOOL;
+            }
             
             if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
                 return TYPE_STRING;

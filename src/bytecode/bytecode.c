@@ -308,6 +308,12 @@ void generate_bytecode_binop(ByteCodeGen* gen, ASTNode* node) {
         case OP_GE:
             bc->op = BC_GE;
             break;
+        case OP_AND:
+            bc->op = BC_AND;
+            break;
+        case OP_OR:
+            bc->op = BC_OR;
+            break;
     }
     
     /*获取操作数的寄存器索引

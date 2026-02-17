@@ -13,4 +13,4 @@ int qbe_get_struct_info(QbeGenState* state, const char* name, char*** out_field_
 #ifdef __cplusplus
 }
 #endif
-#endif // QBE_STRUCT_H
+#endif /*QBE_STRUCT_H*/

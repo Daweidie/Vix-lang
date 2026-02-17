@@ -22,12 +22,13 @@ ASTNode* root;
     struct ASTNode* node;
 }
 
-%token <str> IDENTIFIER STRING
+%token <str> IDENTIFIER STRING CHAR_LITERAL
 %token STRUCT COLON
-%token CONST MUT
+%token CONST MUT GLOBAL
 %token <num_int> NUMBER_INT
 %token <num_float> NUMBER_FLOAT
-%token PRINT INPUT TOINT TOFLOAT TYPE_I32 TYPE_I64 TYPE_I8 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID NIL
+%token PRINT INPUT TOINT TOFLOAT TYPE_I32 TYPE_I64 TYPE_I8 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID NIL EXTERN DOTDOTDOT
+%token AND OR
 %token AT AMPERSAND
 %token IF ELSE ELIF WHILE FOR BREAK CONTINUE IN
 %token ASSIGN PLUS_ASSIGN MINUS_ASSIGN MULTIPLY_ASSIGN DIVIDE_ASSIGN MODULO_ASSIGN
@@ -36,15 +37,22 @@ ASTNode* root;
 %token DOT DOTDOT LBRACKET RBRACKET
 %token LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA
 %token ERROR
+%left OR
+%left AND
+%nonassoc EQ NE LT LE GT GE
+%left PLUS MINUS
+%left MULTIPLY DIVIDE MODULO
+%right POWER
 
 %type <node> program statement_list statement 
+%type <node> extern_block extern_decl extern_decl_list
 %type <node> struct_fields struct_field struct_init_fields struct_init_field
 %type <node> type param_list function_definition lvalue
 %type <node> print_statement assignment_statement compound_assignment_statement
 %type <node> input_statement if_statement while_statement for_statement
-%type <node> expression expression_list term factor power factor_unary comparison
+%type <node> expression logical_expression comparison_expression term factor power factor_unary comparison
 %type <node> literal identifier toint_expression tofloat_expression input_expression
-%type <node> block_statement if_rest
+%type <node> block_statement if_rest expression_list
 
 %nonassoc IF
 %nonassoc ELSE
@@ -95,6 +103,8 @@ statement
         $2->mutability = MUTABILITY_MUTABLE;
     }
     | CONST identifier ASSIGN expression SEMICOLON { $$ = create_const_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
+    | GLOBAL identifier ASSIGN expression SEMICOLON { $$ = create_global_node_with_yyltype($2, NULL, $4, (YYLTYPE*) &@$); }
+    | GLOBAL identifier COLON type ASSIGN expression SEMICOLON { $$ = create_global_node_with_yyltype($2, $4, $6, (YYLTYPE*) &@$); }
     | compound_assignment_statement SEMICOLON { $$ = $1; }
     | input_statement SEMICOLON     { $$ = $1; }
     | if_statement                  { $$ = $1; }
@@ -110,12 +120,15 @@ statement
     | compound_assignment_statement { $$ = $1; }
     | input_statement               { $$ = $1; }
     | function_definition           { $$ = $1; }
+    | extern_block                 { $$ = $1; }
     | STRUCT IDENTIFIER LBRACE struct_fields RBRACE { $$ = create_struct_def_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
     | RETURN expression SEMICOLON  { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | RETURN expression            { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | expression SEMICOLON         { $$ = $1; }
     | expression                   { $$ = $1; }
     | CONST identifier ASSIGN expression { $$ = create_const_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
+    | GLOBAL identifier ASSIGN expression { $$ = create_global_node_with_yyltype($2, NULL, $4, (YYLTYPE*) &@$); }
+    | GLOBAL identifier COLON type ASSIGN expression { $$ = create_global_node_with_yyltype($2, $4, $6, (YYLTYPE*) &@$); }
     | identifier COLON expression { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | MUT identifier ASSIGN expression { 
         $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$); 
@@ -149,6 +162,7 @@ struct_fields
     : /* empty */ { $$ = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); }
     | struct_field { ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); add_expression_to_list(list, $1); $$ = list; }
     | struct_fields COMMA struct_field { add_expression_to_list($1, $3); $$ = $1; }
+    | struct_fields struct_field { add_expression_to_list($1, $2); $$ = $1; }
     ;
 struct_init_field
     : IDENTIFIER COLON expression { $$ = create_assign_node_with_yyltype(create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$), $3, (YYLTYPE*) &@$); }
@@ -158,6 +172,7 @@ struct_init_fields
     : /* empty */ { $$ = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); }
     | struct_init_field { ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); add_expression_to_list(list, $1); $$ = list; }
     | struct_init_fields COMMA struct_init_field { add_expression_to_list($1, $3); $$ = $1; }
+    | struct_init_fields struct_init_field { add_expression_to_list($1, $2); $$ = $1; }
     ;
 
 type
@@ -176,6 +191,7 @@ type
     | AMPERSAND TYPE_F64 { $$ = create_type_node(AST_TYPE_POINTER); }
     | AMPERSAND TYPE_STR { $$ = create_type_node(AST_TYPE_POINTER); }
     | AMPERSAND IDENTIFIER { $$ = create_type_node(AST_TYPE_POINTER); }
+    | LBRACKET type MULTIPLY NUMBER_INT RBRACKET { $$ = create_fixed_size_list_type_node($2, $4); }
     | LBRACKET type RBRACKET { $$ = create_list_type_node($2); }
     | IDENTIFIER {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); 
@@ -240,6 +256,50 @@ function_definition
         $$ = create_function_node($2, $4, void_type, $7);
     }
     ;
+
+extern_decl
+    : FN IDENTIFIER LPAREN RPAREN ARROW type {
+        $$ = create_extern_function_node($2, NULL, $6, NULL);
+    }
+    | FN IDENTIFIER LPAREN param_list RPAREN ARROW type {
+        $$ = create_extern_function_node($2, $4, $7, NULL);
+    }
+    | FN IDENTIFIER LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type {
+        ASTNode* fn = create_extern_function_node($2, $4, $9, NULL);
+        fn->data.function.vararg = 1;
+        $$ = fn;
+    }
+    | FN IDENTIFIER LPAREN DOTDOTDOT RPAREN ARROW type {
+        ASTNode* fn = create_extern_function_node($2, NULL, $7, NULL);
+        fn->data.function.vararg = 1;
+        $$ = fn;
+    }
+
+extern_decl_list
+    : /* empty */ { $$ = create_expression_list_node(); }
+    | extern_decl { ASTNode* list = create_expression_list_node(); add_expression_to_list(list, $1); $$ = list; }
+    | extern_decl_list extern_decl { add_expression_to_list($1, $2); $$ = $1; }
+
+extern_block
+    : EXTERN STRING LBRACE extern_decl_list RBRACE {
+        ASTNode* prog = create_program_node();
+        if ($4 && $4->type == AST_EXPRESSION_LIST) {
+            int cnt = $4->data.expression_list.expression_count;
+            for (int i = 0; i < cnt; i++) {
+                ASTNode* fn = $4->data.expression_list.expressions[i];
+                if (fn && fn->type == AST_FUNCTION) {
+                    fn->data.function.is_extern = 1;
+                    if ($2) {
+                        if (fn->data.function.linkage) free(fn->data.function.linkage);
+                        fn->data.function.linkage = malloc(strlen($2) + 1);
+                        strcpy(fn->data.function.linkage, $2);
+                    }
+                    add_statement_to_program(prog, fn);
+                }
+            }
+        }
+        $$ = prog;
+    }
 
 print_statement
     : PRINT expression              { $$ = create_print_node_with_yyltype($2, (YYLTYPE*) &@$); }
@@ -371,12 +431,26 @@ expression_list
                                     }
     ;
 
+logical_expression
+    : comparison_expression                 { $$ = $1; }
+    | logical_expression AND comparison_expression { $$ = create_binop_node_with_yyltype(OP_AND, $1, $3, (YYLTYPE*) &@$); }
+    | logical_expression OR comparison_expression  { $$ = create_binop_node_with_yyltype(OP_OR, $1, $3, (YYLTYPE*) &@$); }
+    ;
+
+comparison_expression
+    : term                                  { $$ = $1; }
+    | term EQ term                          { $$ = create_binop_node_with_yyltype(OP_EQ, $1, $3, (YYLTYPE*) &@$); }
+    | term NE term                          { $$ = create_binop_node_with_yyltype(OP_NE, $1, $3, (YYLTYPE*) &@$); }
+    | term LT term                          { $$ = create_binop_node_with_yyltype(OP_LT, $1, $3, (YYLTYPE*) &@$); }
+    | term LE term                          { $$ = create_binop_node_with_yyltype(OP_LE, $1, $3, (YYLTYPE*) &@$); }
+    | term GT term                          { $$ = create_binop_node_with_yyltype(OP_GT, $1, $3, (YYLTYPE*) &@$); }
+    | term GE term                          { $$ = create_binop_node_with_yyltype(OP_GE, $1, $3, (YYLTYPE*) &@$); }
+    ;
 
 expression
-    : comparison                    { $$ = $1; }
-    | term                          { $$ = $1; }
-    | expression PLUS term          { $$ = create_binop_node_with_yyltype(OP_ADD, $1, $3, (YYLTYPE*) &@$); }
-    | expression MINUS term         { $$ = create_binop_node_with_yyltype(OP_SUB, $1, $3, (YYLTYPE*) &@$); }
+    : logical_expression                    { $$ = $1; }
+    | expression PLUS logical_expression    { $$ = create_binop_node_with_yyltype(OP_ADD, $1, $3, (YYLTYPE*) &@$); }
+    | expression MINUS logical_expression   { $$ = create_binop_node_with_yyltype(OP_SUB, $1, $3, (YYLTYPE*) &@$); }
     ;
 
 comparison
@@ -444,6 +518,7 @@ literal
     : NUMBER_INT                    { $$ = create_num_int_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | NUMBER_FLOAT                  { $$ = create_num_float_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | STRING                        { $$ = create_string_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | CHAR_LITERAL                  { $$ = create_char_node_with_yyltype($1[0], (YYLTYPE*) &@$); }
     | NIL                           { $$ = create_nil_node_with_yyltype((YYLTYPE*) &@$); }
     | LBRACKET RBRACKET             { $$ = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); }
     | LBRACKET expression_list RBRACKET { $$ = $2; }

@@ -340,9 +340,10 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
     }
     VisitedNode* new_visited_list = add_visited_node(node, visited_list);
     if (!new_visited_list) {
-        /*如果无法添加到访问列表，可能是因为内存分配失败
-            在这种情况下，我们仍然可以继续处理，但不进行递归保护
-            但为了安全，我们返回0避免进一步处理
+        /*
+        如果无法添加到访问列表，可能是因为内存分配失败
+        在这种情况下，我们仍然可以继续处理，但不进行递归保护
+        但为了安全，我们返回0避免进一步处理
         */
         return 0;
     }
@@ -351,6 +352,36 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
     
     switch (node->type) {
         case AST_PROGRAM: {
+            SymbolTable* func_table = create_symbol_table(table);
+            for (int i = 0; i < node->data.program.statement_count; i++) {
+                ASTNode* stmt = node->data.program.statements[i];
+                if (stmt && stmt->type == AST_FUNCTION) {
+                    add_symbol(func_table, stmt->data.function.name, SYMBOL_FUNCTION, TYPE_UNKNOWN);
+                }
+            }
+            for (int i = 0; i < node->data.program.statement_count; i++) {
+                ASTNode* stmt = node->data.program.statements[i];
+                if (stmt && stmt->type == AST_GLOBAL) {
+                    ASTNode* identifier = stmt->data.global_decl.identifier;
+                    if (identifier && identifier->type == AST_IDENTIFIER) {
+                        const char* var_name = identifier->data.identifier.name;
+                        if (lookup_symbol(func_table, var_name)) {
+                            const char* filename = current_input_filename ? current_input_filename : "unknown";
+                            int line = (identifier->location.first_line > 0) ? identifier->location.first_line : 1;
+                            char buf[256];
+                            snprintf(buf, sizeof(buf), "Global variable '%s' conflicts with function name", var_name);
+                            report_semantic_error_with_location(buf, filename, line);
+                            errors_found++;
+                            continue;
+                        }
+                        add_symbol(table, var_name, SYMBOL_VARIABLE, TYPE_UNKNOWN);
+                        if (stmt->data.global_decl.initializer) {
+                            add_var_init_mapping(var_name, stmt->data.global_decl.initializer);
+                        }
+                    }
+                }
+            }
+            destroy_symbol_table(func_table);
             for (int i = 0; i < node->data.program.statement_count; i++) {
                 errors_found += check_undefined_symbols_in_node_with_visited(node->data.program.statements[i], table, new_visited_list);
             }
@@ -358,7 +389,6 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
         }
         
         case AST_ASSIGN: {
-            // 处理解引用赋值的不可变性检查
             if (node->data.assign.left && 
                 node->data.assign.left->type == AST_UNARYOP && 
                 node->data.assign.left->data.unaryop.op == OP_DEREF) {
@@ -516,8 +546,7 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                 if (!struct_def) {
                     const char* filename = current_input_filename ? current_input_filename : "unknown";
                     int line = (node->data.struct_literal.type_name->location.first_line > 0) ? node->data.struct_literal.type_name->location.first_line : 1;
-                    int column = (node->data.struct_literal.type_name->location.first_column > 0) ? node->data.struct_literal.type_name->location.first_column : 1;
-                    report_undefined_identifier_with_location_and_column(struct_name, filename, line, column);
+                    report_undefined_identifier_with_location_and_column(struct_name, filename, line, 1);
                     errors_found++;
                 }
             }
@@ -552,7 +581,6 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                         if (!found) {
                             const char* filename = current_input_filename ? current_input_filename : "unknown";
                             int line = (node->data.index.index->location.first_line > 0) ? node->data.index.index->location.first_line : 1;
-                          //int column = (node->data.index.index->location.first_column > 0) ? node->data.index.index->location.first_column : 1;
                             const char* suggestion = find_closest_field_name(def, field_name);
                             char buf[512];
                             if (suggestion) {
@@ -633,7 +661,6 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                         if (!found) {
                             const char* filename = current_input_filename ? current_input_filename : "unknown";
                             int line = (node->data.member_access.field->location.first_line > 0) ? node->data.member_access.field->location.first_line : 1;
-                            //int column = (node->data.member_access.field->location.first_column > 0) ? node->data.member_access.field->location.first_column : 1;
                             const char* suggestion = find_closest_field_name(def, field_name);
                             char buf[512];
                             if (suggestion) {
@@ -1107,11 +1134,10 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
         case AST_FOR: {
             warnings_found += check_unused_variables_with_usage(node->data.for_stmt.start, table, usage_list);
             warnings_found += check_unused_variables_with_usage(node->data.for_stmt.end, table, usage_list);
-            if (node->data.for_stmt.var && node->data.for_stmt.var->type == AST_IDENTIFIER) {// 获取循环变量定义的行号和列号
+            if (node->data.for_stmt.var && node->data.for_stmt.var->type == AST_IDENTIFIER) {//获取循环变量定义的行号和列号
                 int line = (node->data.for_stmt.var->location.first_line > 0) ? node->data.for_stmt.var->location.first_line : 1;
                 int column = (node->data.for_stmt.var->location.first_column > 0) ? node->data.for_stmt.var->location.first_column : 1;
                 add_symbol(table, node->data.for_stmt.var->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN);
-                /*添加变量到使用情况列表，包含列号信息*/
                 VariableUsage* var_usage = find_variable_in_usage(*usage_list, node->data.for_stmt.var->data.identifier.name);
                 if (!var_usage) {
                     VariableUsage* new_usage = add_variable_to_usage_with_column(*usage_list, node->data.for_stmt.var->data.identifier.name, line, column);

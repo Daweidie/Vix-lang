@@ -1,7 +1,15 @@
 #ifndef LLVM_EMIT_H
 #define LLVM_EMIT_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdio.h>
-void llvm_emit_from_vic_fp(FILE* vic_fp, FILE* llvm_fp);
+typedef struct ASTNode ASTNode;
+void llvm_emit_from_ast(ASTNode* ast_root, FILE* llvm_fp);
 
-#endif /* LLVM_EMIT_H */
-
+#ifdef __cplusplus
+}//c api
+#endif
+#endif

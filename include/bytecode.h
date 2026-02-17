@@ -28,6 +28,8 @@ typedef enum {
     BC_LE,
     BC_GT,
     BC_GE,
+    BC_AND,
+    BC_OR,
     BC_JUMP,
     BC_JUMP_IF_FALSE,
     BC_BREAK,
@@ -39,12 +41,11 @@ typedef enum {
     BC_RETURN,
     BC_ADDRESS,
     BC_DEREF,
-    // 新增的字节码指令
-    BC_INDEX,           // 数组索引或结构体字段访问
-    BC_STRUCT_DEF,      // 结构体定义
-    BC_STRUCT_CREATE,   // 创建结构体实例
-    BC_STRUCT_GET_FIELD, // 获取结构体字段
-    BC_STRUCT_SET_FIELD  // 设置结构体字段
+    BC_INDEX,
+    BC_STRUCT_DEF,
+    BC_STRUCT_CREATE,
+    BC_STRUCT_GET_FIELD,
+    BC_STRUCT_SET_FIELD
 } ByteCodeInstruction;
 
 typedef struct {
@@ -72,8 +73,6 @@ typedef struct {
     int arg_count;
     int result_index;
 } CallArgs;
-
-// 新增的结构体相关参数
 typedef struct {
     int target_index;
     int index_index;
@@ -84,7 +83,7 @@ typedef struct {
     char* struct_name;
     int field_count;
     char** field_names;
-    int* field_types;  // 类型编码
+    int* field_types;
 } StructDefArgs;
 
 typedef struct {
@@ -118,7 +117,6 @@ typedef struct {
         TriAddrOperands triaddr;
         FunctionDefArgs func_def_args;
         CallArgs call_args;
-        // 新增的参数类型
         IndexArgs index_args;
         StructDefArgs struct_def_args;
         StructCreateArgs struct_create_args;
@@ -152,4 +150,4 @@ int get_variable_index(ByteCodeGen* gen, const char* name);
 void print_bytecode(ByteCodeList* list);
 void print_bytecode_to_file(ByteCodeList* list, FILE* output);
 
-#endif // BYTECODE_H
+#endif /*BYTECODE_H*/

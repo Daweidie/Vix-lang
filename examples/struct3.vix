@@ -1,10 +1,10 @@
 struct Person{
-    name:string,
-    age:i32
+    name: string,
+    age: i32
 }
 struct Woman{
-    person:Person
-    age:i32
+    person: Person
+    age: i32
 }
 p1 = Person{name:"Mike",age:20}
 emp = Woman{person:p1,age:30}
