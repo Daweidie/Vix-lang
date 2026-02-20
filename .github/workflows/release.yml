@@ -1,0 +1,68 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'vix-release-*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # 安装依赖
+      - name: Install dependencies
+        run: |
+          choco install winflexbison
+          choco install llvm
+      
+      # 编译
+      - name: Build
+        run: |
+          cd src
+          make
+        shell: bash
+      
+      # 下载 Clang-18 安装包
+      - name: Download Clang-18
+        run: |
+          # 下载 Clang-18 Windows 安装包
+          curl -L -o clang-18.1.0-windows-x64.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.0/LLVM-18.1.0-win64.exe
+      
+      # 创建 Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            bin/vixc.exe
+            clang-18.1.0-windows-x64.exe
+          name: Vixc ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          body: |
+            ## Vixc 编译器 ${{ github.ref_name }}
+            
+            ### 🪟 Windows 用户
+            - `vixc.exe` - Vixc 编译器
+            - `clang-18.1.0-windows-x64.exe` - Clang-18 安装程序
+            
+            ### 📝 安装步骤
+            1. 安装 Clang-18（双击运行）
+            2. 安装 Flex/Bison：`choco install winflexbison`
+            3. 将 vixc.exe 所在目录添加到 PATH
+            4. 打开新的终端，运行 `vixc -v` 验证
+            
+            ### 🐧 Linux 用户
+            Linux 用户请直接克隆源码编译：
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git
+            cd vixc/src
+            make
+            sudo make install
+            ```
+            
+            需要依赖：clang-18, flex, bison
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
