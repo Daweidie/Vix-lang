@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'vix-release-*'
+  workflow_dispatch:  # 允许手动触发，方便调试
 
 jobs:
   build-windows:
@@ -11,31 +12,66 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      # 调试：查看目录结构
+      - name: Debug - List files
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          ls -la
+          echo "=== src directory ==="
+          ls -la src/ || echo "src/ not found"
+        shell: bash
+      
       # 安装依赖
       - name: Install dependencies
         run: |
           choco install winflexbison
           choco install llvm
+        shell: bash
+      
+      # 调试：查看 PATH 和工具版本
+      - name: Debug - Check tools
+        run: |
+          echo "=== PATH ==="
+          echo $PATH
+          echo "=== GCC ==="
+          gcc --version || echo "gcc not found"
+          echo "=== Make ==="
+          make --version || echo "make not found"
+          echo "=== Flex/Bison ==="
+          flex --version || echo "flex not found"
+          bison --version || echo "bison not found"
+        shell: bash
       
       # 编译
       - name: Build
         run: |
           cd src
-          make
+          make V=1  # V=1 会输出详细编译信息
         shell: bash
       
-      # 下载 Clang-18 安装包
+      # 调试：查看编译结果
+      - name: Debug - Check build output
+        run: |
+          echo "=== src after build ==="
+          ls -la src/
+          echo "=== Looking for vixc.exe ==="
+          find . -name "*.exe" -o -name "vixc*"
+        shell: bash
+      
+      # 下载 Clang-18
       - name: Download Clang-18
         run: |
-          # 下载 Clang-18 Windows 安装包
           curl -L -o clang-18.1.0-windows-x64.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.0/LLVM-18.1.0-win64.exe
+        shell: bash
       
       # 创建 Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
+        if: success()  # 只有前面成功才创建
         with:
           files: |
-            bin/vixc.exe
+            src/vixc.exe
             clang-18.1.0-windows-x64.exe
           name: Vixc ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
@@ -58,11 +94,9 @@ jobs:
             Linux 用户请直接克隆源码编译：
             ```bash
             git clone https://github.com/${{ github.repository }}.git
-            cd vixc/src
+            cd Vix-lang/src
             make
             sudo make install
             ```
-            
-            需要依赖：clang-18, flex, bison
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
