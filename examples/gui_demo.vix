@@ -1,0 +1,25 @@
+import "std/gui/gui.vix"
+
+fn main() -> i32
+{
+    // 显示信息框
+    show_info_box("欢迎使用Vix Windows GUI!", "Vix GUI演示")
+    
+    // 创建主窗口
+    hwnd = create_main_window("我的第一个Windows GUI应用", 400, 300)
+    
+    // 添加标签
+    label_hwnd = create_label(hwnd, "欢迎使用Vix Windows GUI!", 50, 50, 200, 30)
+    
+    // 添加按钮
+    button_hwnd = create_button(hwnd, "点击我", 50, 100, 100, 30, 1001)
+    
+    // 显示窗口
+    show_window(hwnd)
+    
+    // 启动消息循环
+    message_loop()
+    
+    return 0
+}
+
