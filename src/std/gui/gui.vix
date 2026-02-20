@@ -1,0 +1,201 @@
+
+// Windows GUI Library for Vix
+// Provides native Windows GUI functionality
+
+// 基本类型定义
+type HWND = ptr
+type HINSTANCE = ptr
+type LPCTSTR = ptr
+type UINT = u32
+type DWORD = u32
+type BOOL = i32
+type LONG = i32
+type WORD = u16
+type LPARAM = ptr
+type WPARAM = ptr
+type LRESULT = ptr
+type HMENU = ptr
+type LPVOID = ptr
+type ATOM = WORD
+type HGDIOBJ = ptr
+type LPCSTR = ptr
+
+// 窗口样式常量 (转换为十进制)
+const WS_OVERLAPPED = 0
+const WS_POPUP = -2147483648  // 0x80000000
+const WS_CHILD = 1073741824   // 0x40000000
+const WS_VISIBLE = 268435456   // 0x10000000
+const WS_CAPTION = 12582912    // 0x00C00000
+const WS_SYSMENU = 524288      // 0x00080000
+const WS_THICKFRAME = 262144   // 0x00040000
+
+// 扩展窗口样式常量
+const WS_EX_CLIENTEDGE = 512   // 0x00000200
+const WS_EX_WINDOWEDGE = 256   // 0x00000100
+
+// 按钮控制样式
+const BS_PUSHBUTTON = 0        // 0x00000000
+const BS_DEFPUSHBUTTON = 1     // 0x00000001
+
+// 控件ID
+const IDC_STATIC = -1          // 0xFFFF
+
+// 消息框类型常量
+const MB_OK = 0                // 0x00000000
+const MB_OKCANCEL = 1          // 0x00000001
+const MB_YESNO = 4             // 0x00000004
+const MB_ICONINFORMATION = 64  // 0x00000040
+const MB_ICONWARNING = 128     // 0x00000080
+const MB_ICONERROR = 256       // 0x00000100
+
+// 系统颜色常量
+const COLOR_BTNFACE = 15
+const COLOR_WINDOW = 5
+
+// 函数声明 - 导入Windows API
+extern "C" fn MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) -> i32
+extern "C" fn CreateWindowExA(DWORD dwExStyle, LPCSTR lpClassName, LPCSTR lpWindowName, 
+                          DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
+                          HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam) -> HWND
+extern "C" fn ShowWindow(HWND hWnd, int nCmdShow) -> BOOL
+extern "C" fn UpdateWindow(HWND hWnd) -> BOOL
+extern "C" fn DestroyWindow(HWND hWnd) -> BOOL
+extern "C" fn RegisterClassExA(ptr lpwcx) -> ATOM
+extern "C" fn GetMessageA(ptr lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax) -> BOOL
+extern "C" fn TranslateMessage(ptr lpMsg) -> BOOL
+extern "C" fn DispatchMessageA(ptr lpMsg) -> LRESULT
+extern "C" fn PostQuitMessage(int nExitCode) -> void
+extern "C" fn GetStockObject(int nIndex) -> HGDIOBJ
+extern "C" fn DefWindowProcA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) -> LRESULT
+
+// 实际的GUI操作函数
+
+fn show_message_box(text: ptr, caption: ptr, type_flags: i32) -> i32 {
+    return MessageBoxA(0 as HWND, text as LPCSTR, caption as LPCSTR, type_flags as UINT)
+}
+
+fn show_info_box(text: ptr, caption: ptr) -> i32 {
+    return MessageBoxA(0 as HWND, text as LPCSTR, caption as LPCSTR, MB_OK | MB_ICONINFORMATION)
+}
+
+fn show_warning_box(text: ptr, caption: ptr) -> i32 {
+    return MessageBoxA(0 as HWND, text as LPCSTR, caption as LPCSTR, MB_OK | MB_ICONWARNING)
+}
+
+fn show_error_box(text: ptr, caption: ptr) -> i32 {
+    return MessageBoxA(0 as HWND, text as LPCSTR, caption as LPCSTR, MB_OK | MB_ICONERROR)
+}
+
+fn create_main_window(title: ptr, width: i32, height: i32) -> ptr {
+    hwnd = CreateWindowExA(
+        WS_EX_WINDOWEDGE,           // dwExStyle
+        "VixWndClass" as LPCSTR,    // lpClassName
+        title as LPCSTR,            // lpWindowName
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME, // dwStyle
+        100,                        // X position
+        100,                        // Y position
+        width,                      // nWidth
+        height,                     // nHeight
+        0 as HWND,                  // hWndParent
+        0 as HMENU,                 // hMenu
+        0 as HINSTANCE,             // hInstance
+        0 as LPVOID                 // lpParam
+    )
+    
+    return hwnd
+}
+
+fn create_child_window(parent_hwnd: ptr, class_name: ptr, text: ptr, x: i32, y: i32, width: i32, height: i32, style: i32) -> ptr {
+    hwnd = CreateWindowExA(
+        0,                                    // dwExStyle
+        class_name as LPCSTR,                 // lpClassName
+        text as LPCSTR,                       // lpWindowName
+        style,                                // dwStyle
+        x,                                    // X position
+        y,                                    // Y position
+        width,                                // nWidth
+        height,                               // nHeight
+        parent_hwnd as HWND,                  // hWndParent
+        0 as HMENU,                           // hMenu
+        0 as HINSTANCE,                       // hInstance
+        0 as LPVOID                           // lpParam
+    )
+    
+    return hwnd
+}
+
+fn create_label(hwnd_parent: ptr, text: ptr, x: i32, y: i32, width: i32, height: i32) -> ptr {
+    label_hwnd = CreateWindowExA(
+        0,                                    // dwExStyle
+        "STATIC" as LPCSTR,                   // lpClassName
+        text as LPCSTR,                       // lpWindowName
+        WS_CHILD | WS_VISIBLE,               // dwStyle
+        x,                                    // X position
+        y,                                    // Y position
+        width,                                // nWidth
+        height,                               // nHeight
+        hwnd_parent as HWND,                  // hWndParent
+        IDC_STATIC as HMENU,                  // hMenu (control ID)
+        0 as HINSTANCE,                       // hInstance
+        0 as LPVOID                           // lpParam
+    )
+    
+    return label_hwnd
+}
+
+fn create_button(hwnd_parent: ptr, text: ptr, x: i32, y: i32, width: i32, height: i32, control_id: i32) -> ptr {
+    button_hwnd = CreateWindowExA(
+        0,                                    // dwExStyle
+        "BUTTON" as LPCSTR,                   // lpClassName
+        text as LPCSTR,                       // lpWindowName
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, // dwStyle
+        x,                                    // X position
+        y,                                    // Y position
+        width,                                // nWidth
+        height,                               // nHeight
+        hwnd_parent as HWND,                  // hWndParent
+        control_id as HMENU,                  // hMenu (control ID)
+        0 as HINSTANCE,                       // hInstance
+        0 as LPVOID                           // lpParam
+    )
+    
+    return button_hwnd
+}
+
+fn show_window(hwnd: ptr) -> i32 {
+    result = ShowWindow(hwnd as HWND, 1)  // SW_SHOW = 1
+    UpdateWindow(hwnd as HWND)
+    return result as i32
+}
+
+fn hide_window(hwnd: ptr) -> i32 {
+    result = ShowWindow(hwnd as HWND, 0)  // SW_HIDE = 0
+    return result as i32
+}
+
+fn update_window(hwnd: ptr) -> i32 {
+    result = UpdateWindow(hwnd as HWND)
+    return result as i32
+}
+
+fn destroy_window(hwnd: ptr) -> i32 {
+    result = DestroyWindow(hwnd as HWND)
+    return result as i32
+}
+
+fn message_loop() -> i32 {
+    var msg : [28]byte  // MSG结构通常为28字节
+    
+    while(true) {
+        ret = GetMessageA(msg as ptr, 0 as HWND, 0, 0)
+        if(ret > 0) {
+            TranslateMessage(msg as ptr)
+            DispatchMessageA(msg as ptr)
+        } else if(ret == 0) {
+            break  // WM_QUIT received
+        }
+        // Error handling would go here in a real implementation
+    }
+    
+    return 0
+}
