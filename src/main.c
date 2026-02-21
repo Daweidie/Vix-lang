@@ -15,9 +15,9 @@ vix 语言 0.0.1版本完工
 #include "../include/qbe-ir/opt.h"
 
 typedef enum {
-    BACKEND_DEFAULT_CPP,  // 默认后端（C++）
-    BACKEND_QBE,          // QBE IR 后端
-    BACKEND_LLVM          // LLVM IR 后端
+    BACKEND_DEFAULT_LLVM,//提拔为默认后端
+    BACKEND_QBE,
+    BACKEND_CPP//cpp我不要你了
 } BackendType;
 
 extern FILE* yyin;
@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> (output all: bytecode, AST, QBE IR, C++ code, LLVM IR)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -o output_file --backend=qbe|llvm|gcc\n", argv[0]);
+        fprintf(stderr, "       %s <input.vix> -o output_file --backend=qbe|llvm|cpp\n", argv[0]);
         return 1;
     }
     
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     int output_cpp_only = 0;
     int output_llvm_only = 0;
     int do_opt = 0;
-    BackendType backend_type = BACKEND_DEFAULT_CPP;
+    BackendType backend_type = BACKEND_DEFAULT_LLVM;
     
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] != '-' && strcmp(argv[i], "init") != 0) {
@@ -82,9 +82,9 @@ int main(int argc, char **argv) {
             if (strcmp(backend_str, "qbe") == 0) {
                 backend_type = BACKEND_QBE;
             } else if (strcmp(backend_str, "llvm") == 0) {
-                backend_type = BACKEND_LLVM;
+                backend_type = BACKEND_DEFAULT_LLVM;
             } else if (strcmp(backend_str, "cpp") == 0) {
-                backend_type = BACKEND_DEFAULT_CPP;
+                backend_type = BACKEND_CPP;
             } else {
                 fprintf(stderr, "Er: Unknown backend '%s' backends: qbe, llvm, cpp\n", backend_str);
                 return 1;
@@ -162,7 +162,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> (output all intermediate representations)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -o output_file --backend=qbe|llvm|gcc\n", argv[0]);
+            fprintf(stderr, "       %s <input.vix> -o output_file --backend=qbe|llvm|cpp\n", argv[0]);
             return 0;
         } else if (argv[i][0] == '-' && strcmp(argv[i], "-") != 0) {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
     if (!input_filename) {
         input_filename = argv[1];
     }
-    if (backend_type == BACKEND_LLVM && !output_filename && save_cpp_file == 0) {
+    if (backend_type == BACKEND_DEFAULT_LLVM && !output_filename && save_cpp_file == 0) {
         char* dot = strrchr(input_filename, '.');
         if (dot) {
             size_t len = dot - input_filename;
@@ -223,7 +223,7 @@ int main(int argc, char **argv) {
                 }
             }
         }
-    } else if (backend_type == BACKEND_LLVM && save_cpp_file) {
+    } else if (backend_type == BACKEND_DEFAULT_LLVM && save_cpp_file) {
         generate_llvm_ir = 1;
         if (!llvm_ir_filename) {
             char* dot = strrchr(output_filename, '.');
@@ -392,7 +392,7 @@ int main(int argc, char **argv) {
             
             llvm_emit_from_ast(root, llvm_file);
             fclose(llvm_file);
-            if (backend_type == BACKEND_LLVM && output_filename && save_cpp_file) {
+            if (backend_type == BACKEND_DEFAULT_LLVM && output_filename && save_cpp_file) {
                 
                 size_t compile_cmd_size = strlen("clang -O2 ") + strlen(llvm_ir_filename) + strlen(" -o ") + strlen(output_filename) + 1;
                 char *compile_cmd = malloc(compile_cmd_size);

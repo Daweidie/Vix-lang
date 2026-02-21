@@ -920,16 +920,68 @@ public:
     
     VisitResult visitUnaryOp(ASTNode* node) {
         if (!node || !node->data.unaryop.expr) return VisitResult();
+
+        if (node->data.unaryop.op == OP_ADDRESS) {
+            ASTNode* expr = node->data.unaryop.expr;
+            if (expr->type == AST_IDENTIFIER && expr->data.identifier.name) {
+                std::string name(expr->data.identifier.name);
+                AllocaInst* alloc = scopeManager.findVariable(name);
+                if (!alloc) alloc = findVariableInMain(name);
+                if (alloc) {
+                    return VisitResult(alloc, ValueType::POINTER);
+                }
+
+                GlobalVariable* gvar = findGlobalVariable(name);
+                if (gvar) {
+                    return VisitResult(gvar, ValueType::POINTER);
+                }
+
+                std::cerr << "Warning: Address-of operator applied to undefined variable '"
+                          << name << "'" << std::endl;
+            }// 对于非标识符表达式，暂时不支持取地址
+            return VisitResult();
+        }
+
         VisitResult operand = visit(node->data.unaryop.expr);
         if (!operand.value) return VisitResult();
+
         switch (node->data.unaryop.op) {
             case OP_MINUS:
                 if (operand.type == ValueType::FLOAT32 || operand.type == ValueType::FLOAT64)
                     return VisitResult(builder.CreateFNeg(operand.value, "negtmp"), operand.type);
                 else
                     return VisitResult(builder.CreateNeg(operand.value, "negtmp"), operand.type);
-            case OP_PLUS: return operand;
-            default: return VisitResult();
+            case OP_PLUS:
+                return operand;
+            case OP_DEREF: {
+                Value* ptrVal = operand.value;
+                if (!ptrVal->getType()->isPointerTy()) {
+                    return VisitResult();
+                }
+
+                std::string varName;
+                if (node->data.unaryop.expr &&
+                    node->data.unaryop.expr->type == AST_IDENTIFIER &&
+                    node->data.unaryop.expr->data.identifier.name) {
+                    varName = std::string(node->data.unaryop.expr->data.identifier.name);
+                }
+
+                PointerType* ptrTy = dyn_cast<PointerType>(ptrVal->getType());
+                Type* elemType = getPointerElementTypeSafely(ptrTy, varName);
+                if (!elemType) {
+                    elemType = Type::getInt32Ty(context);
+                }
+
+                Type* expectPtrType = PointerType::getUnqual(elemType);
+                if (ptrVal->getType() != expectPtrType) {
+                    ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "deref_ptrcast");
+                }
+
+                Value* loaded = builder.CreateLoad(elemType, ptrVal, "deref_load");
+                return VisitResult(loaded, typeHelper.getValueTypeFromType(elemType));
+            }
+            default:
+                return VisitResult();
         }
     }
     
@@ -949,14 +1001,71 @@ public:
             return visitIndexAssign(node);
         }
 
+        if (node->data.assign.left->type == AST_UNARYOP &&
+            node->data.assign.left->data.unaryop.op == OP_DEREF) {
+            ASTNode* ptrExpr = node->data.assign.left->data.unaryop.expr;
+            VisitResult ptrRes = visit(ptrExpr);
+            if (!ptrRes.value || !ptrRes.value->getType()->isPointerTy()) {
+                return VisitResult();
+            }
+
+            std::string ptrVarName;
+            if (ptrExpr && ptrExpr->type == AST_IDENTIFIER && ptrExpr->data.identifier.name) {
+                ptrVarName = std::string(ptrExpr->data.identifier.name);
+            }
+
+            Type* elemType = getPointerElementTypeSafely(
+                dyn_cast<PointerType>(ptrRes.value->getType()), ptrVarName);
+            if (!elemType) {
+                elemType = Type::getInt32Ty(context);
+            }
+
+            Value* ptrVal = ptrRes.value;
+            Type* expectPtrType = PointerType::getUnqual(elemType);
+            if (ptrVal->getType() != expectPtrType) {
+                ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "deref_store_ptrcast");
+            }//处理赋值右侧的值
+
+            VisitResult rightVal = visit(node->data.assign.right);
+            if (!rightVal.value) return VisitResult();
+
+            ValueType targetType = typeHelper.getValueTypeFromType(elemType);
+            Value* casted = typeHelper.castValue(builder, rightVal.value, rightVal.type, targetType);
+
+            if (casted->getType() != elemType) {
+                if (casted->getType()->isPointerTy() && elemType->isPointerTy()) {
+                    casted = builder.CreateBitCast(casted, elemType, "deref_rhs_ptrcast");
+                } else if (casted->getType()->isIntegerTy() && elemType->isIntegerTy()) {
+                    casted = builder.CreateIntCast(casted, elemType, true, "deref_rhs_intcast");
+                }
+            }
+
+            builder.CreateStore(casted, ptrVal);
+            return VisitResult(casted, targetType);
+        }//处理普通变量赋值
+
         if (node->data.assign.left->type != AST_IDENTIFIER)
             return VisitResult();
         
         std::string name(node->data.assign.left->data.identifier.name);
         VisitResult rightVal = visit(node->data.assign.right);
         if (!rightVal.value) return VisitResult();
-        
-        // 检查是否赋值字符串常量给字符串变量
+
+        Type* inferredPointerElementType = nullptr;
+        if (node->data.assign.right->type == AST_UNARYOP &&
+            node->data.assign.right->data.unaryop.op == OP_ADDRESS) {
+            ASTNode* addrExpr = node->data.assign.right->data.unaryop.expr;
+            if (addrExpr && addrExpr->type == AST_IDENTIFIER && addrExpr->data.identifier.name) {
+                std::string baseName(addrExpr->data.identifier.name);
+                AllocaInst* baseAlloc = scopeManager.findVariable(baseName);
+                if (!baseAlloc) baseAlloc = findVariableInMain(baseName);
+                if (baseAlloc) {
+                    inferredPointerElementType = getActualType(baseAlloc);
+                } else if (GlobalVariable* baseGlobal = findGlobalVariable(baseName)) {
+                    inferredPointerElementType = baseGlobal->getValueType();
+                }
+            }
+        }//如果赋值右侧是字符串字面量 或者是字符串变量 也可以尝试推断元素类型为i8
         bool isStringAssign = (node->data.assign.right->type == AST_STRING);
         
         AllocaInst* alloc = scopeManager.findVariable(name);
@@ -1042,11 +1151,18 @@ public:
                     typeHelper.registerArrayType(name, elemType, arraySize);
                 }
             }
+
+            if (inferredPointerElementType) {
+                typeHelper.registerArrayType(name, inferredPointerElementType, -1);
+            }//如果是字符串赋值 也注册为字符串变量
         }
         
         Type* allocatedType = getActualType(alloc);
         ValueType varType = typeHelper.getValueTypeFromType(allocatedType);
         Value* val = typeHelper.castValue(builder, rightVal.value, rightVal.type, varType);
+        if (inferredPointerElementType) {
+            typeHelper.registerArrayType(name, inferredPointerElementType, -1);
+        }
         builder.CreateStore(val, alloc);
         return VisitResult(val, varType);
     }
@@ -1563,6 +1679,7 @@ public:
                                         paramTypes.push_back(PointerType::getUnqual(PointerType::getUnqual(Type::getInt8Ty(context))));
                                     } else {
                                         paramTypes.push_back(PointerType::getUnqual(Type::getInt8Ty(context)));
+                                        typeHelper.registerArrayType(paramName, Type::getInt32Ty(context), -1);
                                     }
                                 } else {
                                     paramTypes.push_back(typeHelper.getLLVMType(paramType));
@@ -1630,6 +1747,10 @@ public:
                 scopeManager.defineVariable(paramNames[idx], alloc);
                 if (idx < paramValueTypes.size() && paramValueTypes[idx] == ValueType::STRING) {
                     typeHelper.registerStringVariable(paramNames[idx]);
+                } else if (idx < paramValueTypes.size() && paramValueTypes[idx] == ValueType::POINTER) {
+                    if (!(funcName == "main" && paramNames[idx] == "argv")) {
+                        typeHelper.registerArrayType(paramNames[idx], Type::getInt32Ty(context), -1);
+                    }
                 }
             }
             ++idx;
@@ -1752,6 +1873,10 @@ public:
                     ValueType expectedValueType = typeHelper.getValueTypeFromType(expectedType);
                     
                     Value* arg = typeHelper.castValue(builder, argRes.value, argRes.type, expectedValueType);
+                    if (expectedType && expectedType->isPointerTy() && arg->getType()->isPointerTy() &&
+                        arg->getType() != expectedType) {
+                        arg = builder.CreateBitCast(arg, expectedType, "arg_ptrcast");
+                    }//对于已知的可变参数函数，like printf 就允许传入与参数类型不完全匹配但可转换的值 like: i8* 传递给 %s
                     args.push_back(arg);
                 }
             }
