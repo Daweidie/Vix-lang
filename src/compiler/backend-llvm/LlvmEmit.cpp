@@ -475,65 +475,63 @@ private:
     }
     Type* getPointerElementTypeSafely(PointerType* ptrType, const std::string& varName) {
         if (!ptrType) return Type::getInt8Ty(context);
+
         if (varName.empty()) {
-            return Type::getInt32Ty(context);
+            return Type::getInt8Ty(context);
         }
-        AllocaInst* alloc = scopeManager.findVariable(varName);
-        if (!alloc) alloc = findVariableInMain(varName);
-        if (alloc) {
-            Type* allocatedType = getActualType(alloc);
-            if (allocatedType->isArrayTy()) {
-                ArrayType* arrType = cast<ArrayType>(allocatedType);
-                Type* elemType = arrType->getElementType();
-                llvm::errs() << "[DEBUG] Local array '" << varName 
-                            << "': using element type from alloc: " << *elemType << "\n";
-                return elemType;
-        }
-        auto* arrayInfo = typeHelper.getArrayTypeInfo(varName);
-        if (arrayInfo) {
-            llvm::errs() << "[DEBUG] Array variable '" << varName 
-                        << "': using element type from array info: " 
-                        << *arrayInfo->first << "\n";
-            return arrayInfo->first;
-        }
+
         if (typeHelper.isStringVariable(varName)) {
             llvm::errs() << "[DEBUG] String variable '" << varName << "': using i8 as element type\n";
             return Type::getInt8Ty(context);
         }
+
         if (varName == "argv") {
             llvm::errs() << "[DEBUG] argv: using char** as element type\n";
             return PointerType::getUnqual(Type::getInt8Ty(context));
         }
+
+        AllocaInst* alloc = scopeManager.findVariable(varName);
+        if (!alloc) alloc = findVariableInMain(varName);
+        if (alloc) {
+            Type* allocatedType = getActualType(alloc);
+            if (allocatedType && allocatedType->isArrayTy()) {
+                ArrayType* arrType = cast<ArrayType>(allocatedType);
+                Type* elemType = arrType->getElementType();
+                llvm::errs() << "[DEBUG] Local array '" << varName
+                             << "': using element type from alloc: " << *elemType << "\n";
+                return elemType;
+            }
+        }
+
+        if (auto* arrayInfo = typeHelper.getArrayTypeInfo(varName)) {
+            llvm::errs() << "[DEBUG] Array variable '" << varName
+                         << "': using element type from array info: " << *arrayInfo->first << "\n";
+            return arrayInfo->first;
+        }
+
         if (GlobalVariable* gv = module->getGlobalVariable(varName)) {
             Type* globalType = gv->getValueType();
             if (globalType->isArrayTy()) {
                 ArrayType* arrType = cast<ArrayType>(globalType);
                 Type* elemType = arrType->getElementType();
-                llvm::errs() << "[DEBUG] Global array '" << varName 
-                            << "': using element type from global: " << *elemType << "\n";
+                llvm::errs() << "[DEBUG] Global array '" << varName
+                             << "': using element type from global: " << *elemType << "\n";
                 return elemType;
             }
-            if (globalType->isPointerTy()) {
-                if (auto* info = typeHelper.getArrayTypeInfo(varName)) {
-                    return info->first;
-                }
-            }
         }
-        if (varName.find("str") != std::string::npos || 
+
+        if (varName.find("str") != std::string::npos ||
             varName.find("Str") != std::string::npos ||
             varName.find("STRING") != std::string::npos ||
-            varName.find("lit") != std::string::npos) {//取巧地判断一下变量名里有没有str或者lit
-            llvm::errs() << "[DEBUG] Variable '" << varName 
-                        << "' looks like a string: using i8\n";
+            varName.find("lit") != std::string::npos) {
+            llvm::errs() << "[DEBUG] Variable '" << varName
+                         << "' looks like a string: using i8\n";
             return Type::getInt8Ty(context);
         }
-        llvm::errs() << "[DEBUG] Unknown pointer '" << varName 
-                    << "': defaulting to i32\n";
-        return Type::getInt32Ty(context);
-    }
-        llvm::errs() << "[DEBUG] Unknown pointer '" << varName 
-                    << "': defaulting to i8\n";
-        return Type::getInt8Ty(context);//实在找不到了，默认返回i8
+
+        llvm::errs() << "[DEBUG] Unknown pointer '" << varName
+                     << "': defaulting to i8\n";
+        return Type::getInt8Ty(context);
     }
     
 public:
@@ -848,8 +846,41 @@ public:
                     return VisitResult();
             }
         }
+
         
-        // 原有的类型提升逻辑
+        if (node->data.binop.op == OP_ADD || node->data.binop.op == OP_SUB) {//ptr +/- int, int + ptr
+            bool leftIsPtr = leftRes.value->getType()->isPointerTy();
+            bool rightIsPtr = rightRes.value->getType()->isPointerTy();
+            bool leftIsInt = leftRes.value->getType()->isIntegerTy();
+            bool rightIsInt = rightRes.value->getType()->isIntegerTy();
+            if ((leftIsPtr && rightIsInt) ||
+                (node->data.binop.op == OP_ADD && rightIsPtr && leftIsInt)) {
+                Value* ptrVal = leftIsPtr ? leftRes.value : rightRes.value;
+                Value* idxVal = leftIsPtr ? rightRes.value : leftRes.value;
+                if (!idxVal->getType()->isIntegerTy(64)) {
+                    idxVal = builder.CreateIntCast(idxVal, Type::getInt64Ty(context), true, "ptr_idx_cast");
+                }
+                if (node->data.binop.op == OP_SUB) {
+                    idxVal = builder.CreateNeg(idxVal, "ptr_idx_neg");
+                }
+                std::string ptrName;
+                ASTNode* ptrExpr = leftIsPtr ? node->data.binop.left : node->data.binop.right;
+                if (ptrExpr && ptrExpr->type == AST_IDENTIFIER && ptrExpr->data.identifier.name) {
+                    ptrName = std::string(ptrExpr->data.identifier.name);
+                }
+                Type* elemType = getPointerElementTypeSafely(
+                    dyn_cast<PointerType>(ptrVal->getType()), ptrName);
+                if (!elemType) {
+                    elemType = Type::getInt32Ty(context);
+                }
+                Type* expectPtrType = PointerType::getUnqual(elemType);
+                if (ptrVal->getType() != expectPtrType) {
+                    ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "ptr_arith_cast");
+                }
+                Value* gep = builder.CreateInBoundsGEP(elemType, ptrVal, idxVal, "ptr_arith");
+                return VisitResult(gep, ValueType::POINTER);
+            }
+        }
         auto [promotedLeftType, promotedRightType] = typeHelper.promoteTypes(
             leftRes.type, rightRes.type);
         
@@ -938,8 +969,109 @@ public:
 
                 std::cerr << "Warning: Address-of operator applied to undefined variable '"
                           << name << "'" << std::endl;
-            }// 对于非标识符表达式，暂时不支持取地址
-            return VisitResult();
+            }
+
+            if (expr->type == AST_MEMBER_ACCESS) {
+                ASTNode* object = expr->data.member_access.object;
+                ASTNode* field = expr->data.member_access.field;
+                if (!object || !field || field->type != AST_IDENTIFIER) {
+                    return VisitResult();
+                }
+
+                std::string fieldName(field->data.identifier.name);
+                VisitResult objectRes = visit(object);
+                if (!objectRes.value) {
+                    return VisitResult();
+                }
+
+                StructType* structType = nullptr;
+                Value* basePtr = nullptr;
+
+                if (objectRes.structType) {
+                    structType = objectRes.structType;
+                    basePtr = objectRes.value;
+                }
+
+                if (!structType && object->type == AST_IDENTIFIER && object->data.identifier.name) {
+                    std::string objName(object->data.identifier.name);
+                    AllocaInst* alloc = scopeManager.findVariable(objName);
+                    if (!alloc) alloc = findVariableInMain(objName);
+                    if (alloc) {
+                        Type* allocType = getActualType(alloc);
+                        if (allocType && allocType->isStructTy()) {
+                            structType = cast<StructType>(allocType);
+                            basePtr = alloc;
+                        }
+                    }
+                }
+
+                if (!structType || !basePtr) {
+                    return VisitResult();
+                }
+
+                std::string structName = structType->getName().str();
+                int idx = typeHelper.getFieldIndex(structName, fieldName);
+                if (idx < 0) {
+                    return VisitResult();
+                }
+
+                Value* fieldPtr = builder.CreateStructGEP(structType, basePtr, idx, fieldName + "_addr");
+                Type* fieldType = structType->getElementType(idx);
+                if (fieldType->isStructTy()) {
+                    return VisitResult(fieldPtr, ValueType::POINTER, cast<StructType>(fieldType));
+                }
+                return VisitResult(fieldPtr, ValueType::POINTER);
+            }
+
+            if (expr->type == AST_INDEX && expr->data.index.target && expr->data.index.index) {
+                ASTNode* target = expr->data.index.target;
+                ASTNode* indexExpr = expr->data.index.index;
+
+                VisitResult idxRes = visit(indexExpr);
+                if (!idxRes.value) return VisitResult();
+                Value* idxVal = idxRes.value;
+                if (!idxVal->getType()->isIntegerTy(32)) {
+                    idxVal = builder.CreateIntCast(idxVal, Type::getInt32Ty(context), true, "addr_idx_cast");
+                }
+
+                AllocaInst* baseAlloc = nullptr;
+                std::string varName;
+                if (target->type == AST_IDENTIFIER && target->data.identifier.name) {
+                    varName = std::string(target->data.identifier.name);
+                    baseAlloc = scopeManager.findVariable(varName);
+                    if (!baseAlloc) baseAlloc = findVariableInMain(varName);
+                }
+
+                if (baseAlloc) {
+                    Type* allocatedType = getActualType(baseAlloc);
+                    if (allocatedType && allocatedType->isArrayTy()) {
+                        Value* gep = builder.CreateInBoundsGEP(
+                            allocatedType,
+                            baseAlloc,
+                            {ConstantInt::get(Type::getInt32Ty(context), 0), idxVal},
+                            "addr_arr_index_ptr");
+                        return VisitResult(gep, ValueType::POINTER);
+                    }
+
+                    if (allocatedType && allocatedType->isPointerTy()) {
+                        Value* arrayPtr = builder.CreateLoad(allocatedType, baseAlloc, "addr_array_ptr");
+                        Type* elemType = getPointerElementTypeSafely(
+                            dyn_cast<PointerType>(allocatedType), varName);
+                        Value* gep = builder.CreateInBoundsGEP(elemType, arrayPtr, idxVal, "addr_ptr_index_ptr");
+                        return VisitResult(gep, ValueType::POINTER);
+                    }
+                }
+
+                VisitResult targetRes = visit(target);
+                if (!targetRes.value) return VisitResult();
+                if (targetRes.value->getType()->isPointerTy()) {
+                    Type* elemType = getPointerElementTypeSafely(
+                        dyn_cast<PointerType>(targetRes.value->getType()), varName);
+                    Value* gep = builder.CreateInBoundsGEP(elemType, targetRes.value, idxVal, "addr_idx_ptr");
+                    return VisitResult(gep, ValueType::POINTER);
+                }
+            }
+            return VisitResult();//no valid addr target
         }
 
         VisitResult operand = visit(node->data.unaryop.expr);
@@ -960,10 +1092,20 @@ public:
                 }
 
                 std::string varName;
-                if (node->data.unaryop.expr &&
-                    node->data.unaryop.expr->type == AST_IDENTIFIER &&
-                    node->data.unaryop.expr->data.identifier.name) {
-                    varName = std::string(node->data.unaryop.expr->data.identifier.name);
+                ASTNode* derefExpr = node->data.unaryop.expr;
+                if (derefExpr &&
+                    derefExpr->type == AST_IDENTIFIER &&
+                    derefExpr->data.identifier.name) {
+                    varName = std::string(derefExpr->data.identifier.name);
+                } else if (derefExpr && derefExpr->type == AST_BINOP &&
+                           (derefExpr->data.binop.op == OP_ADD || derefExpr->data.binop.op == OP_SUB)) {
+                    ASTNode* left = derefExpr->data.binop.left;
+                    ASTNode* right = derefExpr->data.binop.right;
+                    if (left && left->type == AST_IDENTIFIER && left->data.identifier.name) {
+                        varName = std::string(left->data.identifier.name);
+                    } else if (right && right->type == AST_IDENTIFIER && right->data.identifier.name) {
+                        varName = std::string(right->data.identifier.name);
+                    }
                 }
 
                 PointerType* ptrTy = dyn_cast<PointerType>(ptrVal->getType());
@@ -1012,6 +1154,15 @@ public:
             std::string ptrVarName;
             if (ptrExpr && ptrExpr->type == AST_IDENTIFIER && ptrExpr->data.identifier.name) {
                 ptrVarName = std::string(ptrExpr->data.identifier.name);
+            } else if (ptrExpr && ptrExpr->type == AST_BINOP &&
+                       (ptrExpr->data.binop.op == OP_ADD || ptrExpr->data.binop.op == OP_SUB)) {
+                ASTNode* left = ptrExpr->data.binop.left;
+                ASTNode* right = ptrExpr->data.binop.right;
+                if (left && left->type == AST_IDENTIFIER && left->data.identifier.name) {
+                    ptrVarName = std::string(left->data.identifier.name);
+                } else if (right && right->type == AST_IDENTIFIER && right->data.identifier.name) {
+                    ptrVarName = std::string(right->data.identifier.name);
+                }
             }
 
             Type* elemType = getPointerElementTypeSafely(
@@ -1063,6 +1214,55 @@ public:
                     inferredPointerElementType = getActualType(baseAlloc);
                 } else if (GlobalVariable* baseGlobal = findGlobalVariable(baseName)) {
                     inferredPointerElementType = baseGlobal->getValueType();
+                }
+            }
+
+            if (!inferredPointerElementType &&
+                addrExpr && addrExpr->type == AST_INDEX &&
+                addrExpr->data.index.target &&
+                addrExpr->data.index.target->type == AST_IDENTIFIER &&
+                addrExpr->data.index.target->data.identifier.name) {
+                std::string baseName(addrExpr->data.index.target->data.identifier.name);
+                if (auto* info = typeHelper.getArrayTypeInfo(baseName)) {
+                    inferredPointerElementType = info->first;
+                } else {
+                    AllocaInst* baseAlloc = scopeManager.findVariable(baseName);
+                    if (!baseAlloc) baseAlloc = findVariableInMain(baseName);
+                    if (baseAlloc) {
+                        Type* baseType = getActualType(baseAlloc);
+                        if (baseType && baseType->isArrayTy()) {
+                            inferredPointerElementType = cast<ArrayType>(baseType)->getElementType();
+                        }
+                    }
+                }
+            }
+
+            if (!inferredPointerElementType &&
+                addrExpr && addrExpr->type == AST_MEMBER_ACCESS) {
+                ASTNode* object = addrExpr->data.member_access.object;
+                ASTNode* field = addrExpr->data.member_access.field;
+                if (object && field && field->type == AST_IDENTIFIER && field->data.identifier.name) {
+                    StructType* structType = nullptr;
+
+                    if (object->type == AST_IDENTIFIER && object->data.identifier.name) {
+                        std::string objName(object->data.identifier.name);
+                        AllocaInst* baseAlloc = scopeManager.findVariable(objName);
+                        if (!baseAlloc) baseAlloc = findVariableInMain(objName);
+                        if (baseAlloc) {
+                            Type* baseType = getActualType(baseAlloc);
+                            if (baseType && baseType->isStructTy()) {
+                                structType = cast<StructType>(baseType);
+                            }
+                        }
+                    }
+
+                    if (structType) {
+                        std::string structName = structType->getName().str();
+                        int idx = typeHelper.getFieldIndex(structName, std::string(field->data.identifier.name));
+                        if (idx >= 0) {
+                            inferredPointerElementType = structType->getElementType(idx);
+                        }
+                    }
                 }
             }
         }//如果赋值右侧是字符串字面量 或者是字符串变量 也可以尝试推断元素类型为i8
@@ -1747,10 +1947,6 @@ public:
                 scopeManager.defineVariable(paramNames[idx], alloc);
                 if (idx < paramValueTypes.size() && paramValueTypes[idx] == ValueType::STRING) {
                     typeHelper.registerStringVariable(paramNames[idx]);
-                } else if (idx < paramValueTypes.size() && paramValueTypes[idx] == ValueType::POINTER) {
-                    if (!(funcName == "main" && paramNames[idx] == "argv")) {
-                        typeHelper.registerArrayType(paramNames[idx], Type::getInt32Ty(context), -1);
-                    }
                 }
             }
             ++idx;

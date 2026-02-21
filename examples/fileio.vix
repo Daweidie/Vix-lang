@@ -7,7 +7,7 @@ fn main() ->i32
         puts("Failed to open file")
         return 1
     }
-    data = "Hello, World!"
+    data = "Hello, Vix!"
     fwrite(data, 1, data.length, file)
     fclose(file)
     return 0
