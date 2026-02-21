@@ -175,7 +175,21 @@ int main(int argc, char **argv) {
     if (!input_filename) {
         input_filename = argv[1];
     }
-    if (backend_type == BACKEND_DEFAULT_LLVM && !output_filename && save_cpp_file == 0) {
+
+    int has_explicit_output_mode =
+        output_bytecode ||
+        output_ast_only ||
+        output_qbe_only ||
+        output_cpp_only ||
+        output_llvm_only ||
+        generate_qbe_ir ||
+        generate_vic_ir ||
+        generate_llvm_ir;
+
+    if (backend_type == BACKEND_DEFAULT_LLVM &&
+        !has_explicit_output_mode &&
+        !output_filename &&
+        save_cpp_file == 0) {
         char* dot = strrchr(input_filename, '.');
         if (dot) {
             size_t len = dot - input_filename;
