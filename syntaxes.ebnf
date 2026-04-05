@@ -1,0 +1,119 @@
+(* 词法规则（基础记号） *)
+digit            = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+non_zero_digit   = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+integer          = ( "0" | non_zero_digit { digit } ) [ "i32" | "i64" ] ; (* 整数后缀可选，默认为 i32 *)
+float            = digit { digit } "." digit { digit } [ "f32" | "f64" ] ;
+string           = '"' { character - '"' } '"' ;
+bool_literal     = "true" | "false" ;
+identifier       = ( "a".."z" | "A".."Z" | "_" ) { "a".."z" | "A".."Z" | "0".."9" | "_" } ;
+comment          = "//" { character - newline } newline
+                 | "/*" { character - "*/" } "*/" ;
+whitespace       = " " | "\t" | newline ;
+
+(* 类型名称 *)
+type_name        = "i32" | "i64" | "f32" | "f64" | "string" | "bool" | "ptr"
+                 | "&" type_name                     (* 指针类型 *)
+                 | "[" type_name "*" integer "]"     (* 静态数组类型 *)
+                 | "[" type_name "]" ;               (* 动态列表类型 *)
+
+(* 字面量与基本表达式 *)
+literal          = integer | float | string | bool_literal | "nil" ;
+primary_expr     = literal
+                 | identifier
+                 | "(" expr ")"
+                 | "[" [ expr { "," expr } ] "]"      (* 数组/列表字面量 *)
+                 | ":" type_name "{" [ field_init_pair { "," field_init_pair } ] "}"  (* 结构体初始化 *)
+                 | "{" [ stmt ] "}" ;                 (* 块表达式 *)
+
+field_init_pair  = identifier ":" expr ;
+
+(* 后缀表达式（成员访问、方法调用、下标、解引用等） *)
+postfix_expr     = primary_expr
+                 { "[" expr "]"                      (* 下标访问 *)
+                 | "." identifier                    (* 属性/字段访问 *)
+                 | "." identifier "(" [ expr { "," expr } ] ")"  (* 方法调用，可能带 '!' *)
+                 | "(" [ expr { "," expr } ] ")"     (* 函数调用 *)
+                 | "@"                               (* 解引用（前置，但作为后缀处理）*)
+                 } ;
+
+(* 一元运算符 *)
+unary_expr       = [ "&" | "@" | "-" | "!" ] postfix_expr ;
+
+(* 乘除取模 *)
+mul_expr         = unary_expr { ( "*" | "/" | "%" ) unary_expr } ;
+
+(* 加减 *)
+add_expr         = mul_expr { ( "+" | "-" ) mul_expr } ;
+
+(* 比较运算符 *)
+cmp_expr         = add_expr { ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) add_expr } ;
+
+(* 逻辑与 *)
+and_expr         = cmp_expr { "and" cmp_expr } ;
+
+(* 逻辑或 *)
+or_expr          = and_expr { "or" and_expr } ;
+
+(* 赋值表达式 *)
+assignment_expr  = ( "let" | "mut" ) identifier [ ":" type_name ] "=" expr
+                 | ( "global" ) identifier [ ":" type_name ] [ "=" expr ]
+                 | postfix_expr "=" expr ;
+
+(* 表达式总规则 *)
+expr             = or_expr | assignment_expr ;
+
+(* 语句块中的语句 *)
+stmt             = declaration_stmt
+                 | if_stmt
+                 | while_stmt
+                 | for_stmt
+                 | return_stmt
+                 | expr_stmt
+                 | catch_stmt
+                 | maybe_stmt
+                 | block ;
+
+declaration_stmt = ( "let" | "mut" ) identifier [ ":" type_name ] [ "=" expr ]
+                 | "global" identifier [ ":" type_name ] [ "=" expr ] ;
+
+if_stmt          = "if" "(" expr ")" stmt
+                   { "elif" "(" expr ")" stmt }
+                   [ "else" stmt ] ;
+
+while_stmt       = "while" "(" expr ")" stmt ;
+
+for_stmt         = "for" "(" identifier "in" expr ".." expr ")" stmt ;
+
+return_stmt      = "return" [ expr ] ;
+
+expr_stmt        = expr ;
+
+block            = "{" { stmt } "}" ;
+
+maybe_stmt       = "maybe" "{" error_definition "}" ;
+error_definition = "error" "." string "{" { field_init_pair } "}" ;  (* 错误定义字段 *)
+catch_stmt       = "catch" error_ref "as" identifier block ;
+error_ref        = "error" "." string ;
+
+(* 函数定义 *)
+param            = identifier ":" type_name ;
+param_list       = [ param { "," param } ] ;
+function_def     = "fn" identifier "(" param_list ")" [ "->" type_name ] block ;
+
+(* 外部函数声明 *)
+extern_def       = "extern" string "{" { function_def } "}" ;
+
+(* 结构体定义 *)
+struct_def       = "struct" identifier "{" { field_def } "}" ;
+field_def        = identifier ":" type_name "," ;
+
+(* 顶层程序结构 *)
+top_level_item   = function_def
+                 | struct_def
+                 | extern_def
+                 | declaration_stmt   (* 全局变量声明 *)
+                 | comment
+                 | maybe_stmt ;
+program          = { top_level_item } ;
+
+(* 入口点特殊形式：允许 main 函数带有 (argc: i32, argv: ptr) 参数 *)
