@@ -1,119 +1,196 @@
-(* 词法规则（基础记号） *)
-digit            = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
-non_zero_digit   = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
-integer          = ( "0" | non_zero_digit { digit } ) [ "i32" | "i64" ] ; (* 整数后缀可选，默认为 i32 *)
-float            = digit { digit } "." digit { digit } [ "f32" | "f64" ] ;
-string           = '"' { character - '"' } '"' ;
-bool_literal     = "true" | "false" ;
-identifier       = ( "a".."z" | "A".."Z" | "_" ) { "a".."z" | "A".."Z" | "0".."9" | "_" } ;
-comment          = "//" { character - newline } newline
-                 | "/*" { character - "*/" } "*/" ;
-whitespace       = " " | "\t" | newline ;
+(* Vix Language Grammar - Complete EBNF Specification *)
 
-(* 类型名称 *)
-type_name        = "i32" | "i64" | "f32" | "f64" | "string" | "bool" | "ptr"
-                 | "&" type_name                     (* 指针类型 *)
-                 | "[" type_name "*" integer "]"     (* 静态数组类型 *)
-                 | "[" type_name "]" ;               (* 动态列表类型 *)
+(* ========================================================================= *)
+(* Lexical Rules                                                             *)
+(* ========================================================================= *)
 
-(* 字面量与基本表达式 *)
-literal          = integer | float | string | bool_literal | "nil" ;
-primary_expr     = literal
-                 | identifier
-                 | "(" expr ")"
-                 | "[" [ expr { "," expr } ] "]"      (* 数组/列表字面量 *)
-                 | ":" type_name "{" [ field_init_pair { "," field_init_pair } ] "}"  (* 结构体初始化 *)
-                 | "{" [ stmt ] "}" ;                 (* 块表达式 *)
+(* Whitespace and comments are ignored by the parser *)
+(* Comments: // line comment, /* block comment */ *)
 
-field_init_pair  = identifier ":" expr ;
+letter        = "A" | "B" | "C" | "D" | "E" | "F" | "G"
+              | "H" | "I" | "J" | "K" | "L" | "M" | "N"
+              | "O" | "P" | "Q" | "R" | "S" | "T" | "U"
+              | "V" | "W" | "X" | "Y" | "Z" | "a" | "b"
+              | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+              | "j" | "k" | "l" | "m" | "n" | "o" | "p"
+              | "q" | "r" | "s" | "t" | "u" | "v" | "w"
+              | "x" | "y" | "z" ;
+digit         = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+hex-digit     = digit | "A" | "B" | "C" | "D" | "E" | "F" | "a" | "b" | "c" | "d" | "e" | "f" ;
+octal-digit   = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+binary-digit  = "0" | "1" ;
 
-(* 后缀表达式（成员访问、方法调用、下标、解引用等） *)
-postfix_expr     = primary_expr
-                 { "[" expr "]"                      (* 下标访问 *)
-                 | "." identifier                    (* 属性/字段访问 *)
-                 | "." identifier "(" [ expr { "," expr } ] ")"  (* 方法调用，可能带 '!' *)
-                 | "(" [ expr { "," expr } ] ")"     (* 函数调用 *)
-                 | "@"                               (* 解引用（前置，但作为后缀处理）*)
-                 } ;
+identifier    = ( letter | "_" ) , { letter | digit | "_" } ;
 
-(* 一元运算符 *)
-unary_expr       = [ "&" | "@" | "-" | "!" ] postfix_expr ;
+(* Literals *)
+int-literal   = decimal-literal | hex-literal | octal-literal | binary-literal ;
+decimal-literal = digit , { digit } ;
+hex-literal   = "0x" , hex-digit , { hex-digit } ;
+octal-literal = "0o" , octal-digit , { octal-digit } ;
+binary-literal = "0b" , binary-digit , { binary-digit } ;
 
-(* 乘除取模 *)
-mul_expr         = unary_expr { ( "*" | "/" | "%" ) unary_expr } ;
+float-literal = digit , { digit } , "." , digit , { digit } , [ ("e" | "E") , [ "+" | "-" ] , digit , { digit } ] ;
 
-(* 加减 *)
-add_expr         = mul_expr { ( "+" | "-" ) mul_expr } ;
+string-literal = '"' , { string-char | escape-sequence } , '"' ;
+string-char   = ? any character except newline and double quote ? ;
+escape-sequence = "\n" | "\t" | "\r" | "\\" | "\"" | "\'" ;
 
-(* 比较运算符 *)
-cmp_expr         = add_expr { ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) add_expr } ;
+bool-literal  = "true" | "false" ;
+nil-literal   = "nil" ;
 
-(* 逻辑与 *)
-and_expr         = cmp_expr { "and" cmp_expr } ;
+(* ========================================================================= *)
+(* Program Structure                                                         *)
+(* ========================================================================= *)
 
-(* 逻辑或 *)
-or_expr          = and_expr { "or" and_expr } ;
+program       = { top-decl } ;
+top-decl      = import-decl
+              | global-decl
+              | struct-decl
+              | type-decl
+              | fn-decl
+              | extern-decl
+              | maybe-error-decl ;
 
-(* 赋值表达式 *)
-assignment_expr  = ( "let" | "mut" ) identifier [ ":" type_name ] "=" expr
-                 | ( "global" ) identifier [ ":" type_name ] [ "=" expr ]
-                 | postfix_expr "=" expr ;
+import-decl   = "import" , string-literal ;
+global-decl   = "global" , identifier , [ ":" , type ] , [ "=" , expression ] ;
+struct-decl   = "pub" , [ struct-body ]        (* optional pub *)
+              | struct-body ;
+struct-body   = "struct" , identifier , [ generic-params ] , "{" , [ field-list ] , "}" ;
+field-list    = field , { "," , field } , [ "," ] ;
+field         = identifier , ":" , type ;
+type-decl     = "type" , identifier , [ generic-params ] , "=" , union-type ;
+union-type    = constructor , { "|" , constructor } ;
+constructor   = identifier , [ "(" , type-list , ")" ] ;
+type-list     = type , { "," , type } ;
 
-(* 表达式总规则 *)
-expr             = or_expr | assignment_expr ;
+maybe-error-decl = "maybe" , "{" , error-def , { error-def } , "}" ;
+error-def     = "error" , "." , identifier , "{" , field-list , "}" ;
 
-(* 语句块中的语句 *)
-stmt             = declaration_stmt
-                 | if_stmt
-                 | while_stmt
-                 | for_stmt
-                 | return_stmt
-                 | expr_stmt
-                 | catch_stmt
-                 | maybe_stmt
-                 | block ;
+extern-decl   = "extern" , string-literal , "{" , { extern-fn-decl } , "}" ;
+extern-fn-decl = "fn" , identifier , "(" , [ param-list ] , ")" , [ "->" , type ] , ";" ;
 
-declaration_stmt = ( "let" | "mut" ) identifier [ ":" type_name ] [ "=" expr ]
-                 | "global" identifier [ ":" type_name ] [ "=" expr ] ;
+fn-decl       = [ "pub" ] , "fn" , identifier , [ generic-params ] , "(" , [ param-list ] , ")" , [ "->" , type ] , block ;
+param-list    = param , { "," , param } , [ "," ] ;
+param         = identifier , ":" , type ;
 
-if_stmt          = "if" "(" expr ")" stmt
-                   { "elif" "(" expr ")" stmt }
-                   [ "else" stmt ] ;
+(* ========================================================================= *)
+(* Types                                                                     *)
+(* ========================================================================= *)
 
-while_stmt       = "while" "(" expr ")" stmt ;
+type          = primitive-type
+              | pointer-type
+              | array-type
+              | list-type
+              | fn-type
+              | optional-type
+              | ident-type
+              | generic-type ;
 
-for_stmt         = "for" "(" identifier "in" expr ".." expr ")" stmt ;
+primitive-type = "i8" | "i32" | "i64" | "f32" | "f64" | "bool" | "string" | "void" | "ptr" | "usize" ;
+pointer-type  = "&" , type ;
+array-type    = "[" , type , "*" , expression , "]" ;   (* expression must be constant integer *)
+list-type     = "[" , type , "]" ;
+fn-type       = "fn" , "(" , [ type-list ] , ")" , "->" , type ;
+optional-type = "?" , type ;
+ident-type    = identifier ;                           (* e.g., a struct name or type alias *)
+generic-type  = identifier , ":" , "[" , type , "]" ;  (* instantiated generic: Box:[i32] *)
 
-return_stmt      = "return" [ expr ] ;
+generic-params = ":" , "[" , identifier , { "," , identifier } , "]" ;  (* generic parameter list *)
 
-expr_stmt        = expr ;
+(* ========================================================================= *)
+(* Statements                                                                *)
+(* ========================================================================= *)
 
-block            = "{" { stmt } "}" ;
+block         = "{" , { statement } , "}" ;
+statement     = var-decl
+              | assignment
+              | if-stmt
+              | while-stmt
+              | for-stmt
+              | return-stmt
+              | match-stmt
+              | catch-stmt
+              | expr-stmt
+              | block ;
 
-maybe_stmt       = "maybe" "{" error_definition "}" ;
-error_definition = "error" "." string "{" { field_init_pair } "}" ;  (* 错误定义字段 *)
-catch_stmt       = "catch" error_ref "as" identifier block ;
-error_ref        = "error" "." string ;
+var-decl      = ( "let" | "mut" ) , identifier , [ ":" , type ] , [ "=" , expression ] , ";" ;
+assignment    = expression , ( "=" | "+=" | "-=" | "*=" | "/=" ) , expression , ";" ;
+if-stmt       = "if" , "(" , expression , ")" , block , { "elif" , "(" , expression , ")" , block } , [ "else" , block ] ;
+while-stmt    = "while" , "(" , expression , ")" , block ;
+for-stmt      = "for" , "(" , for-header , ")" , block ;
+for-header    = ( range-loop | iter-loop ) ;
+range-loop    = identifier , "in" , expression , ".." , expression ;
+iter-loop     = identifier , "in" , expression ;        (* for item in iterable *)
+return-stmt   = "return" , [ expression ] , ";" ;
+match-stmt    = "match" , expression , "{" , match-arm , { match-arm } , "}" ;
+match-arm     = pattern , "->" , block , [ "," ] ;
+pattern       = wildcard-pattern
+              | literal-pattern
+              | identifier-pattern
+              | constructor-pattern
+              | tuple-pattern ;
+wildcard-pattern = "_" ;
+literal-pattern  = int-literal | float-literal | string-literal | bool-literal ;
+identifier-pattern = identifier ;
+constructor-pattern = identifier , "(" , pattern , { "," , pattern } , ")" ;
+tuple-pattern = "(" , pattern , { "," , pattern } , ")" ;
+catch-stmt    = "catch" , error-ref , "as" , identifier , block ;
+error-ref     = "error" , "." , identifier ;
+expr-stmt     = expression , ";" ;
 
-(* 函数定义 *)
-param            = identifier ":" type_name ;
-param_list       = [ param { "," param } ] ;
-function_def     = "fn" identifier "(" param_list ")" [ "->" type_name ] block ;
+(* ========================================================================= *)
+(* Expressions                                                               *)
+(* ========================================================================= *)
 
-(* 外部函数声明 *)
-extern_def       = "extern" string "{" { function_def } "}" ;
+expression    = logical-or-expr ;
 
-(* 结构体定义 *)
-struct_def       = "struct" identifier "{" { field_def } "}" ;
-field_def        = identifier ":" type_name "," ;
+logical-or-expr  = logical-and-expr , { "or" , logical-and-expr } ;
+logical-and-expr = bitwise-or-expr , { "and" , bitwise-or-expr } ;
+bitwise-or-expr  = bitwise-xor-expr , { "|" , bitwise-xor-expr } ;
+bitwise-xor-expr = bitwise-and-expr , { "^" , bitwise-and-expr } ;
+bitwise-and-expr = equality-expr , { "&" , equality-expr } ;
+equality-expr    = relational-expr , { ("==" | "!=") , relational-expr } ;
+relational-expr  = shift-expr , { ("<" | "<=" | ">" | ">=") , shift-expr } ;
+shift-expr       = additive-expr , { ("<<" | ">>") , additive-expr } ;
+additive-expr    = multiplicative-expr , { ("+" | "-") , multiplicative-expr } ;
+multiplicative-expr = power-expr , { ("*" | "/" | "%") , power-expr } ;
+power-expr       = unary-expr , [ "**" , unary-expr ] ;
+unary-expr       = ( "!" | "~" | "-" | "&" ) , unary-expr
+                 | postfix-expr ;
+postfix-expr     = primary-expr , { postfix-op } ;
+postfix-op       = "[" , expression , "]"           (* array/list indexing *)
+                 | "." , identifier                 (* field access *)
+                 | "." , integer                    (* tuple index, e.g., .0 *)
+                 | "(" , [ argument-list ] , ")"    (* function call *)
+                 | ":" , "[" , type , "]" ;         (* generic instantiation, e.g., func:[i32] *)
 
-(* 顶层程序结构 *)
-top_level_item   = function_def
-                 | struct_def
-                 | extern_def
-                 | declaration_stmt   (* 全局变量声明 *)
-                 | comment
-                 | maybe_stmt ;
-program          = { top_level_item } ;
+primary-expr = literal
+             | identifier
+             | "(" , expression , ")"
+             | block-expr
+             | struct-literal
+             | array-literal
+             | list-literal
+             | unary-op-expr
+             | nil-literal ;
 
-(* 入口点特殊形式：允许 main 函数带有 (argc: i32, argv: ptr) 参数 *)
+literal       = int-literal | float-literal | string-literal | bool-literal ;
+block-expr    = block ;                              (* block as expression yields last value *)
+struct-literal = identifier , "{" , [ field-init-list ] , "}" ;
+field-init-list = field-init , { "," , field-init } , [ "," ] ;
+field-init    = identifier , ":" , expression ;
+array-literal = "[" , [ expression-list ] , "]" ;    (* fixed-size array, size inferred *)
+list-literal  = "[" , [ expression-list ] , "]" ;    (* dynamic list *)
+expression-list = expression , { "," , expression } , [ "," ] ;
+unary-op-expr = ( "@" ) , unary-expr ;               (* dereference *)
+
+argument-list = expression , { "," , expression } ;
+
+(* ========================================================================= *)
+(* Additional constructs                                                     *)
+(* ========================================================================= *)
+
+generic-call  = identifier , ":" , "[" , type , "]" , "(" , [ argument-list ] , ")" ;  (* explicit generic call *)
+
+(* Range expression used in for loops and potentially elsewhere *)
+range-expr    = expression , ".." , expression ;
