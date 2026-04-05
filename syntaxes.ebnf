@@ -1,0 +1,196 @@
+(* Vix Language Grammar - Complete EBNF Specification *)
+
+(* ========================================================================= *)
+(* Lexical Rules                                                             *)
+(* ========================================================================= *)
+
+(* Whitespace and comments are ignored by the parser *)
+(* Comments: // line comment, /* block comment */ *)
+
+letter        = "A" | "B" | "C" | "D" | "E" | "F" | "G"
+              | "H" | "I" | "J" | "K" | "L" | "M" | "N"
+              | "O" | "P" | "Q" | "R" | "S" | "T" | "U"
+              | "V" | "W" | "X" | "Y" | "Z" | "a" | "b"
+              | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+              | "j" | "k" | "l" | "m" | "n" | "o" | "p"
+              | "q" | "r" | "s" | "t" | "u" | "v" | "w"
+              | "x" | "y" | "z" ;
+digit         = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+hex-digit     = digit | "A" | "B" | "C" | "D" | "E" | "F" | "a" | "b" | "c" | "d" | "e" | "f" ;
+octal-digit   = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+binary-digit  = "0" | "1" ;
+
+identifier    = ( letter | "_" ) , { letter | digit | "_" } ;
+
+(* Literals *)
+int-literal   = decimal-literal | hex-literal | octal-literal | binary-literal ;
+decimal-literal = digit , { digit } ;
+hex-literal   = "0x" , hex-digit , { hex-digit } ;
+octal-literal = "0o" , octal-digit , { octal-digit } ;
+binary-literal = "0b" , binary-digit , { binary-digit } ;
+
+float-literal = digit , { digit } , "." , digit , { digit } , [ ("e" | "E") , [ "+" | "-" ] , digit , { digit } ] ;
+
+string-literal = '"' , { string-char | escape-sequence } , '"' ;
+string-char   = ? any character except newline and double quote ? ;
+escape-sequence = "\n" | "\t" | "\r" | "\\" | "\"" | "\'" ;
+
+bool-literal  = "true" | "false" ;
+nil-literal   = "nil" ;
+
+(* ========================================================================= *)
+(* Program Structure                                                         *)
+(* ========================================================================= *)
+
+program       = { top-decl } ;
+top-decl      = import-decl
+              | global-decl
+              | struct-decl
+              | type-decl
+              | fn-decl
+              | extern-decl
+              | maybe-error-decl ;
+
+import-decl   = "import" , string-literal ;
+global-decl   = "global" , identifier , [ ":" , type ] , [ "=" , expression ] ;
+struct-decl   = "pub" , [ struct-body ]        (* optional pub *)
+              | struct-body ;
+struct-body   = "struct" , identifier , [ generic-params ] , "{" , [ field-list ] , "}" ;
+field-list    = field , { "," , field } , [ "," ] ;
+field         = identifier , ":" , type ;
+type-decl     = "type" , identifier , [ generic-params ] , "=" , union-type ;
+union-type    = constructor , { "|" , constructor } ;
+constructor   = identifier , [ "(" , type-list , ")" ] ;
+type-list     = type , { "," , type } ;
+
+maybe-error-decl = "maybe" , "{" , error-def , { error-def } , "}" ;
+error-def     = "error" , "." , identifier , "{" , field-list , "}" ;
+
+extern-decl   = "extern" , string-literal , "{" , { extern-fn-decl } , "}" ;
+extern-fn-decl = "fn" , identifier , "(" , [ param-list ] , ")" , [ "->" , type ] , ";" ;
+
+fn-decl       = [ "pub" ] , "fn" , identifier , [ generic-params ] , "(" , [ param-list ] , ")" , [ "->" , type ] , block ;
+param-list    = param , { "," , param } , [ "," ] ;
+param         = identifier , ":" , type ;
+
+(* ========================================================================= *)
+(* Types                                                                     *)
+(* ========================================================================= *)
+
+type          = primitive-type
+              | pointer-type
+              | array-type
+              | list-type
+              | fn-type
+              | optional-type
+              | ident-type
+              | generic-type ;
+
+primitive-type = "i8" | "i32" | "i64" | "f32" | "f64" | "bool" | "string" | "void" | "ptr" | "usize" ;
+pointer-type  = "&" , type ;
+array-type    = "[" , type , "*" , expression , "]" ;   (* expression must be constant integer *)
+list-type     = "[" , type , "]" ;
+fn-type       = "fn" , "(" , [ type-list ] , ")" , "->" , type ;
+optional-type = "?" , type ;
+ident-type    = identifier ;                           (* e.g., a struct name or type alias *)
+generic-type  = identifier , ":" , "[" , type , "]" ;  (* instantiated generic: Box:[i32] *)
+
+generic-params = ":" , "[" , identifier , { "," , identifier } , "]" ;  (* generic parameter list *)
+
+(* ========================================================================= *)
+(* Statements                                                                *)
+(* ========================================================================= *)
+
+block         = "{" , { statement } , "}" ;
+statement     = var-decl
+              | assignment
+              | if-stmt
+              | while-stmt
+              | for-stmt
+              | return-stmt
+              | match-stmt
+              | catch-stmt
+              | expr-stmt
+              | block ;
+
+var-decl      = ( "let" | "mut" ) , identifier , [ ":" , type ] , [ "=" , expression ] , ";" ;
+assignment    = expression , ( "=" | "+=" | "-=" | "*=" | "/=" ) , expression , ";" ;
+if-stmt       = "if" , "(" , expression , ")" , block , { "elif" , "(" , expression , ")" , block } , [ "else" , block ] ;
+while-stmt    = "while" , "(" , expression , ")" , block ;
+for-stmt      = "for" , "(" , for-header , ")" , block ;
+for-header    = ( range-loop | iter-loop ) ;
+range-loop    = identifier , "in" , expression , ".." , expression ;
+iter-loop     = identifier , "in" , expression ;        (* for item in iterable *)
+return-stmt   = "return" , [ expression ] , ";" ;
+match-stmt    = "match" , expression , "{" , match-arm , { match-arm } , "}" ;
+match-arm     = pattern , "->" , block , [ "," ] ;
+pattern       = wildcard-pattern
+              | literal-pattern
+              | identifier-pattern
+              | constructor-pattern
+              | tuple-pattern ;
+wildcard-pattern = "_" ;
+literal-pattern  = int-literal | float-literal | string-literal | bool-literal ;
+identifier-pattern = identifier ;
+constructor-pattern = identifier , "(" , pattern , { "," , pattern } , ")" ;
+tuple-pattern = "(" , pattern , { "," , pattern } , ")" ;
+catch-stmt    = "catch" , error-ref , "as" , identifier , block ;
+error-ref     = "error" , "." , identifier ;
+expr-stmt     = expression , ";" ;
+
+(* ========================================================================= *)
+(* Expressions                                                               *)
+(* ========================================================================= *)
+
+expression    = logical-or-expr ;
+
+logical-or-expr  = logical-and-expr , { "or" , logical-and-expr } ;
+logical-and-expr = bitwise-or-expr , { "and" , bitwise-or-expr } ;
+bitwise-or-expr  = bitwise-xor-expr , { "|" , bitwise-xor-expr } ;
+bitwise-xor-expr = bitwise-and-expr , { "^" , bitwise-and-expr } ;
+bitwise-and-expr = equality-expr , { "&" , equality-expr } ;
+equality-expr    = relational-expr , { ("==" | "!=") , relational-expr } ;
+relational-expr  = shift-expr , { ("<" | "<=" | ">" | ">=") , shift-expr } ;
+shift-expr       = additive-expr , { ("<<" | ">>") , additive-expr } ;
+additive-expr    = multiplicative-expr , { ("+" | "-") , multiplicative-expr } ;
+multiplicative-expr = power-expr , { ("*" | "/" | "%") , power-expr } ;
+power-expr       = unary-expr , [ "**" , unary-expr ] ;
+unary-expr       = ( "!" | "~" | "-" | "&" ) , unary-expr
+                 | postfix-expr ;
+postfix-expr     = primary-expr , { postfix-op } ;
+postfix-op       = "[" , expression , "]"           (* array/list indexing *)
+                 | "." , identifier                 (* field access *)
+                 | "." , integer                    (* tuple index, e.g., .0 *)
+                 | "(" , [ argument-list ] , ")"    (* function call *)
+                 | ":" , "[" , type , "]" ;         (* generic instantiation, e.g., func:[i32] *)
+
+primary-expr = literal
+             | identifier
+             | "(" , expression , ")"
+             | block-expr
+             | struct-literal
+             | array-literal
+             | list-literal
+             | unary-op-expr
+             | nil-literal ;
+
+literal       = int-literal | float-literal | string-literal | bool-literal ;
+block-expr    = block ;                              (* block as expression yields last value *)
+struct-literal = identifier , "{" , [ field-init-list ] , "}" ;
+field-init-list = field-init , { "," , field-init } , [ "," ] ;
+field-init    = identifier , ":" , expression ;
+array-literal = "[" , [ expression-list ] , "]" ;    (* fixed-size array, size inferred *)
+list-literal  = "[" , [ expression-list ] , "]" ;    (* dynamic list *)
+expression-list = expression , { "," , expression } , [ "," ] ;
+unary-op-expr = ( "@" ) , unary-expr ;               (* dereference *)
+
+argument-list = expression , { "," , expression } ;
+
+(* ========================================================================= *)
+(* Additional constructs                                                     *)
+(* ========================================================================= *)
+
+generic-call  = identifier , ":" , "[" , type , "]" , "(" , [ argument-list ] , ")" ;  (* explicit generic call *)
+
+(* Range expression used in for loops and potentially elsewhere *)
+range-expr    = expression , ".." , expression ;

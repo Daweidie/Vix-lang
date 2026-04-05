@@ -83,10 +83,22 @@ fn main() -> i32 {
 
 ## 📖 文档
 
-- [语言参考](Docs/README.md) - 语法、类型系统、内置函数等
-- [编译器使用指南](Docs/compiler.md) - 命令行选项、配置等
-- [后端对比](Docs/backends.md) - LLVM/QBE/C++ 后端的详细对比
-- [常见问题](Docs/faq.md)
+- [ABOUTBACKEND.md](Docs/ABOUTBACKEND.md) —— 关于后端架构与实现的说明
+- [CONTRIBUTING.md](Docs/CONTRIBUTING.md) —— 贡献指南，如何参与项目开发
+- [DIFF.md](Docs/DIFF.md) —— 版本差异或语法变更记录
+- [README.md](Docs/README.md) —— Docs目录下的说明文档
+- [command.md](Docs/command.md) —— 命令行工具的使用方法
+- [compiler.md](Docs/compiler.md) —— 编译器实现细节与工作流程
+- [control-flow.md](Docs/control-flow.md) —— 控制流语句（if、循环等）的语法与用法
+- [functions.md](Docs/functions.md) —— 函数定义、调用、泛型等特性
+- [getting-started.md](Docs/getting-started.md) —— 快速入门指南，安装与第一个程序
+- [modules.md](Docs/modules.md) —— 模块系统，导入与导出规则
+- [pointers.md](Docs/pointers.md) —— 指针的声明、解引用、运算及使用示例
+- [stdlib.md](Docs/stdlib.md) —— 标准库提供的函数与常用模块
+- [structs.md](Docs/structs.md) —— 结构体定义、实例化、字段访问
+- [syntax.md](Docs/syntax.md) —— 完整语法参考，包含 EBNF 形式
+- [types.md](Docs/types.md) —— 类型系统：基本类型、泛型、联合类型等
+- [what-is-vix.md](Docs/what-is-vix.md) —— Vix 语言简介与设计目标
 
 ## 🤝 参与贡献
 
