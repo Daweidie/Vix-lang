@@ -13,10 +13,9 @@ TARGET = vixc
 AST_SRC = ast/ast.c ast/type_inference.c
 SEMANTIC_SRC = semantic/semantic.c
 PARSER_SRC = parser/parser.tab.c parser/lex.yy.c
-IR_SRC = vic-ir/mir.c
 LLVM_SRC = compiler/backend-llvm/LlvmEmit.cpp
 UTILS_SRC = utils/error.c
-C_SRC = main.c $(AST_SRC) $(SEMANTIC_SRC) $(PARSER_SRC) $(IR_SRC) $(OPT_SRC) $(UTILS_SRC)
+C_SRC = main.c $(AST_SRC) $(SEMANTIC_SRC) $(PARSER_SRC) $(OPT_SRC) $(UTILS_SRC)
 CXX_SRC = $(LLVM_SRC)
 C_OBJ = $(C_SRC:.c=.o)
 CXX_OBJ = $(CXX_SRC:.cpp=.o)
@@ -56,9 +55,6 @@ utils/error.o: utils/error.c ../include/compiler.h
 
 compiler/backend-llvm/LlvmEmit.o: compiler/backend-llvm/LlvmEmit.cpp ../include/llvm_emit.h
 	$(CXX) $(CXXFLAGS) $(LLVM_CFLAGS) $(CPPFLAGS) -c $< -o $@
-
-vic-ir/mir.o: vic-ir/mir.c ../include/vic-ir/mir.h ../include/bytecode.h
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 parser/parser.tab.o: parser/parser.tab.c parser/parser.tab.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
