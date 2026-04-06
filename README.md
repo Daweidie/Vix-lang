@@ -8,7 +8,7 @@
 
 Vix 是一种轻量级编译型语言，旨在提供**接近原生 C++ 的执行速度**，同时保持脚本语言的简洁性和易用性。
 
-[[English](README-en.md) ][🌟 快速开始](#快速开始) | [📖 文档](Docs/README.md) | [🧩 VS Code扩展](#) | [🤝 参与贡献](#参与贡献)
+[[English](README-en.md) ][🌟 快速开始](#快速开始) | [📖 文档](#文档) | [🧩 VS Code扩展](#) | [🤝 参与贡献](#参与贡献)
 
 
 ### 🌐 跨平台 + 多架构
@@ -83,11 +83,7 @@ fn main() -> i32 {
 
 ## 📖 文档
 
-- [ABOUTBACKEND.md](Docs/ABOUTBACKEND.md) —— 关于后端架构与实现的说明
 - [CONTRIBUTING.md](Docs/CONTRIBUTING.md) —— 贡献指南，如何参与项目开发
-- [DIFF.md](Docs/DIFF.md) —— 版本差异或语法变更记录
-- [README.md](Docs/README.md) —— Docs目录下的说明文档
-- [command.md](Docs/command.md) —— 命令行工具的使用方法
 - [compiler.md](Docs/compiler.md) —— 编译器实现细节与工作流程
 - [control-flow.md](Docs/control-flow.md) —— 控制流语句（if、循环等）的语法与用法
 - [functions.md](Docs/functions.md) —— 函数定义、调用、泛型等特性
