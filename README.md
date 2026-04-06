@@ -8,7 +8,7 @@
 
 Vix 是一种轻量级编译型语言，旨在提供**接近原生 C++ 的执行速度**，同时保持脚本语言的简洁性和易用性。
 
-[[English](README-en.md) ][🌟 快速开始](#快速开始) | [📖 文档](#文档) | [🧩 VS Code扩展](#) | [🤝 参与贡献](#参与贡献)
+[[English](README-en.md) ][🌟 快速开始](#快速开始) | [📖 文档](#文档) | [🧩 VS Code扩展](https://github.com/Daweidie/vix-lang-analyzer) | [🤝 参与贡献](#参与贡献)
 
 
 ### 🌐 跨平台 + 多架构
