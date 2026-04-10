@@ -4,7 +4,7 @@
 
 [![自举进度](https://img.shields.io/badge/自举-90%25-orange)]()
 [![后端](https://img.shields.io/badge/后端-LLVM%20%7C%20QBE%20%7C%20C++-brightgreen)]()
-[![许可证](https://img.shields.io/badge/许可证-MIT-green)]()
+[![许可证](https://img.shields.io/badge/许可证-Apache%202.0-blue)]()
 
 Vix 是一种轻量级、静态类型的编译型语言，目标是在保持语法简洁的同时，提供接近原生语言的执行效率。
 
@@ -133,7 +133,7 @@ Vix 正在逐步构建自己的生态：
 
 ## 许可证
 
-本项目基于 MIT 许可证开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目基于 Apache License 2.0 开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
 
 ## 联系方式
 

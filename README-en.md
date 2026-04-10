@@ -4,7 +4,7 @@
 
 [![Self-hosting Progress](https://img.shields.io/badge/Self--hosting-90%25-orange)]()
 [![Backends](https://img.shields.io/badge/Backends-LLVM%20%7C%20QBE%20%7C%20C++-brightgreen)]()
-[![License](https://img.shields.io/badge/License-MIT-green)]()
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue)]()
 
 Vix is a lightweight, statically typed, compiled language. The goal is to keep the syntax simple while providing performance close to native languages.
 
@@ -132,7 +132,7 @@ Vix is gradually building its own ecosystem:
 
 ## License
 
-This project is open-sourced under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is open-sourced under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
