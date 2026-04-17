@@ -1153,7 +1153,8 @@ public:
     LLVMCodeGenerator() : builder(context), typeHelper(context) {
         module = std::make_unique<Module>("VixModule", context);
         std::string Triple = g_vix_target_triple.empty() ? sys::getProcessTriple() : g_vix_target_triple;
-        module->setTargetTriple(llvm::Triple(Triple));
+        llvm::Triple targetTriple(Triple);
+        module->setTargetTriple(targetTriple.str());
         printfFunction = nullptr;
         strlenFunction = nullptr;
         isGlobalScope = true;
