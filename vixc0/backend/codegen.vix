@@ -26,16 +26,11 @@ extern "C"
 	fn LLVMDisposeTargetMachine(tm: ptr) -> i32
 	fn LLVMDisposeTargetData(td: ptr) -> i32
 	fn LLVMInt32Type() -> ptr
-	fn LLVMInt8Type() -> ptr
-	fn LLVMPointerType(elem: ptr, addrspace: i32) -> ptr
 	fn LLVMFunctionType(ret_type: ptr, param_types: ptr, param_count: i32, is_var_arg: i32) -> ptr
 	fn LLVMAddFunction(module_ref: ptr, name: ptr, func_type: ptr) -> ptr
 	fn LLVMAppendBasicBlock(func: ptr, name: ptr) -> ptr
 	fn LLVMCreateBuilder() -> ptr
 	fn LLVMPositionBuilderAtEnd(builder: ptr, block: ptr) -> i32
-	fn LLVMBuildGlobalStringPtr(builder: ptr, s0: ptr, name: ptr) -> ptr
-	fn LLVMBuildCall2(builder: ptr, fn_ty: ptr, fn_val: ptr, args: ptr, arg_count: i32, name: ptr) -> ptr
-	fn LLVMBuildAdd(builder: ptr, lhs: ptr, rhs: ptr, name: ptr) -> ptr
 	fn LLVMConstInt(int_ty: ptr, value: i64, sign_extend: i32) -> ptr
 	fn LLVMBuildRet(builder: ptr, val: ptr) -> ptr
 	fn LLVMPrintModuleToString(module_ref: ptr) -> ptr
@@ -212,120 +207,12 @@ pub fn emit(src: ptr, src_len: i32, out_ll_path: ptr) -> i32
 	LLVMDisposeMessage(triple0)
 
 	let i32_ty0 = LLVMInt32Type()
-	let i8_ty0 = LLVMInt8Type()
-	let i8_ptr_ty0 = LLVMPointerType(i8_ty0, 0)
 
 	let fn_ty0 = LLVMFunctionType(i32_ty0, nil, 0, 0)
 	let fn0 = LLVMAddFunction(module0, fn_name0, fn_ty0)
 	let bb0 = LLVMAppendBasicBlock(fn0, "entry")
 	let builder0 = LLVMCreateBuilder()
 	LLVMPositionBuilderAtEnd(builder0, bb0)
-
-	let printf_params0 = malloc(8)
-	if (printf_params0 == nil)
-	{
-		LLVMDisposeBuilder(builder0)
-		LLVMDisposeModule(module0)
-		free(fn_name0)
-		printf("EmitError: malloc failed\n")
-		return 1
-	}
-	printf_params0[0] = i8_ptr_ty0
-	let printf_ty0 = LLVMFunctionType(i32_ty0, printf_params0, 1, 1)
-	let printf_fn0 = LLVMAddFunction(module0, "printf", printf_ty0)
-	free(printf_params0)
-
-	let fmt_s0 = LLVMBuildGlobalStringPtr(builder0, "%s\n", "fmt_s_nl")
-	let fmt_i0 = LLVMBuildGlobalStringPtr(builder0, "%d\n", "fmt_i32_nl")
-
-	let scan0 = body_start0
-	while (1)
-	{
-		let kind0 = 0
-		let val0 = 0
-		let s0 = 0
-		let s1 = 0
-		let lhs0 = 0
-		let rhs0 = 0
-		let has_add0 = 0
-		let next0 = ast_next_print_node(src, & scan0, body_end0, & kind0, & val0, & s0, & s1, & lhs0, & rhs0, & has_add0)
-		if (next0 == 0)
-		{
-			break
-		}
-		if (next0 < 0)
-		{
-			LLVMDisposeBuilder(builder0)
-			LLVMDisposeModule(module0)
-			free(fn_name0)
-			printf("EmitError: AST print node parse failed\n")
-			return 1
-		}
-
-		match kind0
-		{
-			1 -> {
-				let str_c0 = decode_str(src, s0 + 1, s1 - 1)
-				if (str_c0 == nil)
-				{
-					LLVMDisposeBuilder(builder0)
-					LLVMDisposeModule(module0)
-					free(fn_name0)
-					printf("EmitError: malloc failed\n")
-					return 1
-				}
-				let str_val0 = LLVMBuildGlobalStringPtr(builder0, str_c0, "str_lit")
-				let call_args0 = malloc(16)
-				if (call_args0 == nil)
-				{
-					free(str_c0)
-					LLVMDisposeBuilder(builder0)
-					LLVMDisposeModule(module0)
-					free(fn_name0)
-					printf("EmitError: malloc failed\n")
-					return 1
-				}
-				call_args0[0] = fmt_s0
-				call_args0[1] = str_val0
-				LLVMBuildCall2(builder0, printf_ty0, printf_fn0, call_args0, 2, "calltmp")
-				free(call_args0)
-				free(str_c0)
-			}
-			_ -> {
-				let val_ir0 = LLVMConstInt(i32_ty0, 0, 1)
-				if (has_add0 == 1)
-				{
-					let lhs_ir0 = LLVMConstInt(i32_ty0, lhs0, 1)
-					let rhs_ir0 = LLVMConstInt(i32_ty0, rhs0, 1)
-					val_ir0 = LLVMBuildAdd(builder0, lhs_ir0, rhs_ir0, "addtmp")
-				}
-				else
-				{
-					val_ir0 = LLVMConstInt(i32_ty0, val0, 1)
-				}
-
-				let call_args1 = malloc(16)
-				if (call_args1 == nil)
-				{
-					LLVMDisposeBuilder(builder0)
-					LLVMDisposeModule(module0)
-					free(fn_name0)
-					printf("EmitError: malloc failed\n")
-					return 1
-				}
-				call_args1[0] = fmt_i0
-				call_args1[1] = val_ir0
-				LLVMBuildCall2(builder0, printf_ty0, printf_fn0, call_args1, 2, "calltmp")
-				free(call_args1)
-			}
-		}
-		/*let call_next0 = ast_parse_call_stmt_node(src, scan0, total0)
-		if (call_next0 >= 0)
-		{
-			scan0 = ast_skip_ws(src, call_next0, total0)
-			continue
-		}*/
-	}
 
 	let const_ret0 = LLVMConstInt(i32_ty0, ret_value0, 1)
 	LLVMBuildRet(builder0, const_ret0)

@@ -86,6 +86,40 @@ pub fn ast_print_primary_inline(src: string, start0: i32, end0: i32) -> i32
 	return 0
 }
 
+pub fn ast_infer_expr_type(src: string, pos0: i32, total0: i32, mut out_ty: & i32, mut out_end: & i32) -> i32
+{
+	let lhs_ty0 = TY_UNKNOWN
+	let lhs_i320 = 0
+	let lhs_s00 = 0
+	let lhs_s10 = 0
+	let lhs_end0 = 0
+	if (ast_parse_expr_basic(src, pos0, total0, & lhs_ty0, & lhs_i320, & lhs_s00, & lhs_s10, & lhs_end0) != 0)
+	{
+		return 1
+	}
+
+	let op_pos0 = ast_skip_ws(src, lhs_end0, total0)
+	if (op_pos0 < total0 and (src[op_pos0] == '+' or src[op_pos0] == '*'))
+	{
+		let rhs_ty0 = TY_UNKNOWN
+		let rhs_i320 = 0
+		let rhs_s00 = 0
+		let rhs_s10 = 0
+		let rhs_end0 = 0
+		if (ast_parse_expr_basic(src, op_pos0 + 1, total0, & rhs_ty0, & rhs_i320, & rhs_s00, & rhs_s10, & rhs_end0) != 0)
+		{
+			return 1
+		}
+		@out_ty = ti_infer_binary(lhs_ty0, rhs_ty0, src[op_pos0])
+		@out_end = rhs_end0
+		return 0
+	}
+
+	@out_ty = lhs_ty0
+	@out_end = lhs_end0
+	return 0
+}
+
 pub fn ast_print_expr_value(src: string, pos0: i32, total0: i32, indent0: i32) -> i32
 {
 	let lhs_start0 = ast_skip_ws(src, pos0, total0)
@@ -162,7 +196,21 @@ pub fn ast_dump_let_stmt(src: string, pos0: i32, total0: i32, indent0: i32) -> i
 	{
 		return -1
 	}
-	return expr_end0
+
+	let infer_ty0 = TY_UNKNOWN
+	let infer_end0 = 0
+	if (ast_infer_expr_type(src, p2 + 1, total0, & infer_ty0, & infer_end0) == 0)
+	{
+		ast_print_ident(indent0 + 2)
+		printf("type: %s\n", ti_type_name(infer_ty0))
+	}
+
+	let sem_end0 = ast_parse_let_stmt_node(src, p0, total0)
+	if (sem_end0 < 0)
+	{
+		return -1
+	}
+	return sem_end0
 }
 
 pub fn ast_dump_print_stmt(src: string, pos0: i32, total0: i32, indent0: i32) -> i32
@@ -263,6 +311,13 @@ pub fn ast_dump_return_stmt(src: string, pos0: i32, total0: i32, indent0: i32) -
 	{
 		return -1
 	}
+	let infer_ty0 = TY_UNKNOWN
+	let infer_end0 = 0
+	if (ast_infer_expr_type(src, p1, total0, & infer_ty0, & infer_end0) == 0)
+	{
+		ast_print_ident(indent0 + 2)
+		printf("type: %s\n", ti_type_name(infer_ty0))
+	}
 	return expr_end0
 }
 
@@ -350,6 +405,10 @@ pub fn ast_dump_one_function(src: string, pos_in0: i32, total6: i32) -> i32
 	printf("body:\n")
 	ast_print_ident(4)
 	printf("BLOCK:\n")
+	if (ast_env_init() != 0)
+	{
+		return -1
+	}
 
 	pos10 = ast_skip_ws(src, pos10, total6)
 	while (1)
