@@ -213,6 +213,51 @@ pub fn ast_dump_let_stmt(src: string, pos0: i32, total0: i32, indent0: i32) -> i
 	return sem_end0
 }
 
+pub fn ast_dump_assign_stmt(src: string, pos0: i32, total0: i32, indent0: i32) -> i32
+{
+	let p0 = ast_skip_ws(src, pos0, total0)
+	let name_s0 = p0
+	let name_e0 = ast_parse_ident(src, p0, total0)
+	if (name_e0 < 0)
+	{
+		return -1
+	}
+
+	let p1 = ast_skip_ws(src, name_e0, total0)
+	if (p1 >= total0 or src[p1] != '=')
+	{
+		return -1
+	}
+
+	ast_print_ident(indent0)
+	printf("- ASSIGN:\n")
+	ast_print_ident(indent0 + 2)
+	printf("name: ")
+	ast_print_span_raw(src, name_s0, name_e0)
+	printf("\n")
+
+	let expr_end0 = ast_print_expr_value(src, p1 + 1, total0, indent0 + 2)
+	if (expr_end0 < 0)
+	{
+		return -1
+	}
+
+	let infer_ty0 = TY_UNKNOWN
+	let infer_end0 = 0
+	if (ast_infer_expr_type(src, p1 + 1, total0, & infer_ty0, & infer_end0) == 0)
+	{
+		ast_print_ident(indent0 + 2)
+		printf("type: %s\n", ti_type_name(infer_ty0))
+	}
+
+	let sem_end0 = ast_parse_assign_stmt_node(src, p0, total0)
+	if (sem_end0 < 0)
+	{
+		return -1
+	}
+	return sem_end0
+}
+
 pub fn ast_dump_print_stmt(src: string, pos0: i32, total0: i32, indent0: i32) -> i32
 {
 	let p0 = ast_skip_ws(src, pos0, total0)
@@ -414,6 +459,13 @@ pub fn ast_dump_one_function(src: string, pos_in0: i32, total6: i32) -> i32
 	while (1)
 	{
 		let next0 = ast_dump_let_stmt(src, pos10, total6, 6)
+		if (next0 >= 0)
+		{
+			pos10 = ast_skip_ws(src, next0, total6)
+			continue
+		}
+
+		next0 = ast_dump_assign_stmt(src, pos10, total6, 6)
 		if (next0 >= 0)
 		{
 			pos10 = ast_skip_ws(src, next0, total6)

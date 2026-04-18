@@ -494,6 +494,81 @@ pub fn ast_parse_let_stmt_node(src: string, pos0: i32, total0: i32) -> i32
 	return p4
 }
 
+pub fn ast_parse_assign_stmt_node(src: string, pos0: i32, total0: i32) -> i32
+{
+	let p0 = ast_skip_ws(src, pos0, total0)
+	let name_s = p0
+	let name_e = ast_parse_ident(src, name_s, total0)
+	if (name_e < 0)
+	{
+		return -1
+	}
+
+	let p1 = ast_skip_ws(src, name_e, total0)
+	if (p1 >= total0 or src[p1] != '=')
+	{
+		return -1
+	}
+
+	let p2 = ast_skip_ws(src, p1 + 1, total0)
+	let lhs_ty = TY_UNKNOWN
+	let lhs_i32 = 0
+	let lhs_s0 = 0
+	let lhs_s1 = 0
+	let lhs_end = 0
+	if (ast_parse_expr_basic(src, p2, total0, & lhs_ty, & lhs_i32, & lhs_s0, & lhs_s1, & lhs_end) != 0)
+	{
+		printf("AstError: invalid assign expression\n")
+		return -1
+	}
+
+	let p3 = ast_skip_ws(src, lhs_end, total0)
+	let ty0 = lhs_ty
+	let iv0 = lhs_i32
+	let ss0 = lhs_s0
+	let se0 = lhs_s1
+
+	if (p3 < total0 and (src[p3] == '+' or src[p3] == '*'))
+	{
+		let op0 = src[p3]
+		let rhs_ty = TY_UNKNOWN
+		let rhs_i32 = 0
+		let rhs_s0 = 0
+		let rhs_s1 = 0
+		let rhs_end = 0
+		if (ast_parse_expr_basic(src, p3 + 1, total0, & rhs_ty, & rhs_i32, & rhs_s0, & rhs_s1, & rhs_end) != 0)
+		{
+			printf("AstError: invalid binary rhs\n")
+			return -1
+		}
+		ty0 = ti_infer_binary(lhs_ty, rhs_ty, op0)
+		if (ty0 == TY_I32)
+		{
+			if (op0 == '+')
+			{
+				iv0 = lhs_i32 + rhs_i32
+			}
+			else
+			{
+				iv0 = lhs_i32 * rhs_i32
+			}
+		}
+		else
+		{
+			iv0 = 0
+		}
+		ss0 = 0
+		se0 = 0
+		p3 = ast_skip_ws(src, rhs_end, total0)
+	}
+
+	if (ast_env_set(src, name_s, name_e, ty0, iv0, ss0, se0) != 0)
+	{
+		return -1
+	}
+	return p3
+}
+
 pub fn ast_parse_print_stmt_node(src: string, pos8: i32, total5: i32, mut out_kind: & i32, mut out_i32: & i32, mut out_s0: & i32, mut out_s1: & i32, mut out_lhs: & i32, mut out_rhs: & i32, mut out_has_add: & i32) -> i32
 {
 	let p0 = ast_skip_ws(src, pos8, total5)

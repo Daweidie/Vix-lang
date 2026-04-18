@@ -1,8 +1,6 @@
 fn main(): i32
 {
     let a = 10
-    let b = 3.14
-    let c = "Hello, Vix!"
-    let d = true
+    a = 20
     return 0
 }

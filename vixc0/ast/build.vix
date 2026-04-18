@@ -87,6 +87,13 @@ pub fn ast_build_function(src: string, total6: i32, mut out_fn_name_start: & i32
 			continue
 		}
 
+		let assign_next0 = ast_parse_assign_stmt_node(src, scan0, total6)
+		if (assign_next0 >= 0)
+		{
+			scan0 = ast_skip_ws(src, assign_next0, total6)
+			continue
+		}
+
 		let kind0 = 0
 		let val0 = 0
 		let s0 = 0
@@ -159,6 +166,14 @@ pub fn ast_next_print_node(src: string, mut io_pos: & i32, body_end: i32, mut ou
 		if (let_next0 >= 0)
 		{
 			p0 = ast_skip_ws(src, let_next0, body_end)
+			@io_pos = p0
+			continue
+		}
+
+		let assign_next0 = ast_parse_assign_stmt_node(src, p0, body_end)
+		if (assign_next0 >= 0)
+		{
+			p0 = ast_skip_ws(src, assign_next0, body_end)
 			@io_pos = p0
 			continue
 		}
