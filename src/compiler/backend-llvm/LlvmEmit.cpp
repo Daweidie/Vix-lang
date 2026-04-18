@@ -37,6 +37,61 @@ static bool isBuiltinUnionCtorName(const std::string& name) {
 
 static std::string g_vix_target_triple;
 
+struct PrintfFormatSpec {
+    char conv = 0;
+    int length = 0; // 0: default, 1: l, 2: ll
+};
+
+static std::vector<PrintfFormatSpec> parsePrintfFormatSpecs(const std::string& fmt) {
+    std::vector<PrintfFormatSpec> specs;
+    size_t i = 0;
+    while (i < fmt.size()) {
+        if (fmt[i] != '%') {
+            i++;
+            continue;
+        }
+
+        i++;
+        if (i < fmt.size() && fmt[i] == '%') {
+            i++;
+            continue;
+        }
+
+        while (i < fmt.size() &&
+               (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '#' || fmt[i] == '0')) {
+            i++;
+        }
+        while (i < fmt.size() && (fmt[i] >= '0' && fmt[i] <= '9')) {
+            i++;
+        }
+        if (i < fmt.size() && fmt[i] == '.') {
+            i++;
+            while (i < fmt.size() && (fmt[i] >= '0' && fmt[i] <= '9')) {
+                i++;
+            }
+        }
+
+        int length = 0;
+        if (i < fmt.size() && fmt[i] == 'l') {
+            length = 1;
+            i++;
+            if (i < fmt.size() && fmt[i] == 'l') {
+                length = 2;
+                i++;
+            }
+        }
+
+        if (i < fmt.size()) {
+            PrintfFormatSpec spec;
+            spec.conv = fmt[i];
+            spec.length = length;
+            specs.push_back(spec);
+            i++;
+        }
+    }
+    return specs;
+}
+
 struct SymbolAttr {
     bool exported = false;
     std::string section;
@@ -508,7 +563,7 @@ public:
             return builder.CreateFPToSI(val, getLLVMType(to), "ftoi");
 
         if ((from == ValueType::INT32 || from == ValueType::INT64 || from == ValueType::INT8 || from == ValueType::BOOL) &&
-            to == ValueType::POINTER) {
+            (to == ValueType::POINTER || to == ValueType::STRING)) {
             Value* intVal = val;
             if (!intVal->getType()->isIntegerTy(64)) {
                 intVal = builder.CreateSExtOrTrunc(intVal, Type::getInt64Ty(context), "int_to_ptr_int64");
@@ -3271,6 +3326,45 @@ public:
         
         std::string calleeName(node->data.call.func->data.identifier.name);
 
+        if (calleeName == "stdin") {
+            int stdinArgCount = node->data.call.args ?
+                node->data.call.args->data.expression_list.expression_count : 0;
+            if (stdinArgCount == 0) {
+                Type* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+                Function* fdopenFn = module->getFunction("fdopen");
+                if (!fdopenFn) {
+                    FunctionType* fdopenTy = FunctionType::get(
+                        i8PtrTy,
+                        {Type::getInt32Ty(context), i8PtrTy},
+                        false
+                    );
+                    fdopenFn = Function::Create(
+                        fdopenTy,
+                        Function::ExternalLinkage,
+                        "fdopen",
+                        module.get()
+                    );
+                    fdopenFn->setCallingConv(CallingConv::C);
+                }
+
+                Value* modeStr = safeCreateGlobalStringPtr("r", "stdin_mode");
+                Value* fdZero = ConstantInt::get(Type::getInt32Ty(context), 0);
+                Value* stdinVal = builder.CreateCall(fdopenFn, {fdZero, modeStr}, "stdin_val");
+                return VisitResult(stdinVal, ValueType::POINTER);
+            }
+        }
+
+        std::vector<PrintfFormatSpec> printfSpecs;
+        if ((calleeName == "printf" || calleeName == "sprintf" || calleeName == "snprintf") &&
+            node->data.call.args &&
+            node->data.call.args->type == AST_EXPRESSION_LIST &&
+            node->data.call.args->data.expression_list.expression_count > 0) {
+            ASTNode* fmtNode = node->data.call.args->data.expression_list.expressions[0];
+            if (fmtNode && fmtNode->type == AST_STRING && fmtNode->data.string.value) {
+                printfSpecs = parsePrintfFormatSpecs(fmtNode->data.string.value);
+            }
+        }
+
         if (isBuiltinUnionCtorName(calleeName)) {
             int argCount = node->data.call.args ?
                 node->data.call.args->data.expression_list.expression_count : 0;
@@ -3400,10 +3494,49 @@ public:
                         expectedType = callee->getFunctionType()->getParamType(llvmParamIndex);
                     } else {
                         if (isKnownVarArgFunc) {
+                            if ((calleeName == "printf" || calleeName == "sprintf" || calleeName == "snprintf") && i > 0) {
+                                int fmtArgIndex = i - 1;
+                                if (fmtArgIndex >= 0 && fmtArgIndex < (int)printfSpecs.size()) {
+                                    const PrintfFormatSpec& spec = printfSpecs[fmtArgIndex];
+                                    switch (spec.conv) {
+                                        case 's':
+                                        case 'p':
+                                            expectedType = PointerType::getUnqual(Type::getInt8Ty(context));
+                                            break;
+                                        case 'f':
+                                        case 'F':
+                                        case 'e':
+                                        case 'E':
+                                        case 'g':
+                                        case 'G':
+                                        case 'a':
+                                        case 'A':
+                                            expectedType = Type::getDoubleTy(context);
+                                            break;
+                                        case 'd':
+                                        case 'i':
+                                        case 'u':
+                                        case 'x':
+                                        case 'X':
+                                        case 'o':
+                                        case 'c':
+                                            expectedType = (spec.length >= 2)
+                                                ? Type::getInt64Ty(context)
+                                                : Type::getInt32Ty(context);
+                                            break;
+                                        default:
+                                            break;
+                                    }
+                                }
+                            }
+
                             if (argRes.value->getType()->isIntegerTy() && 
                                 argRes.value->getType()->getIntegerBitWidth() < 32) {
-                                expectedType = Type::getInt32Ty(context);//提升到i32
-                            } else {
+                                if (!expectedType || expectedType->isIntegerTy()) {
+                                    expectedType = Type::getInt32Ty(context);//提升到i32
+                                }
+                            }
+                            if (!expectedType) {
                                 expectedType = argRes.value->getType();
                             }
                         } else {
@@ -3411,16 +3544,63 @@ public:
                         }
                     }
 
-                    if (calleeName == "malloc" && i == 0) {
-                        Value* mallocSize = argRes.value;
-                        if (!mallocSize->getType()->isIntegerTy()) {
-                            mallocSize = typeHelper.castValue(builder, mallocSize, argRes.type, ValueType::INT32);
+                    if ((calleeName == "fgets" || calleeName == "gets") && i == 0 &&
+                        argNode && argNode->type == AST_IDENTIFIER && argNode->data.identifier.name) {
+                        std::string strBufName(argNode->data.identifier.name);
+                        typeHelper.registerStringVariable(strBufName);
+                        typeHelper.registerArrayType(strBufName, Type::getInt8Ty(context), -1);
+                    }
+
+                    if (calleeName == "strncpy" && i == 0 &&
+                        argNode && argNode->type == AST_IDENTIFIER && argNode->data.identifier.name) {
+                        std::string strBufName(argNode->data.identifier.name);
+                        typeHelper.registerStringVariable(strBufName);
+                        typeHelper.registerArrayType(strBufName, Type::getInt8Ty(context), -1);
+                    }
+
+                    if (expectedType && expectedType->isPointerTy() &&
+                        (!argRes.value->getType()->isPointerTy()) &&
+                        argNode && argNode->type == AST_INDEX &&
+                        argNode->data.index.target && argNode->data.index.target->type == AST_IDENTIFIER &&
+                        argNode->data.index.target->data.identifier.name) {
+                        std::string indexedBaseName(argNode->data.index.target->data.identifier.name);
+                        AllocaInst* indexedBaseAlloc = scopeManager.findVariable(indexedBaseName);
+                        if (!indexedBaseAlloc) indexedBaseAlloc = findVariableInMain(indexedBaseName);
+                        GlobalVariable* indexedBaseGlobal = nullptr;
+                        if (!indexedBaseAlloc) {
+                            indexedBaseGlobal = findGlobalVariable(indexedBaseName);
                         }
-                        uint64_t elemBytes = 4;
-                        Value* scale = ConstantInt::get(mallocSize->getType(), elemBytes);
-                        mallocSize = builder.CreateMul(mallocSize, scale, "malloc_bytes");
-                        argRes.value = mallocSize;
-                        argRes.type = typeHelper.getValueTypeFromType(mallocSize->getType());
+
+                        Value* indexedBasePtr = nullptr;
+                        if (indexedBaseAlloc) {
+                            Type* indexedAllocTy = getActualType(indexedBaseAlloc);
+                            if (indexedAllocTy && indexedAllocTy->isPointerTy()) {
+                                indexedBasePtr = builder.CreateLoad(indexedAllocTy, indexedBaseAlloc, indexedBaseName + "_ptr");
+                            }
+                        } else if (indexedBaseGlobal) {
+                            Type* globalTy = indexedBaseGlobal->getValueType();
+                            if (globalTy && globalTy->isPointerTy()) {
+                                indexedBasePtr = builder.CreateLoad(globalTy, indexedBaseGlobal, indexedBaseName + "_ptr");
+                            }
+                        }
+
+                        if (indexedBasePtr && indexedBasePtr->getType()->isPointerTy()) {
+                            VisitResult reIdxRes = visit(argNode->data.index.index);
+                            if (reIdxRes.value) {
+                                Value* reIdxVal = reIdxRes.value;
+                                if (!reIdxVal->getType()->isIntegerTy(32)) {
+                                    reIdxVal = builder.CreateIntCast(reIdxVal, Type::getInt32Ty(context), true, "idxcast_printf");
+                                }
+
+                                Type* forcedElemType = PointerType::getUnqual(Type::getInt8Ty(context));
+                                Value* forcedGep = builder.CreateInBoundsGEP(forcedElemType, indexedBasePtr, reIdxVal, "fmt_ptr_index_ptr");
+                                Value* forcedLoaded = builder.CreateLoad(forcedElemType, forcedGep, "fmt_ptr_index_load");
+
+                                argRes.value = forcedLoaded;
+                                argRes.type = ValueType::POINTER;
+                                typeHelper.registerArrayType(indexedBaseName, forcedElemType, -1);
+                            }
+                        }
                     }
                     
                     ValueType expectedValueType = typeHelper.getValueTypeFromType(expectedType);
@@ -4227,7 +4407,16 @@ public:
         if (initializer) {
             VisitResult initResult = visit(initializer);
             if (initResult.value && isa<Constant>(initResult.value)) {
-                initValue = cast<Constant>(initResult.value);
+                Constant* rawInit = cast<Constant>(initResult.value);
+                if (rawInit->getType() == globalType) {
+                    initValue = rawInit;
+                } else if (globalType->isPointerTy() && rawInit->getType()->isIntegerTy() &&
+                           isa<ConstantInt>(rawInit) && cast<ConstantInt>(rawInit)->isZero()) {
+                    initValue = ConstantPointerNull::get(cast<PointerType>(globalType));
+                } else if (globalType->isIntegerTy() && rawInit->getType()->isIntegerTy()) {
+                    int64_t iv = cast<ConstantInt>(rawInit)->getSExtValue();
+                    initValue = ConstantInt::get(globalType, static_cast<uint64_t>(iv), true);
+                }
             }
         }
         

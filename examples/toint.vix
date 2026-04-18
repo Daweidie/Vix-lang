@@ -1,2 +1,0 @@
-let a =  toint(input(">"))
-print(a + 1)

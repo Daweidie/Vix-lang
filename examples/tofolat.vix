@@ -1,2 +1,0 @@
-let b =  tofloat(input(">"))
-print(b + 3.14)

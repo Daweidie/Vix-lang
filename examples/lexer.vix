@@ -1,30 +1,30 @@
-type Token = String
-            | Number
-            | Operator
-            | Identifier
-            | Equals
-            | Unknown
-        
 fn lexer(s:string) -> i32 {
-    for (i in 0 .. s.length) {
+    for (i in 0 .. s.length)
+    {
         let c = s[i]
-        if(c >= '0' and c <= '9') {
-            print("NUMBER:", c)
-        }
-        elif(c >= 'a' and c <= 'z') {
-            print("IDENTIFIER:", c)
-        }
-        elif(c == '+' or c == '-' or c == '*' or c == '/') {
-            print("OPERATOR:", c)
-        }
-        elif(c == ' ') {
+        if (c == ' ')
+        {
             continue
         }
-        elif(c == '=') {
-            print("EQUALS:", c)
+        else if (c >= '0' && c <= '9')
+        {
+            print("Number: " + c)
         }
-        else {
-            print("UNKNOWN:", c)
+        else if (c == '+' || c == '-' || c == '*' || c == '/')
+        {
+            print("Operator: " + c)
+        }
+        else if (c == '=')
+        {
+            print("Equals: " + c)
+        }
+        else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+        {
+            print("Identifier: " + c)
+        }
+        else
+        {
+            print("Unknown: " + c)
         }
     }
     return 0
