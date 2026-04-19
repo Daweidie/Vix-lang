@@ -1067,6 +1067,20 @@ private:
         return VisitResult(callInst, typeHelper.getValueTypeFromType(returnType));
     }
 
+    Value* getBuiltinUnionCtorTagValue(const std::string& ctorName) {
+        GlobalVariable* ctorGlobal = module->getGlobalVariable(ctorName, true);
+        if (ctorGlobal && ctorGlobal->hasInitializer()) {
+            if (auto* intInit = dyn_cast<ConstantInt>(ctorGlobal->getInitializer())) {
+                return ConstantInt::get(Type::getInt32Ty(context), intInit->getSExtValue(), true);
+            }
+        }
+
+        int32_t fallbackTag = 0;
+        if (ctorName == "Some") fallbackTag = 1;
+        if (ctorName == "Err") fallbackTag = 1;
+        return ConstantInt::get(Type::getInt32Ty(context), fallbackTag, true);
+    }
+
     Constant* evaluateConstExpr(ASTNode* node, ValueType* outType = nullptr) {
         if (!node) {
             if (outType) *outType = ValueType::INT32;
@@ -1401,7 +1415,7 @@ public:
             return VisitResult(nil, ValueType::POINTER);
         }
         if (name == "Some" || name == "Ok" || name == "Err") {
-            return VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
+            return VisitResult(getBuiltinUnionCtorTagValue(name), ValueType::INT32);
         }
         AllocaInst* alloc = scopeManager.findVariable(name);
         
@@ -3368,14 +3382,18 @@ public:
         if (isBuiltinUnionCtorName(calleeName)) {
             int argCount = node->data.call.args ?
                 node->data.call.args->data.expression_list.expression_count : 0;
-            if (argCount <= 0) {
-                return VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
+
+            if (argCount > 0 && node->data.call.args &&
+                node->data.call.args->type == AST_EXPRESSION_LIST) {
+                for (int i = 0; i < argCount; i++) {
+                    ASTNode* argNode = node->data.call.args->data.expression_list.expressions[i];
+                    if (!argNode) continue;
+                    VisitResult argRes = visit(argNode);
+                    if (!argRes.value) return VisitResult();
+                }
             }
 
-            ASTNode* firstArg = node->data.call.args->data.expression_list.expressions[0];
-            VisitResult payload = visit(firstArg);
-            if (!payload.value) return VisitResult();
-            return payload;
+            return VisitResult(getBuiltinUnionCtorTagValue(calleeName), ValueType::INT32);
         }
 
         if (node->data.call.type_args && node->data.call.type_args->type == AST_EXPRESSION_LIST) {

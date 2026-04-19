@@ -291,9 +291,12 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                     body = prepend_binding_to_match_body(body, bind_arg->data.identifier.name, scrutinee);
                 }
 
-                /* Payload constructor pattern: treat as non-zero for Option/Result-like values. */
-                ASTNode* zero = create_num_int_node(0);
-                cond = create_binop_node(OP_NE, cond_left, zero);
+                /* Payload constructor pattern: compare constructor tag directly. */
+                ASTNode* cond_right = create_identifier_node(ctor_name);
+                if (is_builtin_union_ctor_name(ctor_name) && strcmp(ctor_name, "None") == 0) {
+                    cond_right = create_num_int_node(0);
+                }
+                cond = create_binop_node(OP_EQ, cond_left, cond_right);
             } else {
                 ASTNode* cond_right = create_identifier_node(ctor_name);
                 if (is_builtin_union_ctor_name(ctor_name) && strcmp(ctor_name, "None") == 0) {
