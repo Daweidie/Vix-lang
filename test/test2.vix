@@ -1,12 +1,10 @@
-struct Box:[T]
-{
-    value: T
-}
 fn main(): i32
 {
-    let a = Box[i32]{ value: 10 }
-    let b = Box[string]{ value: "Hello, World!" }
-    print(a.value)
-    print(b.value)
+    let x = 5
+    fn inner(): i32
+    {
+        return x
+    }
+    print(inner())
     return 0
 }

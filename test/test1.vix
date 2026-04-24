@@ -1,0 +1,12 @@
+fn id:[T](x: T): T
+{
+    return x
+}
+
+fn main(): i32
+{
+    print(id:[i32](123))
+    print(id:[str]("xyz"))
+    print(id("abc"))
+    return 0
+}

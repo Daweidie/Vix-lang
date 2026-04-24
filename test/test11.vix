@@ -1,0 +1,17 @@
+struct A
+{
+    b: B,
+    value: i32
+}
+
+struct B
+{
+    a: A
+}
+
+fn main(): i32
+{
+    let x = A{ value: 9 }
+    print(x.b)
+    return 0
+}
