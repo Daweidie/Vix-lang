@@ -1,6 +1,6 @@
-#include "../include/type_inference.h"
-#include "../include/bytecode.h"
+#include "../include/typeinfer.h"
 #include "../include/compiler.h"
+#include "../include/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

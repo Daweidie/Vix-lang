@@ -1,7 +1,7 @@
 #ifndef SEMANTIC_H
 #define SEMANTIC_H
 #include "ast.h"
-#include "type_inference.h"
+#include "typeinfer.h"
 
 typedef enum {
     SYMBOL_VARIABLE,

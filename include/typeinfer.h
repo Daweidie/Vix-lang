@@ -1,9 +1,10 @@
 #ifndef TYPE_INFERENCE_H
 #define TYPE_INFERENCE_H
-#include "bytecode.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+typedef struct ASTNode ASTNode;
 
 typedef struct StructTypeInfo StructTypeInfo;
 

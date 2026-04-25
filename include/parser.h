@@ -5,4 +5,4 @@ int yylex(void);
 int yyparse(void);
 void yyerror(const char *s);
 extern ASTNode* root;
-#endif//PARSER_H
+#endif

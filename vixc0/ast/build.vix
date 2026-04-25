@@ -152,8 +152,10 @@ pub fn ast_build_function(src: string, total6: i32, mut out_fn_name_start: & i32
 	{
 		return 0
 	}
-	// Keep codegen entry on the first parsed function while allowing
-	// additional user-defined functions to coexist in the source file.
+	/*
+	把代码生成的入口点保持在第一个被解析的函数上
+	同时允许源文件里还有别的用户自定义函数
+	*/
 	return 0
 }
 

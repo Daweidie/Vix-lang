@@ -1,8 +1,8 @@
 /*
 vix0.0.1 released!
 */
-#include "../../../include/llvm_emit.h"
-#include "../../../include/ast.h"
+#include "../../include/codegen.h"
+#include "../../include/ast.h"
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/LLVMContext.h>
@@ -565,8 +565,14 @@ public:
         if ((from == ValueType::INT32 || from == ValueType::INT64 || from == ValueType::INT8 || from == ValueType::BOOL) &&
             (to == ValueType::POINTER || to == ValueType::STRING)) {
             Value* intVal = val;
+            if (!intVal->getType()->isIntegerTy()) {
+                if (intVal->getType()->isPointerTy()) {
+                    return builder.CreateBitCast(intVal, PointerType::getUnqual(Type::getInt8Ty(context)), "ptr_to_ptr");
+                }
+                return intVal;
+            }
             if (!intVal->getType()->isIntegerTy(64)) {
-                intVal = builder.CreateSExtOrTrunc(intVal, Type::getInt64Ty(context), "int_to_ptr_int64");
+                intVal = builder.CreateIntCast(intVal, Type::getInt64Ty(context), true, "int_to_ptr_int64");
             }
             return builder.CreateIntToPtr(intVal, PointerType::getUnqual(Type::getInt8Ty(context)), "int_to_ptr");
         }
@@ -582,6 +588,10 @@ public:
         if ((from == ValueType::POINTER && to == ValueType::STRING) ||
             (from == ValueType::STRING && to == ValueType::POINTER))
             return val;
+
+        if (from == ValueType::POINTER && to == ValueType::POINTER && val->getType()->isPointerTy()) {
+            return builder.CreateBitCast(val, PointerType::getUnqual(Type::getInt8Ty(context)), "ptr_cast");
+        }
         
         return val;
     }
@@ -624,6 +634,8 @@ private:
     std::map<std::string, int> genericFunctionArity;
     std::map<std::string, Type*> activeGenericTypeBindings;
     std::map<const Value*, Type*> pointerElementHints;
+    std::map<std::string, int> memberArrayLengthHints;
+    std::map<std::string, int> memberNestedArrayLengthHints;
     std::vector<BasicBlock*> loopBreakTargets;
     std::vector<BasicBlock*> loopContinueTargets;
 
@@ -1037,7 +1049,7 @@ private:
         return reallocFn;
     }
 
-    VisitResult emitFunctionPointerCall(Value* rawCalleePtr, ASTNode* argsNode) {
+    VisitResult emitFunctionPointerCall(Value* rawCalleePtr, ASTNode* argsNode, Type* expectedReturnTypeHint = nullptr) {
         if (!rawCalleePtr || !rawCalleePtr->getType()->isPointerTy()) return VisitResult();
 
         std::vector<Value*> argValues;
@@ -1054,7 +1066,9 @@ private:
         }
 
         Type* returnType = Type::getInt32Ty(context);
-        if (!argTypes.empty()) {
+        if (expectedReturnTypeHint && !expectedReturnTypeHint->isVoidTy()) {
+            returnType = expectedReturnTypeHint;
+        } else if (!argTypes.empty()) {
             Type* firstArgType = argTypes[0];
             if (firstArgType->isIntegerTy() || firstArgType->isPointerTy() || firstArgType->isFloatingPointTy()) {
                 returnType = firstArgType;
@@ -1062,6 +1076,25 @@ private:
         }
 
         FunctionType* fnType = FunctionType::get(returnType, argTypes, false);
+
+        if ((int)fnType->getNumParams() != (int)argValues.size()) {
+            return VisitResult();
+        }
+
+        for (size_t i = 0; i < argValues.size(); i++) {
+            Type* expectedArgTy = fnType->getParamType((unsigned)i);
+            Value* argVal = argValues[i];
+            if (argVal->getType() != expectedArgTy) {
+                ValueType toVT = typeHelper.getValueTypeFromType(expectedArgTy);
+                ValueType fromVT = typeHelper.getValueTypeFromType(argVal->getType());
+                argVal = typeHelper.castValue(builder, argVal, fromVT, toVT);
+                if (argVal->getType() != expectedArgTy && argVal->getType()->isPointerTy() && expectedArgTy->isPointerTy()) {
+                    argVal = builder.CreateBitCast(argVal, expectedArgTy, "fparg_ptrcast");
+                }
+                argValues[i] = argVal;
+            }
+        }
+
         Value* typedFnPtr = builder.CreateBitCast(rawCalleePtr, PointerType::getUnqual(fnType), "fnptr_cast");
         CallInst* callInst = builder.CreateCall(fnType, typedFnPtr, argValues, "fpcalltmp");
         return VisitResult(callInst, typeHelper.getValueTypeFromType(returnType));
@@ -1418,16 +1451,27 @@ public:
             return VisitResult(getBuiltinUnionCtorTagValue(name), ValueType::INT32);
         }
         AllocaInst* alloc = scopeManager.findVariable(name);
+        Function* curFnForScope = getCurrentFunction();
+        if (alloc && curFnForScope && alloc->getFunction() != curFnForScope) {
+            reportCodegenSemanticError(node, "capturing local variables from outer functions is not supported yet");
+            alloc = nullptr;
+        }
         
         if (!alloc) {
-            if (module->getFunction(name)) {
-                return VisitResult(nullptr, ValueType::VOID);
+            if (Function* fn = module->getFunction(name)) {
+                return VisitResult(fn, ValueType::POINTER);
             }
-            
-            alloc = findVariableInMain(name);
+
+            Function* curFn = getCurrentFunction();
+            bool inMain = (curFn && curFn->getName() == "main");
+            alloc = inMain ? findVariableInMain(name) : nullptr;
             if (alloc) {
                 scopeManager.defineVariable(name, alloc);
             } else {
+                if (!inMain && findVariableInMain(name)) {
+                    reportCodegenSemanticError(node, "capturing local variables from outer functions is not supported yet");
+                    return VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
+                }
                 GlobalVariable* globalVar = findGlobalVariable(name);
                 if (globalVar) {
                     Type* globalType = globalVar->getValueType();
@@ -2336,6 +2380,28 @@ public:
         
         scopeManager.defineVariable(varName, alloc);
         initStructLiteral(alloc, right);
+
+        ASTNode* initFields = right->data.struct_literal.fields;
+        if (initFields && initFields->type == AST_EXPRESSION_LIST) {
+            int initCount = initFields->data.expression_list.expression_count;
+            for (int i = 0; i < initCount; i++) {
+                ASTNode* f = initFields->data.expression_list.expressions[i];
+                if (!f || f->type != AST_ASSIGN || !f->data.assign.left || !f->data.assign.right) continue;
+                ASTNode* lhs = f->data.assign.left;
+                ASTNode* rhs = f->data.assign.right;
+                if (lhs->type != AST_IDENTIFIER || !lhs->data.identifier.name) continue;
+                if (rhs->type != AST_EXPRESSION_LIST) continue;
+                std::string key = varName + "." + std::string(lhs->data.identifier.name);
+                memberArrayLengthHints[key] = rhs->data.expression_list.expression_count;
+                if (rhs->data.expression_list.expression_count > 0) {
+                    ASTNode* first = rhs->data.expression_list.expressions[0];
+                    if (first && first->type == AST_EXPRESSION_LIST) {
+                        memberNestedArrayLengthHints[key] = first->data.expression_list.expression_count;
+                    }
+                }
+            }
+        }
+
         return VisitResult(alloc, ValueType::POINTER, structType);
     }
     
@@ -2874,13 +2940,14 @@ public:
     
     VisitResult visitFunction(ASTNode* node, const std::string* overrideName = nullptr) {
         std::string funcName = overrideName ? *overrideName : std::string(node->data.function.name);
+        IRBuilder<>::InsertPoint callerIP = builder.saveIP();
         
         if (Function* existingFunc = module->getFunction(funcName)) {
             StructType* sretStructType = getStructSRetType(existingFunc);
             if (sretStructType) {
                 return VisitResult(existingFunc, ValueType::POINTER, sretStructType);
             }
-            return VisitResult(existingFunc, typeHelper.fromLLVMType(existingFunc->getReturnType()));
+            return VisitResult(existingFunc, ValueType::POINTER);
         }
         
         std::vector<Type*> paramTypes;
@@ -3041,7 +3108,7 @@ public:
             }
         }//对于声明但未定义的外部函数，直接返回函数对象，不生成函数体
         if (node->data.function.is_extern && node->data.function.body == NULL) {
-            return VisitResult(func, returnValueType, logicalReturnStructType);
+            return VisitResult(func, ValueType::POINTER, logicalReturnStructType);
         }
         
         if (funcName == "main") {
@@ -3162,10 +3229,12 @@ public:
             builder.CreateRet(defaultRetVal);
         }
         scopeManager.setCurrentFunction(prevFunc);
-        builder.ClearInsertionPoint();/*清除插入点，
-        以便后续的顶级代码生成不会继续在刚刚完成的函数的基本块内进行
-         该基本块可能已经包含返回指令 */
-        return VisitResult(func, returnValueType);
+        if (callerIP.isSet()) {
+            builder.restoreIP(callerIP);
+        } else {
+            builder.ClearInsertionPoint();
+        }
+        return VisitResult(func, ValueType::POINTER, logicalReturnStructType);
     }
     
     VisitResult visitCall(ASTNode* node) {
@@ -3333,7 +3402,11 @@ public:
         if (node->data.call.func->type != AST_IDENTIFIER) {
             VisitResult calleeRes = visit(node->data.call.func);
             if (calleeRes.value && calleeRes.value->getType()->isPointerTy()) {
-                return emitFunctionPointerCall(calleeRes.value, node->data.call.args);
+                Type* hintRetTy = nullptr;
+                if (Function* curFn = getCurrentFunction()) {
+                    hintRetTy = curFn->getReturnType();
+                }
+                return emitFunctionPointerCall(calleeRes.value, node->data.call.args, hintRetTy);
             }
             return VisitResult();
         }
@@ -3432,7 +3505,11 @@ public:
                 if (allocType && allocType->isPointerTy()) {
                     Value* fnPtr = builder.CreateLoad(allocType, fnPtrAlloc, calleeName + "_fnptr");
                     if (fnPtr && fnPtr->getType()->isPointerTy()) {
-                        return emitFunctionPointerCall(fnPtr, node->data.call.args);
+                        Type* hintRetTy = nullptr;
+                        if (Function* curFn = getCurrentFunction()) {
+                            hintRetTy = curFn->getReturnType();
+                        }
+                        return emitFunctionPointerCall(fnPtr, node->data.call.args, hintRetTy);
                     }
                 }
             }
@@ -3757,6 +3834,10 @@ public:
                     std::string fieldName(left->data.identifier.name);
                     Type* fieldType = typeHelper.getTypeFromTypeNode(right);
                     if (!fieldType) fieldType = Type::getInt32Ty(context);
+                    if (fieldType == structType) {
+                        reportCodegenSemanticError(node, "self-recursive struct fields must use pointer type");
+                        return VisitResult();
+                    }
                     fieldTypes.push_back(fieldType);
                     fieldInfo.push_back({fieldName, fieldType});
                 }
@@ -3891,13 +3972,30 @@ public:
         }
 
         if (object->type == AST_MEMBER_ACCESS) {
+            ASTNode* obj = object->data.member_access.object;
             ASTNode* field = object->data.member_access.field;
-            if (field && field->type == AST_IDENTIFIER && field->data.identifier.name) {
-                std::string memberName(field->data.identifier.name);
-                if (memberName == "scopes") {
-                    Value* length = ConstantInt::get(Type::getInt32Ty(context), 1);
-                    VIX_DEBUG_LOG << "[DEBUG] Member length fallback for scopes: 1\n";
-                    return VisitResult(length, ValueType::INT32);
+            if (obj && field && obj->type == AST_IDENTIFIER && field->type == AST_IDENTIFIER &&
+                obj->data.identifier.name && field->data.identifier.name) {
+                std::string key = std::string(obj->data.identifier.name) + "." + std::string(field->data.identifier.name);
+                auto it = memberArrayLengthHints.find(key);
+                if (it != memberArrayLengthHints.end()) {
+                    return VisitResult(ConstantInt::get(Type::getInt32Ty(context), it->second), ValueType::INT32);
+                }
+            }
+        }
+
+        if (object->type == AST_INDEX) {
+            ASTNode* outerTarget = object->data.index.target;
+            if (outerTarget && outerTarget->type == AST_MEMBER_ACCESS) {
+                ASTNode* obj = outerTarget->data.member_access.object;
+                ASTNode* field = outerTarget->data.member_access.field;
+                if (obj && field && obj->type == AST_IDENTIFIER && field->type == AST_IDENTIFIER &&
+                    obj->data.identifier.name && field->data.identifier.name) {
+                    std::string key = std::string(obj->data.identifier.name) + "." + std::string(field->data.identifier.name);
+                    auto it = memberNestedArrayLengthHints.find(key);
+                    if (it != memberNestedArrayLengthHints.end()) {
+                        return VisitResult(ConstantInt::get(Type::getInt32Ty(context), it->second), ValueType::INT32);
+                    }
                 }
             }
         }
@@ -4001,7 +4099,10 @@ public:
                 Type* int64Ty = Type::getInt64Ty(context);
                 Value* addrVal = objectRes.value;
                 if (addrVal->getType() != int64Ty) {
-                    addrVal = builder.CreateSExtOrTrunc(addrVal, int64Ty, "member_addr64");
+                    if (!addrVal->getType()->isIntegerTy()) {
+                        return VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
+                    }
+                    addrVal = builder.CreateIntCast(addrVal, int64Ty, true, "member_addr64");
                 }
                 basePtr = builder.CreateIntToPtr(addrVal, PointerType::getUnqual(structType), "member_obj_ptr");
             }
@@ -4087,7 +4188,9 @@ public:
 
         if (fieldType->isPointerTy()) {
             if (fieldName == "scopes") {
-                pointerElementHints[fieldVal] = PointerType::getUnqual(PointerType::getUnqual(Type::getInt8Ty(context)));
+                pointerElementHints[fieldVal] = PointerType::getUnqual(Type::getInt32Ty(context));
+            } else {
+                pointerElementHints[fieldVal] = Type::getInt32Ty(context);
             }
         }
 
@@ -4582,7 +4685,7 @@ public:
                 result->addIncoming(nullVal, nullBB);
                 result->addIncoming(loaded, loadBB);
                 if (elemType->isPointerTy()) {
-                    pointerElementHints[result] = elemType;
+                    pointerElementHints[result] = Type::getInt32Ty(context);
                 }
                 return VisitResult(result, vt);
             }
@@ -4641,7 +4744,7 @@ public:
             result->addIncoming(nullVal, nullBB);
             result->addIncoming(loaded, loadBB);
             if (elemType->isPointerTy()) {
-                pointerElementHints[result] = elemType;
+                pointerElementHints[result] = Type::getInt32Ty(context);
             }
             return VisitResult(result, vt);
         }

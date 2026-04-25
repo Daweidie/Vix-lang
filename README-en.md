@@ -98,26 +98,24 @@ fn main() -> i32 {
 
 ## Documentation
 
-- [CONTRIBUTING.md](Docs/CONTRIBUTING.md) — How to contribute
-- [compiler.md](Docs/compiler.md) — Compiler internals and workflow
-- [control-flow.md](Docs/control-flow.md) — Control flow (if/loops)
-- [functions.md](Docs/functions.md) — Functions, calls, generics
-- [getting-started.md](Docs/getting-started.md) — Install/build and first program
-- [modules.md](Docs/modules.md) — Modules, import/export
-- [pointers.md](Docs/pointers.md) — Pointers
-- [stdlib.md](Docs/stdlib.md) — Standard library
-- [structs.md](Docs/structs.md) — Structs
-- [syntax.md](Docs/syntax.md) — Syntax reference (incl. EBNF)
-- [types.md](Docs/types.md) — Type system
-- [what-is-vix.md](Docs/what-is-vix.md) — Overview and design goals
+- [CONTRIBUTING.md](Docs/en/CONTRIBUTING.md) — How to contribute
+- [compiler.md](Docs/en/compiler.md) — Compiler internals and workflow
+- [control-flow.md](Docs/en/control-flow.md) — Control flow (if/loops)
+- [functions.md](Docs/en/functions.md) — Functions, calls, generics
+- [getting-started.md](Docs/en/getting-started.md) — Install/build and first program
+- [modules.md](Docs/en/modules.md) — Modules, import/export
+- [pointers.md](Docs/en/pointers.md) — Pointers
+- [stdlib.md](Docs/en/stdlib.md) — Standard library
+- [structs.md](Docs/en/structs.md) — Structs
+- [syntax.md](Docs/en/syntax.md) — Syntax reference (incl. EBNF)
+- [types.md](Docs/en/types.md) — Type system
+- [what-is-vix.md](Docs/en/what-is-vix.md) — Overview and design goals
 
 Tip: if you just want to get a working build quickly, start with [getting-started.md](Docs/getting-started.md).
 
 ## Contributing
 
 We welcome all forms of contribution: language/syntax proposals, documentation, bug reports, code contributions, and standard library improvements.
-
-Please read the [Contribution Guidelines](Docs/CONTRIBUTING.md) to get started.
 
 ## Project Ecosystem
 

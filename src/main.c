@@ -36,7 +36,7 @@ semantic_errors -> errs
 #include "../include/ast.h"
 #include "../include/parser.h"
 #include "../include/compiler.h"
-#include "../include/llvm_emit.h"
+#include "../include/codegen.h"
 #include "../include/semantic.h"
 
 extern FILE* yyin;

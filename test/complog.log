@@ -1,0 +1,34 @@
+[PASS] test1.vix: compiled -> test1
+[PASS] test2.vix: expected compile error
+[PASS] test3.vix: expected compile error
+[PASS] test4.vix: expected compile error
+[PASS] test5.vix: compiled -> test5
+[PASS] test6.vix: compiled -> test6
+[PASS] test7.vix: compiled -> test7
+[PASS] test8.vix: expected compile error
+[PASS] test9.vix: compiled -> test9
+[PASS] test10.vix: compiled -> test10
+[PASS] test11.vix: compiled -> test11
+[PASS] test12.vix: compiled -> test12
+[PASS] test13.vix: compiled -> test13
+[PASS] test14.vix: compiled -> test14
+[PASS] test15.vix: compiled -> test15
+[PASS] test16.vix: expected compile error
+[PASS] test17.vix: expected compile error
+[PASS] test18.vix: compiled -> test18
+[PASS] test1.vix
+[PASS] test5.vix
+[PASS] test6.vix
+[PASS] test7.vix
+[PASS] test9.vix
+[PASS] test10.vix
+[PASS] test11.vix
+[PASS] test12.vix
+[PASS] test13.vix
+[PASS] test14.vix
+[PASS] test15.vix
+[PASS] test18.vix
+
+Compile summary: 18/18 passed
+Run summary: 12/12 passed
+Summary: 18/18 passed
