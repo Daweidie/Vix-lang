@@ -20,6 +20,8 @@ Vix 是一种轻量级、静态类型的编译型语言，目标是在保持语�
 
 ### 依赖
 
+**Windows平台构建**: 如果您使用Windows平台构建, 请切换到win-build-support分支, 并确保您的llvm在llvm/llvm-project的releases下的asset下下载 `clang+llvm-x.x.x-x86_64-pc-windows-msvc.tar.xz`
+
 构建依赖主要包括：`clang/llvm`、`flex`、`bison`、`make`、`git`。
 
 仓库提供了一个简单的依赖安装脚本（Linux）：
