@@ -19,8 +19,8 @@
 1. **克隆仓库**
 
 ```shell
-git clone https://github.com/vix-lang/vix.git
-cd vix
+git clone https://github.com/Daweidie/Vix-lang.git
+cd Vix-lang
 ```
 
 2. **进入源码目录并编译**
@@ -57,7 +57,8 @@ $env:Path += ";C:\path\to\vix\src"
 创建一个名为 `hello.vix` 的文件：
 
 ```vix
-fn main() -> i32 {
+fn main():i32
+{
     print("Hello, Vix!")
     return 0
 }
@@ -67,7 +68,7 @@ fn main() -> i32 {
 
 ```shell
 # 编译
-vixc hello.vix -o hello
+vixc hello.vix
 
 # 运行
 ./hello        # Linux/macOS
@@ -84,16 +85,13 @@ Hello, Vix!
 ### 变量声明
 
 ```vix
-// 不可变变量（使用 let）
 let a = "Hello"
 let b = 123
 let c = 3.14
-
-// 可变变量（使用 mut）
-mut x = 10
 x = 20  // 可以修改
-
-// 带类型标注
+/*
+你也可以 let v：Type
+*/
 let a: i32 = 10
 let b: f64 = 3.14
 let c: string = "Hello"
@@ -102,13 +100,14 @@ let c: string = "Hello"
 ### 函数定义
 
 ```vix
-// 基本函数
-fn add(a: i32, b: i32) -> i32 {
+fn add(a: i32, b: i32): i32
+{
     return a + b
 }
 
 // 主函数
-fn main() -> i32 {
+fn main(): i32
+{
     let result = add(3, 5)
     print(result)
     return 0
@@ -143,15 +142,11 @@ for (i in 1 .. 10) {
 ### 数组操作
 
 ```vix
-// 固定大小数组
 let arr: [i32 * 5] = [1, 2, 3, 4, 5]
 print(arr[0])       // 1
 print(arr.length)   // 5
-
-// 动态列表
 let list = [1, 2, 3]
-list.push!(4)       // 添加元素
-let last = list.pop() // 弹出最后一个元素
+list.push(4)       // 添加
 ```
 
 ### 结构体
@@ -175,26 +170,10 @@ fn main() -> i32 {
 ### 常用命令
 
 ```shell
-# 编译为可执行文件
 vixc source.vix -o output
-
-# 指定 LLVM 后端
-vixc source.vix -o output --backend=llvm
-
 # 生成 LLVM IR
 vixc source.vix -ll output_ir
-
-# 启用优化
-vixc source.vix -o output -opt
 ```
-
-### 初始化项目
-
-```shell
-vixc init
-```
-
-这将创建基本的项目结构和配置文件。
 
 ## 下一步
 
