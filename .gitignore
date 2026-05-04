@@ -6,7 +6,6 @@ uv.lock
 __pycache__
 *.gch
 *.pch
-t*.cpp
 *.out
 .vscode
 *.spec
