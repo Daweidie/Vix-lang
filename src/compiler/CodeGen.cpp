@@ -600,14 +600,12 @@ public:
                 }
             }
             if (vix_is_adt_definition(baseName.c_str())) {
-                if (node->data.type_app.args && node->data.type_app.args->type == AST_EXPRESSION_LIST &&
-                    node->data.type_app.args->data.expression_list.expression_count > 0) {
-                    return PointerType::getUnqual(Type::getInt8Ty(context));
-                }
-                return Type::getInt32Ty(context);
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::getUnqual(Type::getInt8Ty(context))});
+                return PointerType::getUnqual(adtStructTy);
             }
             if (baseName == "Option" || baseName == "Result") {
-                return PointerType::getUnqual(Type::getInt8Ty(context));
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::getUnqual(Type::getInt8Ty(context))});
+                return PointerType::getUnqual(adtStructTy);
             }
             return Type::getInt32Ty(context);
         }
@@ -651,6 +649,7 @@ public:
             case AST_TYPE_POINTER: return ValueType::POINTER;
             case AST_TYPE_LIST:    return ValueType::ARRAY;
             case AST_TYPE_FIXED_SIZE_LIST: return ValueType::ARRAY;
+            case AST_TYPE_APP:             return ValueType::POINTER;
             case AST_IDENTIFIER: {
                 if (!node->data.identifier.name) return ValueType::INT32;
                 std::string typeName(node->data.identifier.name);
@@ -4560,6 +4559,25 @@ public:
                 }
                 elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(objectRes.value->getType()), objName);
             }
+            if (object && object->inferred_type &&
+                (object->inferred_type->kind == TYPEINFO_APP ||
+                 (object->inferred_type->kind == TYPEINFO_STRUCT && object->inferred_type->name &&
+                  (vix_is_adt_definition(object->inferred_type->name) ||
+                   strcmp(object->inferred_type->name, "Option") == 0 ||
+                   strcmp(object->inferred_type->name, "Result") == 0)))) {
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::getUnqual(Type::getInt8Ty(context))});
+                elemType = adtStructTy;
+            }
+            if (!elemType) {
+                elemType = Type::getInt8Ty(context);
+            }
+            if (!elemType) {
+                std::string objName;
+                if (object->type == AST_IDENTIFIER && object->data.identifier.name) {
+                    objName = object->data.identifier.name;
+                }
+                elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(objectRes.value->getType()), objName);
+            }
             if (!elemType) {
                 elemType = Type::getInt8Ty(context);
             }
@@ -4570,6 +4588,18 @@ public:
                     Value* fieldPtr = builder.CreateStructGEP(structTy, objectRes.value, (unsigned)tupleIndex, "struct_field");
                     Type* fieldType = structTy->getElementType((unsigned)tupleIndex);
                     Value* loaded = builder.CreateLoad(fieldType, fieldPtr, "struct_field_val");
+                    if (fieldType->isPointerTy() && node && node->inferred_type) {
+                        Type* inferredLLVM = getLLVMTypeFromTypeInfo(node->inferred_type);
+                        if (inferredLLVM && inferredLLVM->isIntegerTy()) {
+                            Value* intVal = builder.CreatePtrToInt(loaded, Type::getInt64Ty(context), "adt_payload_ptrtoint");
+                            loaded = builder.CreateIntCast(intVal, inferredLLVM, true, "adt_payload_intcast");
+                            return VisitResult(loaded, typeHelper.getValueTypeFromType(inferredLLVM));
+                        }
+                        if (inferredLLVM && inferredLLVM->isPointerTy() && inferredLLVM != fieldType) {
+                            loaded = builder.CreateBitCast(loaded, inferredLLVM, "adt_payload_bcast");
+                            return VisitResult(loaded, typeHelper.getValueTypeFromType(inferredLLVM));
+                        }
+                    }
                     return VisitResult(loaded, typeHelper.getValueTypeFromType(fieldType));
                 }
             }
@@ -5264,6 +5294,9 @@ public:
             }
             if (!elemType) {
                 elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targetRes.value->getType()), varName);
+            }
+            if (!elemType) {
+                elemType = Type::getInt8Ty(context);
             }
             ValueType vt = typeHelper.getValueTypeFromType(elemType);
 
