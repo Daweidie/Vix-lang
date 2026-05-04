@@ -1,19 +1,19 @@
 extern "C"
 {
-    fn printf(fmt:ptr,...) : i32
+    fn printf(fmt:string,...): i32
 }
-fn print_hex_and_ascii(bytes: &[u8])
+fn print_hex_to_ascii_and_very_pretty(s:string): i32
 {
-    for (i in 0..bytes.length)
+    for (i in 0 .. s.length)
     {
-        printf("%02x ", bytes[i])
+        printf("%02x ", s[i])
         if (i % 16 == 15)
         {
             printf(" ")
             for (j in (i - 15) .. i)
             {
-                let c = bytes[j]
-                if (c >= 32 and c <= 126)
+                let c = s[j]
+                if (c >= ' ' and c <= '~')
                 {
                     printf("%c", c)
                 }
@@ -25,18 +25,18 @@ fn print_hex_and_ascii(bytes: &[u8])
             printf("\n")
         }
     }
-    if (bytes.length % 16 != 0)
+    if (s.length % 16 != 0)
     {
-        let remaining = 16 - (bytes.length % 16)
-        for (_ in 0..remaining)
+        let remaining = 16 - (s.length % 16)
+        for (_ in 0 .. remaining)
         {
             printf("   ")
         }
         printf(" ")
-        for (i in (bytes.length - (bytes.length % 16))..bytes.length)
+        for (i in (s.length - (s.length % 16)) .. s.length)
         {
-            let c = bytes[i]
-            if (c >= 32 and c <= 126)
+            let c = s[i]
+            if (c >= ' ' and c <= '~')
             {
                 printf("%c", c)
             }
@@ -47,10 +47,10 @@ fn print_hex_and_ascii(bytes: &[u8])
         }
         printf("\n")
     }
+    return 0
 }
-fn main(): i32
+fn main(argc:i32,argv:ptr): i32
 {
-    let data = [0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x21]
-    print_hex_and_ascii(data)
+    print_hex_to_ascii_and_very_pretty(argv[1])
     return 0
 }
