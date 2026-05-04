@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
+GREEN = "\033[32m"
+RED = "\033[31m"
+RESET = "\033[0m"
+
+
 @dataclass
 class Expectation:
     should_compile: bool
@@ -44,6 +49,20 @@ EXPECT: Dict[str, Expectation] = {
     "test28.vix": Expectation(True, run_output=["99", "test"]),
     "test29.vix": Expectation(True, run_output=["5"]),
     "test30.vix": Expectation(True, run_output=["42", "world"]),
+    "test31.vix": Expectation(True, run_output=["42", "division by zero"]),
+    "test32.vix": Expectation(True, run_output=["1", "2", "3"]),
+    "test33.vix": Expectation(True, run_output=["5", "cannot divide by zero"]),
+    "test34.vix": Expectation(True, run_output=["\x00", "0", "-1"]),
+    "test35.vix": Expectation(True, run_output=["10", "20", "30"]),
+    "test36.vix": Expectation(True, run_output=["correct", "error matched", "0"]),
+    "test37.vix": Expectation(True, run_output=["i32", "empty is empty"]),
+    "test38.vix": Expectation(True, run_output=["5", "2", "3", "1", "5", "hello", "world", "1.500000"]),
+    "test39.vix": Expectation(True, run_output=["0", "0", "0"]),
+    "test40.vix": Expectation(True, run_output=["42", "100", "3.140000", "hello", "65", "50", "101", "4.000000"]),
+    "test41.vix": Expectation(True, run_output=["10", "20", "test", "3", "1", "10"]),
+    "test42.vix": Expectation(True, run_output=["7", "world", "100", "200"]),
+    "test43.vix": Expectation(True, run_output=["30", "60", "55", "5.140000", "hello", "world", "1"]),
+    "test44.vix": Expectation(True, run_output=["0", "-1", "alice"]),
 }
 
 
@@ -74,20 +93,20 @@ def compile_test(path: Path) -> (bool | Optional[Path]):
 
     if exp is not None and not exp.should_compile:
         if compile_res.returncode == 0:
-            print(f"[FAIL] {path.name}: expected compile failure but compiled")
+            print(f"{RED}[FAIL]{RESET} {path.name}: expected compile failure but compiled")
             return False, None
         if exp.compile_error_contains and exp.compile_error_contains not in compile_res.stderr:
-            print(f"[FAIL] {path.name}: compile failed but missing expected error text")
+            print(f"{RED}[FAIL]{RESET} {path.name}: compile failed but missing expected error text")
             return False, None
-        print(f"[PASS] {path.name}: expected compile error")
+        print(f"{GREEN}[PASS]{RESET} {path.name}: expected compile error")
         return True, None
 
     if compile_res.returncode != 0:
-        print(f"[FAIL] {path.name}: compile failed")
+        print(f"{RED}[FAIL]{RESET} {path.name}: compile failed")
         print(compile_res.stderr.splitlines()[:6])
         return False, None
 
-    print(f"[PASS] {path.name}: compiled -> {out_bin.name}")
+    print(f"{GREEN}[PASS]{RESET} {path.name}: compiled -> {out_bin.name}")
     return True, out_bin
 
 
@@ -96,18 +115,18 @@ def run_test(path: Path, bin_path: Path) -> bool:
 
     run_res = run_cmd([str(bin_path)], ROOT)
     if run_res.returncode != 0:
-        print(f"[FAIL] {path.name}: runtime failed ({run_res.returncode})")
+        print(f"{RED}[FAIL]{RESET} {path.name}: runtime failed ({run_res.returncode})")
         return False
 
     out_lines = [line.strip() for line in run_res.stdout.splitlines() if line.strip()]
     if exp is not None and exp.run_output is not None:
         if out_lines != exp.run_output:
-            print(f"[FAIL] {path.name}: output mismatch")
+            print(f"{RED}[FAIL]{RESET} {path.name}: output mismatch")
             print(f"  expected: {exp.run_output}")
             print(f"  actual:   {out_lines}")
             return False
 
-    print(f"[PASS] {path.name}")
+    print(f"{GREEN}[PASS]{RESET} {path.name}")
     return True
 
 

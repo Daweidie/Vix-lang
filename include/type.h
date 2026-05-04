@@ -53,8 +53,8 @@ struct VarData {
 };
 
 struct AppData {
-    TypePtr ctor;
-    std::vector<TypePtr> args;
+    TypePtr ctor;/*类型构造器*/
+    std::vector<TypePtr> args;/*类型参数*/
 };
 
 struct FnData {
