@@ -665,6 +665,9 @@ struct TypeChecker {
 			case AST_FUNCTION:
 				result = check_function(node);
 				break;
+			case AST_GLOBAL:
+				result = check_global(node);
+				break;
 			case AST_EXPRESSION_LIST:
 				result = check_expression_list(node);
 				break;
@@ -1578,6 +1581,36 @@ struct TypeChecker {
 
 		report_type_error(node, "call of non-function");
 		return node_types[node] = unify.fresh();
+	}
+
+	TypePtr check_global(ASTNode* node) {
+		ASTNode* identifier = node->data.global_decl.identifier;
+		ASTNode* type_node = node->data.global_decl.type;
+		ASTNode* initializer = node->data.global_decl.initializer;
+
+		TypePtr declared_type = type_node ? type_from_ast(type_node) : TypePtr(nullptr);
+		TypePtr init_type = initializer ? check_expr(initializer) : builtin_void;
+
+		if (declared_type && initializer) {
+			try {
+				unify.unify(declared_type, init_type);
+			} catch (const std::exception& ex) {
+				report_type_error(node, ex.what());
+			}
+		}
+
+		TypePtr var_type = declared_type ? unify.apply(declared_type) : unify.apply(init_type);
+
+		if (identifier && identifier->type == AST_IDENTIFIER) {
+			const char* name = identifier->data.identifier.name;
+			if (name) {
+				if (!env.declare_value(name, var_type, identifier->mutability == MUTABILITY_MUTABLE, false)) {
+					report_semantic_error(node, std::string("redefinition: ") + name);
+				}
+			}
+		}
+
+		return node_types[node] = var_type;
 	}
 
 	TypePtr check_function(ASTNode* node) {

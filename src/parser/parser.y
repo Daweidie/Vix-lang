@@ -341,8 +341,108 @@ static ASTNode* clone_match_scrutinee(ASTNode* scrutinee) {
     }
 }
 
+static void check_match_exhaustiveness(ASTNode* scrutinee, ASTNode* arms) {
+    if (!arms || arms->type != AST_EXPRESSION_LIST) return;
+
+    int count = arms->data.expression_list.expression_count;
+    if (count <= 0) return;
+
+    int has_wildcard = 0;
+    const char* pattern_names[64];
+    int pattern_count = 0;
+
+    for (int i = 0; i < count; i++) {
+        ASTNode* arm = arms->data.expression_list.expressions[i];
+        if (!arm || arm->type != AST_ASSIGN || !arm->data.assign.left) continue;
+
+        ASTNode* pattern = arm->data.assign.left;
+        const char* name = NULL;
+
+        if (pattern->type == AST_IDENTIFIER && pattern->data.identifier.name) {
+            name = pattern->data.identifier.name;
+        } else if (pattern->type == AST_CALL && pattern->data.call.func &&
+                   pattern->data.call.func->type == AST_IDENTIFIER &&
+                   pattern->data.call.func->data.identifier.name) {
+            name = pattern->data.call.func->data.identifier.name;
+        }
+
+        if (name && strcmp(name, "_") == 0) {
+            has_wildcard = 1;
+            break;
+        }
+        if (name && pattern_count < 64) {
+            pattern_names[pattern_count++] = name;
+        }
+    }
+
+    if (has_wildcard || pattern_count == 0) return;
+
+    int def_idx = -1;
+    for (int i = 0; i < pattern_count; i++) {
+        int di = -1;
+        find_adt_ctor_index(pattern_names[i], &di);
+        if (di >= 0) {
+            if (def_idx < 0) {
+                def_idx = di;
+            } else if (def_idx != di) {
+                return;
+            }
+        }
+    }
+
+    if (def_idx < 0) return;
+
+    int ctor_count = g_adt_defs[def_idx].ctor_count;
+    if (ctor_count <= 0) return;
+
+    char missing[512];
+    int pos = 0;
+    int missing_count = 0;
+
+    for (int c = 0; c < ctor_count; c++) {
+        const char* ctor_name = g_adt_defs[def_idx].ctors[c].name;
+        if (!ctor_name) continue;
+
+        int found = 0;
+        for (int p = 0; p < pattern_count; p++) {
+            if (strcmp(pattern_names[p], ctor_name) == 0) {
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found) {
+            if (missing_count > 0 && pos < (int)sizeof(missing) - 2) {
+                missing[pos++] = ',';
+                missing[pos++] = ' ';
+            }
+            int len = (int)strlen(ctor_name);
+            if (pos + len + 2 < (int)sizeof(missing)) {
+                missing[pos++] = '\'';
+                memcpy(missing + pos, ctor_name, (size_t)len);
+                pos += len;
+                missing[pos++] = '\'';
+            }
+            missing_count++;
+        }
+    }
+    missing[pos] = '\0';
+
+    if (missing_count > 0) {
+        char msg[640];
+        snprintf(msg, sizeof(msg), "non-exhaustive match: missing %s", missing);
+
+        int line = scrutinee ? scrutinee->location.first_line : yylineno;
+        int col = scrutinee ? scrutinee->location.first_column : 1;
+        set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+        report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, msg);
+    }
+}
+
 static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
     if (!scrutinee || !arms || arms->type != AST_EXPRESSION_LIST) return NULL;
+
+    check_match_exhaustiveness(scrutinee, arms);
 
     int count = arms->data.expression_list.expression_count;
     ASTNode* chain = NULL;
