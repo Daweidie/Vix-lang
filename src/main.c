@@ -35,6 +35,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> --debug (enable debug logs)\n", argv[0]);
+        fprintf(stderr, "       %s <input.vix> -opt=lN (optimization level N=0..3)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> --target=<triple> (set codegen/link target)\n", argv[0]);
         return 1;
     }
@@ -52,6 +53,7 @@ int main(int argc, char **argv) {
     int out_ast = 0;
     int out_llvm = 0;
     int dbg = 0;
+    int opt_level = 0;
     char* target = NULL;
     int no_std = 0;
     int no_main = 0;
@@ -107,6 +109,13 @@ int main(int argc, char **argv) {
             out_ast = 1;
         } else if (strcmp(argv[i], "--debug") == 0) {
             dbg = 1;
+        } else if (strncmp(argv[i], "-opt=l", 6) == 0) {
+            int lvl = argv[i][6] - '0';
+            if (lvl < 0 || lvl > 3 || argv[i][7] != '\0') {
+                fprintf(stderr, "Error: -opt=lN requires N in 0..3 (got %s)\n", argv[i]);
+                return 1;
+            }
+            opt_level = lvl;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             fprintf(stderr, "usage: %s <input.vix> [-o output_file]\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> -llvm <llvm_ir_file>\n", argv[0]);
@@ -116,6 +125,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> --debug (enable debug logs)\n", argv[0]);
+            fprintf(stderr, "       %s <input.vix> -opt=lN (optimization level N=0..3)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> --target=<triple> (set codegen/link target, e.g. x86_64-unknown-none)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> (LLVM backend is the default backend)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> -S (output assembly only)\n", argv[0]);
@@ -128,6 +138,7 @@ int main(int argc, char **argv) {
         }
     }
     setenv("VIX_DEBUG", dbg ? "1" : "0", 1);//通过环境变量控制调试输出
+    vix_set_opt_level(opt_level);
     if (!in_f) {
         in_f = argv[1];
     }
@@ -341,7 +352,7 @@ int main(int argc, char **argv) {
                     fobj = oname;
                 }
                 const char* llc_err = NULL;
-                if (!llc_compile_to_object(llvm_f, fobj, eff_t ? eff_t : "", bare, &llc_err)) {
+                if (!llc_compile_to_object(llvm_f, fobj, eff_t ? eff_t : "", bare, opt_level, &llc_err)) {
                     fprintf(stderr, "Error: Failed to compile LLVM IR to object file via Llc");
                     if (llc_err && llc_err[0] != '\0') {
                         fprintf(stderr, ": %s", llc_err);
@@ -377,7 +388,7 @@ int main(int argc, char **argv) {
                 }
 
                 const char* llc_err = NULL;
-                if (!llc_compile_to_assembly(llvm_f, fasm, eff_t ? eff_t : "", bare, &llc_err)) {
+                if (!llc_compile_to_assembly(llvm_f, fasm, eff_t ? eff_t : "", bare, opt_level, &llc_err)) {
                     fprintf(stderr, "Error: Failed to compile LLVM IR to assembly via Llc");
                     if (llc_err && llc_err[0] != '\0') {
                         fprintf(stderr, ": %s", llc_err);
@@ -401,10 +412,35 @@ int main(int argc, char **argv) {
                     ls = "src/linker.ld";
                 }
 
+                char obj_file[2048];
+                {
+                    char* dot = strrchr(llvm_f, '.');
+                    if (dot) {
+                        size_t len = dot - llvm_f;
+                        snprintf(obj_file, sizeof(obj_file), "%.*s.o", (int)len, llvm_f);
+                    } else {
+                        snprintf(obj_file, sizeof(obj_file), "%s.o", llvm_f);
+                    }
+                }
+
+                const char* llc_err = NULL;
+                if (!llc_compile_to_object(llvm_f, obj_file, eff_t ? eff_t : "", bare, opt_level, &llc_err)) {
+                    fprintf(stderr, "Error: Failed to compile LLVM IR to object file via Llc");
+                    if (llc_err && llc_err[0] != '\0') {
+                        fprintf(stderr, ": %s", llc_err);
+                    }
+                    fprintf(stderr, "\n");
+                    remove(llvm_f);
+                    fclose(input_file);
+                    return 1;
+                }
+
                 size_t ccmd_sz = 8192;
                 char *ccmd = malloc(ccmd_sz);
                 if (ccmd == NULL) {
                     fprintf(stderr, "Er: Failed to allocate memory for clang command\n");
+                    remove(llvm_f);
+                    remove(obj_file);
                     fclose(input_file);
                     return 1;
                 }
@@ -412,20 +448,22 @@ int main(int argc, char **argv) {
                 if (bare) {
                     const char* f_t = eff_t ? eff_t : "x86_64-unknown-none";
                     snprintf(ccmd, ccmd_sz,
-                             "clang -O2 %s -o %s -target %s -ffreestanding -fno-builtin -fno-pic -fno-pie -no-pie -nostdlib -nostartfiles -nodefaultlibs -static -Wl,--build-id=none -Wl,--no-dynamic-linker -Wl,-z,max-page-size=0x1000 -Wl,-e,_start -Wl,-T,%s",
-                             llvm_f, out_f, f_t, ls);
+                             "clang %s -o %s -target %s -ffreestanding -fno-builtin -fno-pic -fno-pie -no-pie -nostdlib -nostartfiles -nodefaultlibs -static -Wl,--build-id=none -Wl,--no-dynamic-linker -Wl,-z,max-page-size=0x1000 -Wl,-e,_start -Wl,-T,%s",
+                             obj_file, out_f, f_t, ls);
                 } else if (eff_t) {
                     snprintf(ccmd, ccmd_sz,
-                             "clang -O2 %s -o %s -target %s $(llvm-config --ldflags --libs all) -lm -lstdc++",
-                             llvm_f, out_f, eff_t);
+                             "clang %s -o %s -target %s -lm -lstdc++",
+                             obj_file, out_f, eff_t);
                 } else {
-                    snprintf(ccmd, ccmd_sz, "clang -O2 %s -o %s $(llvm-config --ldflags --libs all) -lm -lstdc++", llvm_f, out_f);
+                    snprintf(ccmd, ccmd_sz, "clang %s -o %s -lm -lstdc++", obj_file, out_f);
                 }
                 
                 int cres = system(ccmd);
                 if (cres != 0) {
-                    fprintf(stderr, "Error: Failed to compile LLVM IR to executable\n");
+                    fprintf(stderr, "Error: Failed to link object file to executable\n");
                     free(ccmd);
+                    remove(llvm_f);
+                    remove(obj_file);
                     fclose(input_file);
                     return 1;
                 }
@@ -433,6 +471,7 @@ int main(int argc, char **argv) {
                 free(ccmd);
                 
                 remove(llvm_f);
+                remove(obj_file);
             }
             
             if (root) {

@@ -6,7 +6,6 @@ fn process(r: Result[i32, string]): i32
     {
         Ok(v) -> return v
         Err(e) -> {
-            print(e)
             return -1
         }
     }

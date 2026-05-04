@@ -5334,6 +5334,11 @@ public:
 };
 
 // ==================== C API ====================
+extern "C" void vix_optimize_module(void* llvm_module, int level);
+static int g_vix_opt_level = 0;
+extern "C" void vix_set_opt_level(int level) { g_vix_opt_level = level; }
+extern "C" int vix_get_opt_level(void) { return g_vix_opt_level; }
+
 void llvm_emit_from_ast(ASTNode* ast_root, FILE* llvm_fp) {
     if (!ast_root || !llvm_fp) return;
     
@@ -5341,6 +5346,9 @@ void llvm_emit_from_ast(ASTNode* ast_root, FILE* llvm_fp) {
     std::unique_ptr<Module> module = generator.generate(ast_root);
     
     if (module) {
+        if (g_vix_opt_level > 0) {
+            vix_optimize_module(module.get(), g_vix_opt_level);
+        }
         std::string llvm_ir;
         raw_string_ostream ros(llvm_ir);
         module->print(ros, nullptr);

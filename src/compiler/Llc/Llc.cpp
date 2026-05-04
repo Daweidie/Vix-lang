@@ -40,14 +40,25 @@ std::string formatDiagnostic(const SMDiagnostic &diag) {
 	return message;
 }
 
+CodeGenOptLevel toCodeGenOpt(int level) {
+	switch (level) {
+		case 0:  return CodeGenOptLevel::None;
+		case 1:  return CodeGenOptLevel::Less;
+		case 2:  return CodeGenOptLevel::Default;
+		case 3:  return CodeGenOptLevel::Aggressive;
+		default: return CodeGenOptLevel::Default;
+	}
+}
+
 } // namespace
 
 bool Llc::compileToObject(const std::string &llvm_ir_path,
 						  const std::string &out_path,
 						  const std::string &triple,
 						  bool staticReloc,
+						  int optLevel,
 						  std::string &errMsg) {
-	return compile(llvm_ir_path, out_path, triple, staticReloc,
+	return compile(llvm_ir_path, out_path, triple, staticReloc, optLevel,
 				   CodeGenFileType::ObjectFile, errMsg);
 }
 
@@ -55,8 +66,9 @@ bool Llc::compileToAssembly(const std::string &llvm_ir_path,
 							const std::string &out_path,
 							const std::string &triple,
 							bool staticReloc,
+							int optLevel,
 							std::string &errMsg) {
-	return compile(llvm_ir_path, out_path, triple, staticReloc,
+	return compile(llvm_ir_path, out_path, triple, staticReloc, optLevel,
 				   CodeGenFileType::AssemblyFile, errMsg);
 }
 
@@ -64,6 +76,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 				  const std::string &out_path,
 				  const std::string &triple,
 				  bool staticReloc,
+				  int optLevel,
 				  CodeGenFileType fileType,
 				  std::string &errMsg) {
 	errMsg.clear();
@@ -107,9 +120,10 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	auto relocationModel = staticReloc ? std::optional<Reloc::Model>(Reloc::Static)
 									   : std::optional<Reloc::Model>(Reloc::PIC_);
 	auto codeModel = std::optional<CodeModel::Model>(CodeModel::Small);
+	CodeGenOptLevel cgOpt = toCodeGenOpt(optLevel);
 	std::unique_ptr<TargetMachine> targetMachine(
 		target->createTargetMachine(effectiveTriple, cpu, features, options,
-									relocationModel, codeModel, CodeGenOptLevel::Default));
+									relocationModel, codeModel, cgOpt));
 	if (!targetMachine) {
 		errMsg = "failed to create target machine for triple '" + effectiveTriple + "'";
 		return false;
@@ -139,6 +153,7 @@ extern "C" int llc_compile_to_object(const char *llvm_ir_path,
 									  const char *out_path,
 									  const char *triple,
 									  int staticReloc,
+									  int optLevel,
 									  const char **errMsg) {
 	static thread_local std::string lastError;
 	std::string error;
@@ -146,6 +161,7 @@ extern "C" int llc_compile_to_object(const char *llvm_ir_path,
 								   out_path ? out_path : "",
 								   triple ? triple : "",
 								   staticReloc != 0,
+								   optLevel,
 								   error);
 	if (!ok) {
 		lastError = error;
@@ -165,6 +181,7 @@ extern "C" int llc_compile_to_assembly(const char *llvm_ir_path,
 										const char *out_path,
 										const char *triple,
 										int staticReloc,
+										int optLevel,
 										const char **errMsg) {
 	static thread_local std::string lastError;
 	std::string error;
@@ -172,6 +189,7 @@ extern "C" int llc_compile_to_assembly(const char *llvm_ir_path,
 									 out_path ? out_path : "",
 									 triple ? triple : "",
 									 staticReloc != 0,
+									 optLevel,
 									 error);
 	if (!ok) {
 		lastError = error;

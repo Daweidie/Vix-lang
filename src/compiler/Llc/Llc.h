@@ -12,12 +12,14 @@ public:
 								const std::string &out_path,
 								const std::string &triple,
 								bool staticReloc,
+								int optLevel,
 								std::string &errMsg);
 
 	static bool compileToAssembly(const std::string &llvm_ir_path,
 								  const std::string &out_path,
 								  const std::string &triple,
 								  bool staticReloc,
+								  int optLevel,
 								  std::string &errMsg);
 
 private:
@@ -25,6 +27,7 @@ private:
 						const std::string &out_path,
 						const std::string &triple,
 						bool staticReloc,
+						int optLevel,
 						llvm::CodeGenFileType fileType,
 						std::string &errMsg);
 };
@@ -39,12 +42,14 @@ int llc_compile_to_object(const char *llvm_ir_path,
 						  const char *out_path,
 						  const char *triple,
 						  int staticReloc,
+						  int optLevel,
 						  const char **errMsg);
 
 int llc_compile_to_assembly(const char *llvm_ir_path,
 							const char *out_path,
 							const char *triple,
 							int staticReloc,
+							int optLevel,
 							const char **errMsg);
 
 #ifdef __cplusplus
