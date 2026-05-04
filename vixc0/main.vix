@@ -1,8 +1,7 @@
+import "lexer.vix"
 fn main(): i32
 {
-    for(i in 0 .. 10)
-    {
-        print("i = " , i)
-    }
+    let src = "fn main() { return 0; }"
+    lexer_with_len(src, src.length)
     return 0
 }
