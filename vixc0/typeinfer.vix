@@ -1,8 +1,8 @@
-pub global TY_UNKNOWN = 0
-pub global TY_I32 = 1
-pub global TY_F64 = 2
-pub global TY_BOOL = 3
-pub global TY_STRING = 4
+let TY_UNKNOWN = 0
+let TY_I32 = 1
+let TY_F64 = 2
+let TY_BOOL = 3
+let TY_STRING = 4
 
 pub type LiteralClass = LitString
                       | LitBool
@@ -58,7 +58,7 @@ pub fn ti_is_false(src: string, start0: i32, end0: i32) -> i32
 pub fn ti_infer_literal(src: string, start0: i32, end0: i32, kind: i32) -> i32
 {
     let cls0 = LitI32
-    if (kind == TY_STRING)
+    if (kind == 4)
     {
         cls0 = LitString
     }
@@ -73,57 +73,57 @@ pub fn ti_infer_literal(src: string, start0: i32, end0: i32, kind: i32) -> i32
 
     match cls0
     {
-        LitString -> return TY_STRING
-        LitBool -> return TY_BOOL
-        LitFloat -> return TY_F64
-        LitI32 -> return TY_I32
+        LitString -> return 4
+        LitBool -> return 3
+        LitFloat -> return 2
+        LitI32 -> return 1
     }
 }
 
 pub fn ti_infer_binary(lhs_ty: i32, rhs_ty: i32, op: i32) -> i32
 {
     let cls0 = BinI32
-    if (lhs_ty == TY_UNKNOWN or rhs_ty == TY_UNKNOWN)
+    if (lhs_ty == 0 or rhs_ty == 0)
     {
         cls0 = BinUnknown
     }
-    elif (lhs_ty == TY_STRING or rhs_ty == TY_STRING)
+    elif (lhs_ty == 4 or rhs_ty == 4)
     {
         cls0 = BinString
     }
-    elif (lhs_ty == TY_BOOL or rhs_ty == TY_BOOL)
+    elif (lhs_ty == 3 or rhs_ty == 3)
     {
         cls0 = BinBool
     }
-    elif (lhs_ty == TY_F64 or rhs_ty == TY_F64)
+    elif (lhs_ty == 2 or rhs_ty == 2)
     {
         cls0 = BinFloat
     }
 
     match cls0
     {
-        BinUnknown -> return TY_UNKNOWN
-        BinBool -> return TY_UNKNOWN
-        BinFloat -> return TY_F64
-        BinI32 -> return TY_I32
+        BinUnknown -> return 0
+        BinBool -> return 0
+        BinFloat -> return 2
+        BinI32 -> return 1
         BinString -> {
-            if (op == '+' and lhs_ty == TY_STRING and rhs_ty == TY_STRING)
+            if (op == '+' and lhs_ty == 4 and rhs_ty == 4)
             {
-                return TY_STRING
+                return 4
             }
-            return TY_UNKNOWN
+            return 0
         }
     }
 }
 
-pub fn ti_type_name(ty: i32) -> ptr
+pub fn ti_type_name(ty: i32) -> string
 {
     match ty
     {
-        TY_I32 -> return "i32"
-        TY_F64 -> return "f64"
-        TY_BOOL -> return "bool"
-        TY_STRING -> return "string"
+        1 -> return "i32"
+        2 -> return "f64"
+        3 -> return "bool"
+        4 -> return "string"
         _ -> return "unknown"
     }
 }

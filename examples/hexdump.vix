@@ -1,0 +1,56 @@
+extern "C"
+{
+    fn printf(fmt:ptr,...) : i32
+}
+fn print_hex_and_ascii(bytes: &[u8])
+{
+    for (i in 0..bytes.length)
+    {
+        printf("%02x ", bytes[i])
+        if (i % 16 == 15)
+        {
+            printf(" ")
+            for (j in (i - 15) .. i)
+            {
+                let c = bytes[j]
+                if (c >= 32 and c <= 126)
+                {
+                    printf("%c", c)
+                }
+                else
+                {
+                    printf(".")
+                }
+            }
+            printf("\n")
+        }
+    }
+    if (bytes.length % 16 != 0)
+    {
+        let remaining = 16 - (bytes.length % 16)
+        for (_ in 0..remaining)
+        {
+            printf("   ")
+        }
+        printf(" ")
+        for (i in (bytes.length - (bytes.length % 16))..bytes.length)
+        {
+            let c = bytes[i]
+            if (c >= 32 and c <= 126)
+            {
+                printf("%c", c)
+            }
+            else
+            {
+                printf(".")
+            }
+        }
+        printf("\n")
+    }
+}
+fn main(): i32
+{
+    let data = [0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x21]
+    print_hex_and_ascii(data)
+    return 0
+}

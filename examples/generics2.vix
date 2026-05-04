@@ -1,4 +1,7 @@
-import "std/io.vix"
+extern "C"
+{
+	fn printf(format: ptr, ...) ->i32
+}
 struct Box:[T]
 {
 	value: T

@@ -1,8 +1,6 @@
-import "std/type.vix"
-
 extern "C"
 {
-    fn printf(format: ptr, ...) -> i32
+    fn printf(format: string, ...) -> i32
 }
 
 pub type TokenKind = TkKwFn
@@ -28,14 +26,7 @@ pub type TokenKind = TkKwFn
                | TkUnknown
 
 
-pub fn isidentchar(c) -> i32
-{
-    if (isalpha(c) == 1 or isdigit(c) == 1) {
-        return 1
-    }
-    return 0
-}
-pub fn span(label: ptr, src: string, start: i32, end: i32) -> i32
+pub fn span(label: string, src: string, start: i32, end: i32) -> i32
 {
     printf("%s(", label)
     let j = start
@@ -182,7 +173,7 @@ pub fn lexer_with_len(src: string, n: i32) -> i32
             continue
         }
 
-        if (c == '-' )
+        if (c == '-')
         {
             if (i + 1 < n)
             {

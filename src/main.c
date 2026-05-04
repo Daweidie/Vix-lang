@@ -1,34 +1,14 @@
 /*
 vix 语言 0.0.1版本完工
 */
-//操,发现之前写的命名太长了，改了一点函数和变量的名字
-/*
-output_filename -> out_f
-input_filename -> in_f
-qbe_ir_filename -> qbe_f
-llvm_ir_filename -> llvm_f
-obj_filename -> obj_f
-bytecode_filename -> bc_f
-cpp_filename -> cpp_f
-enable_debug_log -> dbg
-is_vic_file -> is_vic
-save_cpp_file -> save_c
-keep_cpp_file -> keep_c
-generate_llvm_ir -> gen_llvm
-generate_object_file -> gen_obj
-output_ast_only -> out_ast
-bare_metal_mode -> bare
-has_explicit_output_mode -> exp_mode
-target_triple -> target
-effective_target -> eff_t
-compile_command -> ccmd
-compile_result -> cres
-llc_cmd -> lcmd
-type_ctx -> t_ctx
-global_table -> g_tbl
-semantic_errors -> errs
-\(^o^)/
+
+/*this vixc is for Linux and Unix-like system Not for Windows cause a lot of lib not compatible(Fuck you windows
+ BUT azhz's fork fix these "BUGS"
+ you can clone win-build-support(Thank you azhz
+ Enjoy it!
 */
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,11 +18,11 @@ semantic_errors -> errs
 #include "../include/compiler.h"
 #include "../include/codegen.h"
 #include "../include/semantic.h"
+#include "../include/typeck.h"
+#include "compiler/Llc/Llc.h"
 
 extern FILE* yyin;
 extern ASTNode* root;
-void create_lib_files();
-void analyze_ast(TypeInferenceContext* ctx, ASTNode* node);
 const char* current_input_filename = NULL;
 
 int main(int argc, char **argv) {
@@ -50,6 +30,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: %s <input.vix> [-o output_file]\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -ll <llvm_ir_file>\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -obj [obj_file] (output object file via llc)\n", argv[0]);
+        fprintf(stderr, "       %s <input.vix> -S [asm_file] (output assembly via llc)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -ast (output AST only)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
         fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
@@ -61,12 +42,13 @@ int main(int argc, char **argv) {
     char* out_f = NULL;
     char* llvm_f = NULL;
     char* obj_f = NULL;
+    char* asm_f = NULL;
     char* in_f = NULL;
     int is_vic = 0;
     int save_c = 0;
-    int keep_c = 0;
     int gen_llvm = 0;
     int gen_obj = 0;
+    int gen_asm = 0;
     int out_ast = 0;
     int out_llvm = 0;
     int dbg = 0;
@@ -94,7 +76,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0 || strcmp(argv[i] , "-ver") == 0){
-            printf("Vix Compiler 0.1.0_rc1_2 (Beta_26.01.01) by:Mincx1203 Copyright(c) 2025-2026\n");
+            printf("Vix Compiler 0.1.0_rc.1 (Beta_26.05.01) Copyright(c) 2025-2026\n");
             return 0;
         }
         else if (strcmp(argv[i], "-llvm") == 0) {
@@ -104,6 +86,13 @@ int main(int argc, char **argv) {
             gen_llvm = 1;
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 obj_f = argv[i + 1];
+                i++;
+            }
+        } else if (strcmp(argv[i], "-S") == 0 || strcmp(argv[i], "-s") == 0) {
+            gen_asm = 1;
+            gen_llvm = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                asm_f = argv[i + 1];
                 i++;
             }
         } else if (strcmp(argv[i], "-ll") == 0) {
@@ -129,6 +118,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "       %s <input.vix> --debug (enable debug logs)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> --target=<triple> (set codegen/link target, e.g. x86_64-unknown-none)\n", argv[0]);
             fprintf(stderr, "       %s <input.vix> (LLVM backend is the default backend)\n", argv[0]);
+            fprintf(stderr, "       %s <input.vix> -S (output assembly only)\n", argv[0]);
             return 0;
         } else if (argv[i][0] == '-' && strcmp(argv[i], "-") != 0) {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
@@ -145,7 +135,8 @@ int main(int argc, char **argv) {
         out_ast ||
         out_llvm ||
         gen_llvm ||
-        gen_obj;
+        gen_obj ||
+        gen_asm;
 
     if (!exp_mode &&
         !out_f &&
@@ -268,6 +259,16 @@ int main(int argc, char **argv) {
             fclose(input_file);
             return 1;
         }
+
+        if (typecheck_program(root) != 0) {
+            fprintf(stderr, "Compilation failed with type errors\n");
+            if (root) {
+                free_ast(root);
+            }
+            cleanup_error_handler();
+            fclose(input_file);
+            return 1;
+        }
         SymbolTable* g_tbl = create_symbol_table(NULL);
         int uvars = check_unused_variables(root, g_tbl);
         destroy_symbol_table(g_tbl);
@@ -314,9 +315,7 @@ int main(int argc, char **argv) {
 
             if (get_error_count() > 0) {
                 fprintf(stderr, "Compilation failed with %d error(s)\n", get_error_count());
-                if (!keep_c) {
-                    remove(llvm_f);
-                }
+                remove(llvm_f);
                 if (root) {
                     free_ast(root);
                 }
@@ -341,22 +340,13 @@ int main(int argc, char **argv) {
                     snprintf(oname, sizeof(oname), "%s.o", fobj);
                     fobj = oname;
                 }
-                char lcmd[8192];
-                if (eff_t) {
-                    snprintf(lcmd, sizeof(lcmd),
-                             "llc -filetype=obj -relocation-model=%s -mtriple=%s %s -o %s",
-                             bare ? "static" : "pic",
-                             eff_t, llvm_f, fobj);
-                } else {
-                    snprintf(lcmd, sizeof(lcmd),
-                             "llc -filetype=obj -relocation-model=%s %s -o %s",
-                             bare ? "static" : "pic",
-                             llvm_f, fobj);
-                }
-
-                int lres = system(lcmd);
-                if (lres != 0) {
-                    fprintf(stderr, "Error: Failed to compile LLVM IR to object file via llc\n");
+                const char* llc_err = NULL;
+                if (!llc_compile_to_object(llvm_f, fobj, eff_t ? eff_t : "", bare, &llc_err)) {
+                    fprintf(stderr, "Error: Failed to compile LLVM IR to object file via Llc");
+                    if (llc_err && llc_err[0] != '\0') {
+                        fprintf(stderr, ": %s", llc_err);
+                    }
+                    fprintf(stderr, "\n");
                     fclose(input_file);
                     return 1;
                 }
@@ -368,6 +358,42 @@ int main(int argc, char **argv) {
                     fclose(input_file);
                     return 0;
                 }
+            }
+            if (gen_asm) {
+                char oname[2048];
+                const char* fasm = asm_f;
+                if (!fasm) {
+                    char* dot = strrchr(in_f, '.');
+                    if (dot) {
+                        size_t len = dot - in_f;
+                        snprintf(oname, sizeof(oname), "%.*s.s", (int)len, in_f);
+                    } else {
+                        snprintf(oname, sizeof(oname), "%s.s", in_f);
+                    }
+                    fasm = oname;
+                } else if (strstr(fasm, ".s") == NULL) {
+                    snprintf(oname, sizeof(oname), "%s.s", fasm);
+                    fasm = oname;
+                }
+
+                const char* llc_err = NULL;
+                if (!llc_compile_to_assembly(llvm_f, fasm, eff_t ? eff_t : "", bare, &llc_err)) {
+                    fprintf(stderr, "Error: Failed to compile LLVM IR to assembly via Llc");
+                    if (llc_err && llc_err[0] != '\0') {
+                        fprintf(stderr, ": %s", llc_err);
+                    }
+                    fprintf(stderr, "\n");
+                    fclose(input_file);
+                    return 1;
+                }
+
+                remove(llvm_f);
+
+                if (root) {
+                    free_ast(root);
+                }
+                fclose(input_file);
+                return 0;
             }
             if (out_f && save_c) {
                 const char* ls = "linker.ld";
@@ -406,18 +432,13 @@ int main(int argc, char **argv) {
                 
                 free(ccmd);
                 
-                if (!keep_c) {
-                    remove(llvm_f);
-                }
+                remove(llvm_f);
             }
             
             if (root) {
                 free_ast(root);
             }
             fclose(input_file);
-            if (out_f && out_f != in_f && out_f != argv[1] && out_f != llvm_f) {
-            }
-            
             return 0;
         }
 
@@ -450,62 +471,5 @@ int main(int argc, char **argv) {
     }
     cleanup_error_handler();
     fclose(input_file);
-    if (out_f && out_f != in_f && out_f != argv[1]) {
-        if (out_f != argv[1] && out_f[0] != '-') {
-            ;
-        }
-    }
-    
     return result;
-}
-
-void analyze_ast(TypeInferenceContext* ctx, ASTNode* node) {
-    if (!node) return;
-    
-    switch (node->type) {
-        case AST_PROGRAM:
-            for (int i = 0; i < node->data.program.statement_count; i++) {
-                analyze_ast(ctx, node->data.program.statements[i]);
-            }
-            break;
-        case AST_CONST:
-            infer_type(ctx, node->data.assign.right);
-            if (node->data.assign.left->type == AST_IDENTIFIER) {
-                set_variable_type(ctx, node->data.assign.left->data.identifier.name,
-                    infer_type(ctx, node->data.assign.right));
-            }
-            analyze_ast(ctx, node->data.assign.left);
-            analyze_ast(ctx, node->data.assign.right);
-            break;
-        case AST_PRINT:
-            analyze_ast(ctx, node->data.print.expr);
-            break;
-            
-        case AST_BINOP:
-            analyze_ast(ctx, node->data.binop.left);
-            analyze_ast(ctx, node->data.binop.right);
-            break;
-            
-        case AST_UNARYOP:
-            analyze_ast(ctx, node->data.unaryop.expr);
-            break;
-            
-        case AST_IDENTIFIER: {
-            InferredType type = get_variable_type(ctx, node->data.identifier.name);
-            if (type == TYPE_UNKNOWN) {
-                /* only report if variable truly not declared in context */
-                if (!has_variable(ctx, node->data.identifier.name)) {
-                    report_undefined_variable_with_location(
-                        node->data.identifier.name,
-                        current_input_filename ? current_input_filename : "unknown",
-                        node->location.first_line
-                    );
-                }
-            }
-            break;
-        }
-            
-        default:
-            break;
-    }
 }

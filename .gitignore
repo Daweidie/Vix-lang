@@ -1,5 +1,7 @@
 .python-version
+.github
 .venv
+.kilo
 uv.lock
 __pycache__
 *.gch

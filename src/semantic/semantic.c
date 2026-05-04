@@ -387,6 +387,7 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
             for (int i = 0; i < node->data.program.statement_count; i++) {
                 ASTNode* stmt = node->data.program.statements[i];
                 if (stmt && stmt->type == AST_FUNCTION) {
+                    add_symbol(table, stmt->data.function.name, SYMBOL_FUNCTION, TYPE_UNKNOWN);
                     add_symbol(func_table, stmt->data.function.name, SYMBOL_FUNCTION, TYPE_UNKNOWN);
                 }
             }

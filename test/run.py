@@ -22,9 +22,9 @@ BIN_DIR = ROOT / "bin"
 EXPECT: Dict[str, Expectation] = {
     "test2.vix": Expectation(False, compile_error_contains="capturing local variables"),
     "test3.vix": Expectation(False, compile_error_contains="capturing local variables"),
-    "test4.vix": Expectation(False, compile_error_contains="capturing local variables"),
-    "test7.vix": Expectation(True, run_output=["42"]),
-    "test8.vix": Expectation(False, compile_error_contains="capturing local variables"),
+    "test4.vix": Expectation(False, compile_error_contains="type mismatch"),
+    "test7.vix": Expectation(False, compile_error_contains="type mismatch"),
+    "test8.vix": Expectation(False, compile_error_contains="type mismatch"),
     "test10.vix": Expectation(True, run_output=["3", "2"]),
     "test13.vix": Expectation(True, run_output=["2"]),
     "test14.vix": Expectation(True, run_output=["2"]),
@@ -32,6 +32,18 @@ EXPECT: Dict[str, Expectation] = {
     "test16.vix": Expectation(False, compile_error_contains="self-recursive struct fields"),
     "test17.vix": Expectation(False, compile_error_contains="self-recursive struct fields"),
     "test18.vix": Expectation(True, run_output=["matched-err"]),
+    "test19.vix": Expectation(True, run_output=["10", "20", "30", "3"]),
+    "test20.vix": Expectation(True, run_output=["45"]),
+    "test21.vix": Expectation(True, run_output=["55"]),
+    "test22.vix": Expectation(True, run_output=["large", "medium", "small", "non-positive"]),
+    "test23.vix": Expectation(True, run_output=["25"]),
+    "test24.vix": Expectation(True, run_output=["1", "2", "42", "hello"]),
+    "test25.vix": Expectation(True, run_output=["3", "5", "1", "5"]),
+    "test26.vix": Expectation(True, run_output=["42", "hello", "43"]),
+    "test27.vix": Expectation(False, compile_error_contains="undefined identifier"),
+    "test28.vix": Expectation(True, run_output=["99", "test"]),
+    "test29.vix": Expectation(True, run_output=["5"]),
+    "test30.vix": Expectation(True, run_output=["42", "world"]),
 }
 
 

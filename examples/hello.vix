@@ -1,1 +1,5 @@
-print("Hello,world!")
+fn main(): i32
+{
+    print("Hello, Vix!")
+    return 0
+}

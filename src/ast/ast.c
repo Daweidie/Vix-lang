@@ -14,6 +14,16 @@ extern ASTNode* root; //tips : 根节点
 extern const char* current_input_filename;
 extern int yyparse(void);
 extern int yylineno;
+extern int yycolumn;
+
+typedef struct yy_buffer_state* YY_BUFFER_STATE;
+extern YY_BUFFER_STATE yy_create_buffer(FILE* file, int size);
+extern void yypush_buffer_state(YY_BUFFER_STATE new_buffer);
+extern void yypop_buffer_state(void);
+
+#ifndef VIX_FLEX_BUFFER_SIZE
+#define VIX_FLEX_BUFFER_SIZE 16384
+#endif
 
 typedef struct ImportedModuleNode {
     char* canonical_path;
@@ -21,6 +31,45 @@ typedef struct ImportedModuleNode {
 } ImportedModuleNode;
 
 static ImportedModuleNode* g_imported_module_cache = NULL;
+
+static ASTNode* alloc_ast_node(void) {
+    ASTNode* node = (ASTNode*)calloc(1, sizeof(ASTNode));
+    if (!node) {
+        fprintf(stderr, "Failed to allocate memory for ASTNode\n");
+        exit(1);
+    }
+    return node;
+}
+
+void free_type_info(TypeInfo* info) {
+    if (!info) return;
+
+    if (info->element) {
+        free_type_info(info->element);
+    }
+    if (info->name) {
+        free(info->name);
+    }
+    if (info->params) {
+        for (int i = 0; i < info->param_count; i++) {
+            free_type_info(info->params[i]);
+        }
+        free(info->params);
+    }
+    if (info->ret) {
+        free_type_info(info->ret);
+    }
+    if (info->app_ctor) {
+        free_type_info(info->app_ctor);
+    }
+    if (info->app_args) {
+        for (int i = 0; i < info->app_arg_count; i++) {
+            free_type_info(info->app_args[i]);
+        }
+        free(info->app_args);
+    }
+    free(info);
+}
 
 static int canonicalize_existing_path(const char* path, char* out, size_t out_size) {
     if (!path || !out || out_size == 0) return 0;
@@ -96,6 +145,62 @@ static void clear_import_cache(void) {
         cur = next;
     }
     g_imported_module_cache = NULL;
+}
+
+typedef struct ParserImportState {
+    FILE* yyin;
+    ASTNode* root;
+    const char* current_input_filename;
+    int yylineno;
+    int yycolumn;
+} ParserImportState;
+
+static ASTNode* parse_imported_module_ast(const char* full_module_path) {
+    if (!full_module_path) return NULL;
+
+    FILE* f = fopen(full_module_path, "r");
+    if (!f) return NULL;
+
+    ParserImportState old_state = {
+        .yyin = yyin,
+        .root = root,
+        .current_input_filename = current_input_filename,
+        .yylineno = yylineno,
+        .yycolumn = yycolumn
+    };
+
+    ASTNode* module_root = NULL;
+    YY_BUFFER_STATE import_buffer = yy_create_buffer(f, VIX_FLEX_BUFFER_SIZE);
+    if (!import_buffer) {
+        fclose(f);
+        return NULL;
+    }
+
+    yyin = f;
+    yypush_buffer_state(import_buffer);
+    current_input_filename = full_module_path;
+    root = NULL;
+    yylineno = 1;
+    yycolumn = 1;
+
+    int parse_result = yyparse();
+    module_root = root;
+
+    yypop_buffer_state();
+    fclose(f);
+
+    yyin = old_state.yyin;
+    root = old_state.root;
+    current_input_filename = old_state.current_input_filename;
+    yylineno = old_state.yylineno;
+    yycolumn = old_state.yycolumn;
+
+    if (parse_result != 0) {
+        if (module_root) free_ast(module_root);
+        return NULL;
+    }
+
+    return module_root;
 }
 
 static void remove_program_statement_at(ASTNode* program, int idx) {
@@ -202,6 +307,7 @@ static void set_source_file_recursive(ASTNode* node, const char* source_file) {
             break;
         case AST_STRUCT_DEF:
             set_source_file_recursive(node->data.struct_def.fields, source_file);
+            set_source_file_recursive(node->data.struct_def.generic_params, source_file);
             break;
         case AST_STRUCT_LITERAL:
             set_source_file_recursive(node->data.struct_literal.type_name, source_file);
@@ -221,7 +327,7 @@ static void set_source_file_recursive(ASTNode* node, const char* source_file) {
 }
 
 ASTNode* create_program_node_with_location(Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_PROGRAM;
     node->location = location;
     node->data.program.statements = NULL;
@@ -235,8 +341,16 @@ ASTNode* create_program_node() {
 }
 
 void add_statement_to_program(ASTNode* program, ASTNode* statement) {
-    if (program->type != AST_PROGRAM) return;
-    
+    if (!program || program->type != AST_PROGRAM || !statement) return;
+
+    if (statement->type == AST_PROGRAM) {
+        int nested_count = statement->data.program.statement_count;
+        for (int i = 0; i < nested_count; i++) {
+            add_statement_to_program(program, statement->data.program.statements[i]);
+        }
+        return;
+    }
+
     program->data.program.statement_count++;
     program->data.program.statements = realloc(
         program->data.program.statements,
@@ -246,7 +360,7 @@ void add_statement_to_program(ASTNode* program, ASTNode* statement) {
 }
 
 ASTNode* create_print_node_with_location(ASTNode* expr, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_PRINT;
     node->location = location;
     node->data.print.expr = expr;
@@ -258,7 +372,7 @@ ASTNode* create_print_node(ASTNode* expr) {
 }
 
 ASTNode* create_input_node_with_location(ASTNode* prompt, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_INPUT;
     node->location = location;
     node->data.input.prompt = prompt;
@@ -281,7 +395,7 @@ ASTNode* create_input_node_with_yyltype(ASTNode* prompt, void* yylloc) {
 }
 
 ASTNode* create_toint_node_with_location(ASTNode* expr, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_TOINT;
     node->location = location;
     node->data.toint.expr = expr;
@@ -293,7 +407,7 @@ ASTNode* create_toint_node(ASTNode* expr) {
 }
 
 ASTNode* create_tofloat_node_with_location(ASTNode* expr, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_TOFLOAT;
     node->location = location;
     node->data.tofloat.expr = expr;
@@ -305,7 +419,7 @@ ASTNode* create_tofloat_node(ASTNode* expr) {
 }
 
 ASTNode* create_nil_node_with_location(Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_NIL;
     node->location = location;
     return node;
@@ -328,7 +442,7 @@ ASTNode* create_nil_node_with_yyltype(void* yylloc) {
 }
 
 ASTNode* create_expression_list_node_with_location(Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_EXPRESSION_LIST;
     node->location = location;
     node->data.expression_list.expressions = NULL;
@@ -354,7 +468,7 @@ void add_expression_to_list(ASTNode* list, ASTNode* expr) {
 }
 
 ASTNode* create_assign_node_with_location(ASTNode* left, ASTNode* right, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_ASSIGN;
     node->location = location;
     node->data.assign.left = left;
@@ -365,7 +479,7 @@ ASTNode* create_assign_node_with_location(ASTNode* left, ASTNode* right, Locatio
 }
 
 ASTNode* create_const_node_with_location(ASTNode* left, ASTNode* right, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_CONST;
     node->location = location;
     node->data.assign.left = left;
@@ -396,8 +510,7 @@ ASTNode* create_assign_node(ASTNode* left, ASTNode* right) {
 }
 
 ASTNode* create_assign_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) return NULL;
+    ASTNode* node = alloc_ast_node();
     
     YYLTYPE* loc = (YYLTYPE*)yylloc;
     node->location.first_line = loc->first_line;
@@ -415,8 +528,7 @@ ASTNode* create_assign_node_with_yyltype(ASTNode* left, ASTNode* right, void* yy
 }
 
 ASTNode* create_assign_node_with_mutability(ASTNode* left, ASTNode* right, MutabilityType mutability) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) return NULL;
+    ASTNode* node = alloc_ast_node();
     
     node->type = AST_ASSIGN;
     node->data.assign.left = left;
@@ -668,7 +780,7 @@ ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* r
                 break;
         }
     }
-    ASTNode* node = malloc(sizeof(ASTNode));// 如果不能折叠，则创建正常的二元操作节点
+    ASTNode* node = alloc_ast_node();// 如果不能折叠，则创建正常的二元操作节点
     node->type = AST_BINOP;
     node->location = location;
     node->data.binop.op = op;
@@ -688,7 +800,7 @@ ASTNode* create_binop_node(BinOpType op, ASTNode* left, ASTNode* right) {
 }
 
 ASTNode* create_unaryop_node_with_location(UnaryOpType op, ASTNode* expr, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_UNARYOP;
     node->location = location;
     node->data.unaryop.op = op;
@@ -718,7 +830,7 @@ ASTNode* create_unaryop_node(UnaryOpType op, ASTNode* expr) {
 }
 
 ASTNode* create_num_int_node_with_location(long long value, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_NUM_INT;
     node->location = location;
     node->data.num_int.value = value;
@@ -731,7 +843,7 @@ ASTNode* create_num_int_node(long long value) {
 }
 
 ASTNode* create_num_float_node_with_location(double value, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_NUM_FLOAT;
     node->location = location;
     node->data.num_float.value = value;
@@ -744,7 +856,7 @@ ASTNode* create_num_float_node(double value) {
 }
 
 ASTNode* create_string_node_with_location(const char* value, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_STRING;
     node->location = location;
     node->data.string.value = malloc(strlen(value) + 1);
@@ -758,7 +870,7 @@ ASTNode* create_string_node(const char* value) {
 }
 
 ASTNode* create_identifier_node_with_location(const char* name, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_IDENTIFIER;
     node->location = location;
     node->data.identifier.name = malloc(strlen(name) + 1);
@@ -772,23 +884,21 @@ ASTNode* create_identifier_node(const char* name) {
 }
 
 ASTNode* create_type_node_with_location(NodeType type, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = type;
     node->location = location;
     return node;
 }
 
 ASTNode* create_type_node(NodeType type) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) return NULL;
+    ASTNode* node = alloc_ast_node();
     Location loc = {0};
     node->type = type;
     node->location = loc;
     return node;
 }
 ASTNode* create_list_type_node_with_location(ASTNode* element_type, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) return NULL;
+    ASTNode* node = alloc_ast_node();
     node->type = AST_TYPE_LIST;
     node->location = location;
     node->data.list_type.element_type = element_type;
@@ -800,8 +910,7 @@ ASTNode* create_list_type_node(ASTNode* element_type) {
     return create_list_type_node_with_location(element_type, loc);
 }
 ASTNode* create_fixed_size_list_type_node_with_location(ASTNode* element_type, long long size, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) return NULL;
+    ASTNode* node = alloc_ast_node();
     node->type = AST_TYPE_FIXED_SIZE_LIST;
     node->location = location;
     node->data.fixed_size_list_type.element_type = element_type;
@@ -815,7 +924,7 @@ ASTNode* create_fixed_size_list_type_node(ASTNode* element_type, long long size)
 }
 
 ASTNode* create_if_node_with_location(ASTNode* condition, ASTNode* then_body, ASTNode* else_body, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_IF;
     node->location = location;
     node->data.if_stmt.condition = condition;
@@ -835,7 +944,7 @@ ASTNode* create_if_node(ASTNode* condition, ASTNode* then_body, ASTNode* else_bo
 }
 
 ASTNode* create_while_node_with_location(ASTNode* condition, ASTNode* body, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_WHILE;
     node->location = location;
     node->data.while_stmt.condition = condition;
@@ -854,7 +963,7 @@ ASTNode* create_while_node(ASTNode* condition, ASTNode* body) {
 }
 
 ASTNode* create_for_node_with_location(ASTNode* var, ASTNode* start, ASTNode* end, ASTNode* body, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_FOR;
     node->location = location;
     node->data.for_stmt.var = var;
@@ -875,7 +984,7 @@ ASTNode* create_for_node(ASTNode* var, ASTNode* start, ASTNode* end, ASTNode* bo
 }
 
 ASTNode* create_function_node_with_location(const char* name, ASTNode* params, ASTNode* return_type, ASTNode* body, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_FUNCTION;
     node->location = location;
     node->data.function.name = malloc(strlen(name) + 1);
@@ -922,7 +1031,7 @@ ASTNode* create_public_function_node_with_location(const char* name, ASTNode* pa
 }
 
 ASTNode* create_extern_function_node_with_location(const char* name, ASTNode* params, ASTNode* return_type, const char* linkage, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_FUNCTION;
     node->location = location;
     node->data.function.name = malloc(strlen(name) + 1);
@@ -948,7 +1057,7 @@ ASTNode* create_extern_function_node(const char* name, ASTNode* params, ASTNode*
 }
 
 ASTNode* create_break_node_with_location(Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_BREAK;
     node->location = location;
     return node;
@@ -960,7 +1069,7 @@ ASTNode* create_break_node() {
 }
 
 ASTNode* create_continue_node_with_location(Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_CONTINUE;
     node->location = location;
     return node;
@@ -972,7 +1081,7 @@ ASTNode* create_continue_node() {
 }
 
 ASTNode* create_return_node_with_location(ASTNode* expr, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_RETURN;
     node->location = location;
     node->data.return_stmt.expr = expr;
@@ -989,7 +1098,7 @@ ASTNode* create_return_node(ASTNode* expr) {
 }
 
 ASTNode* create_call_node(ASTNode* func, ASTNode* args) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_CALL;
     node->location = func->location;// 使用函数的位置
     node->data.call.func = func;
@@ -998,7 +1107,7 @@ ASTNode* create_call_node(ASTNode* func, ASTNode* args) {
     return node;
 }
 ASTNode* create_call_node_with_location(ASTNode* func, ASTNode* args, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_CALL;
     node->location = location;
     node->data.call.func = func;
@@ -1007,7 +1116,7 @@ ASTNode* create_call_node_with_location(ASTNode* func, ASTNode* args, Location l
     return node;
 }
 ASTNode* create_call_node_with_yyltype(ASTNode* func, ASTNode* args, void* yylloc) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_CALL;
     YYLTYPE* loc = (YYLTYPE*)yylloc;
     node->location.first_line = loc->first_line;
@@ -1021,12 +1130,13 @@ ASTNode* create_call_node_with_yyltype(ASTNode* func, ASTNode* args, void* yyllo
 }
 
 ASTNode* create_struct_def_node_with_location(const char* name, ASTNode* fields, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_STRUCT_DEF;
     node->location = location;
     node->data.struct_def.name = malloc(strlen(name) + 1);
     strcpy(node->data.struct_def.name, name);
     node->data.struct_def.fields = fields;
+    node->data.struct_def.generic_params = NULL;
     node->data.struct_def.is_public = 0;
     return node;
 }
@@ -1043,7 +1153,7 @@ ASTNode* create_struct_def_node_with_yyltype(const char* name, ASTNode* fields, 
 }
 
 ASTNode* create_struct_literal_node_with_location(ASTNode* type_name, ASTNode* fields, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_STRUCT_LITERAL;
     node->location = location;
     node->data.struct_literal.type_name = type_name;
@@ -1061,8 +1171,29 @@ ASTNode* create_struct_literal_node_with_yyltype(ASTNode* type_name, ASTNode* fi
     Location location = { loc->first_line, loc->first_column, loc->last_line, loc->last_column };
     return create_struct_literal_node_with_location(type_name, fields, location);
 }
+
+ASTNode* create_type_app_node_with_location(ASTNode* ctor, ASTNode* args, Location location) {
+    ASTNode* node = alloc_ast_node();
+    node->type = AST_TYPE_APP;
+    node->location = location;
+    node->data.type_app.ctor = ctor;
+    node->data.type_app.args = args;
+    return node;
+}
+
+ASTNode* create_type_app_node(ASTNode* ctor, ASTNode* args) {
+    Location loc = ctor ? ctor->location : (Location){1,1,1,1};
+    return create_type_app_node_with_location(ctor, args, loc);
+}
+
+ASTNode* create_type_app_node_with_yyltype(ASTNode* ctor, ASTNode* args, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = { loc->first_line, loc->first_column, loc->last_line, loc->last_column };
+    return create_type_app_node_with_location(ctor, args, location);
+}
+
 ASTNode* create_index_node_with_location(ASTNode* target, ASTNode* index, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_INDEX;
     node->location = location;
     node->data.index.target = target;
@@ -1102,7 +1233,7 @@ ASTNode* create_member_access_node(ASTNode* object, ASTNode* field) {
 }
 
 ASTNode* create_member_access_node_with_location(ASTNode* object, ASTNode* field, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_MEMBER_ACCESS;
     node->location = location;
     node->data.member_access.object = object;
@@ -1309,7 +1440,7 @@ ASTNode* create_identifier_node_with_yyltype(const char* name, void* yylloc) {
 }
 
 ASTNode* create_global_node_with_location(ASTNode* identifier, ASTNode* type, ASTNode* initializer, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
+    ASTNode* node = alloc_ast_node();
     node->type = AST_GLOBAL;
     node->location = location;
     node->mutability = MUTABILITY_IMMUTABLE;//global cannt bian
@@ -1344,11 +1475,7 @@ ASTNode* create_import_node(const char* module_path) {
 }
 
 ASTNode* create_import_node_with_location(const char* module_path, Location location) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) {
-        fprintf(stderr, "Failed to allocate memory for ASTNode\n");
-        exit(1);
-    }
+    ASTNode* node = alloc_ast_node();
     node->type = AST_IMPORT;
     node->location = location;
     node->mutability = MUTABILITY_IMMUTABLE;
@@ -1368,11 +1495,7 @@ ASTNode* create_import_node_with_yyltype(const char* module_path, void* yylloc) 
 }
 
 ASTNode* create_char_node(char value) {
-    ASTNode* node = malloc(sizeof(ASTNode));
-    if (!node) {
-        fprintf(stderr, "Failed to allocate memory for ASTNode\n");
-        exit(1);
-    }
+    ASTNode* node = alloc_ast_node();
     node->type = AST_CHAR;
     node->data.character.value = value;
     node->mutability = MUTABILITY_IMMUTABLE;
@@ -1465,6 +1588,9 @@ void free_ast(ASTNode* node) {
         case AST_TYPE_STRING:
         case AST_TYPE_VOID:
         case AST_TYPE_POINTER:
+            if (node->type == AST_TYPE_POINTER && node->data.pointer_type.element_type) {
+                free_ast(node->data.pointer_type.element_type);
+            }
             break;
             
         case AST_TYPE_LIST:
@@ -1476,6 +1602,14 @@ void free_ast(ASTNode* node) {
         case AST_TYPE_FIXED_SIZE_LIST:
             if (node->data.fixed_size_list_type.element_type) {
                 free_ast(node->data.fixed_size_list_type.element_type);
+            }
+            break;
+        case AST_TYPE_APP:
+            if (node->data.type_app.ctor) {
+                free_ast(node->data.type_app.ctor);
+            }
+            if (node->data.type_app.args) {
+                free_ast(node->data.type_app.args);
             }
             break;
             
@@ -1540,6 +1674,7 @@ void free_ast(ASTNode* node) {
         case AST_STRUCT_DEF:
             free(node->data.struct_def.name);
             if (node->data.struct_def.fields) free_ast(node->data.struct_def.fields);
+            if (node->data.struct_def.generic_params) free_ast(node->data.struct_def.generic_params);
             break;
         case AST_STRUCT_LITERAL:
             if (node->data.struct_literal.type_name) free_ast(node->data.struct_literal.type_name);
@@ -1569,6 +1704,11 @@ void free_ast(ASTNode* node) {
         case AST_BREAK:
         case AST_CONTINUE:
             break;
+    }
+
+    if (node->inferred_type) {
+        free_type_info(node->inferred_type);
+        node->inferred_type = NULL;
     }
     
     free(node);
@@ -1802,6 +1942,20 @@ void print_ast(ASTNode* node, int indent) {
             }
             printf(" * %lld]\n", node->data.fixed_size_list_type.size);
             break;
+        case AST_TYPE_APP:
+            printf("TypeApp: ");
+            if (node->data.type_app.ctor && node->data.type_app.ctor->type == AST_IDENTIFIER) {
+                printf("%s", node->data.type_app.ctor->data.identifier.name);
+            } else {
+                printf("unknown");
+            }
+            if (node->data.type_app.args) {
+                printf("[");
+                print_ast(node->data.type_app.args, indent + 1);
+                printf("]");
+            }
+            printf("\n");
+            break;
         case AST_FUNCTION:
             if (node->data.function.is_extern) {
                 printf("Extern Function: %s", node->data.function.name);
@@ -1850,10 +2004,11 @@ void print_ast(ASTNode* node, int indent) {
             } else {
                 printf("StructDef: %s\n", node->data.struct_def.name);
             }
+            if (node->data.struct_def.generic_params) print_ast(node->data.struct_def.generic_params, indent + 1);
             if (node->data.struct_def.fields) print_ast(node->data.struct_def.fields, indent + 1);
             break;
         case AST_STRUCT_LITERAL:
-            printf("StructLiteral: type %s\n", node->data.struct_literal.type_name ? node->data.struct_literal.type_name->data.identifier.name : "unknown");
+            printf("StructLiteral: type %s\n", node->data.struct_literal.type_name && node->data.struct_literal.type_name->type == AST_IDENTIFIER ? node->data.struct_literal.type_name->data.identifier.name : "unknown");
             if (node->data.struct_literal.fields) print_ast(node->data.struct_literal.fields, indent + 1);
             break;
         case AST_RETURN:
@@ -1887,24 +2042,62 @@ void print_ast(ASTNode* node, int indent) {
             break;
     }
 }
-static void inline_imports_in_node(ASTNode* node) {
-    if (!node) return;
+static void free_inserted_externs(char** inserted_externs, int inserted_extern_count) {
+    if (!inserted_externs) return;
+    for (int z = 0; z < inserted_extern_count; z++) {
+        free(inserted_externs[z]);
+    }
+    free(inserted_externs);
+}
+
+static int append_inserted_extern(char*** inserted_externs, int* inserted_extern_count, const char* name) {
+    if (!inserted_externs || !inserted_extern_count || !name) return 1;
+
+    for (int i = 0; i < *inserted_extern_count; i++) {
+        if ((*inserted_externs)[i] && strcmp((*inserted_externs)[i], name) == 0) {
+            return 1;
+        }
+    }
+
+    char** resized = realloc(*inserted_externs, sizeof(char*) * (*inserted_extern_count + 1));
+    if (!resized) return 0;
+
+    char* name_copy = strdup(name);
+    if (!name_copy) {
+        *inserted_externs = resized;
+        return 0;
+    }
+
+    *inserted_externs = resized;
+    resized[*inserted_extern_count] = name_copy;
+    (*inserted_extern_count)++;
+    return 1;
+}
+
+static int inline_imports_in_node_impl(ASTNode* node) {
+    if (!node) return 1;
 
     if (node->type == AST_PROGRAM) {
         int i = 0;
         int inserted_extern_count = 0;
         char** inserted_externs = NULL;
+
         for (int z = 0; z < node->data.program.statement_count; z++) {
             ASTNode* s = node->data.program.statements[z];
             if (s && s->type == AST_FUNCTION && s->data.function.is_extern && s->data.function.name) {
-                inserted_externs = realloc(inserted_externs, sizeof(char*) * (inserted_extern_count + 1));
-                inserted_externs[inserted_extern_count++] = strdup(s->data.function.name);
+                if (!append_inserted_extern(&inserted_externs, &inserted_extern_count, s->data.function.name)) {
+                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                    return 0;
+                }
             }
         }
 
         while (i < node->data.program.statement_count) {
             ASTNode* stmt = node->data.program.statements[i];
-            if (!stmt) { i++; continue; }
+            if (!stmt) {
+                i++;
+                continue;
+            }
 
             if (stmt->type == AST_IMPORT) {
                 const char* module_path = stmt->data.import.module_path;
@@ -1919,50 +2112,40 @@ static void inline_imports_in_node(ASTNode* node) {
                     continue;
                 }
 
-                FILE* f = fopen(full_module_path, "r");
-                if (!f) {
+                import_cache_add(full_module_path);
+                ASTNode* module_root = parse_imported_module_ast(full_module_path);
+                if (!module_root) {
                     i++;
                     continue;
                 }
-
-                import_cache_add(full_module_path);
-
-                FILE* old_yyin = yyin;
-                ASTNode* old_root = root;
-                const char* old_current = current_input_filename;
-                int old_yylineno = yylineno;
-
-                yyin = f;
-                current_input_filename = full_module_path;
-                root = NULL;
-                yylineno = 1;
-                yyparse();
-                fclose(f);
-
-                ASTNode* module_root = root;
-                yyin = old_yyin;//存储旧值
-                root = old_root;
-                current_input_filename = old_current;
-                yylineno = old_yylineno;
 
                 char* module_source_file = strdup(full_module_path);
-                if (module_source_file && module_root) {
-                    set_source_file_recursive(module_root, module_source_file);
+                if (!module_source_file) {
+                    free_ast(module_root);
+                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                    return 0;
                 }
 
-                if (module_root) {
-                    const char* old_inline_current = current_input_filename;
-                    current_input_filename = module_source_file ? module_source_file : full_module_path;
-                    inline_imports_in_node(module_root);
+                set_source_file_recursive(module_root, module_source_file);
+
+                const char* old_inline_current = current_input_filename;
+                current_input_filename = module_source_file;
+                if (!inline_imports_in_node_impl(module_root)) {
                     current_input_filename = old_inline_current;
+                    free_ast(module_root);
+                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                    return 0;
                 }
+                current_input_filename = old_inline_current;
 
-                if (!module_root || module_root->type != AST_PROGRAM) {
-                    if (module_root) free_ast(module_root);
+                if (module_root->type != AST_PROGRAM) {
+                    free_ast(module_root);
                     i++;
                     continue;
                 }
+
                 int add_count = 0;
+                int extern_count_before_import = inserted_extern_count;
                 for (int j = 0; j < module_root->data.program.statement_count; j++) {
                     ASTNode* s = module_root->data.program.statements[j];
                     if (!s) continue;
@@ -1972,12 +2155,18 @@ static void inline_imports_in_node(ASTNode* node) {
                         } else if (s->data.function.is_extern && s->data.function.name) {
                             int found = 0;
                             for (int e = 0; e < inserted_extern_count; e++) {
-                                if (strcmp(inserted_externs[e], s->data.function.name) == 0) { found = 1; break; }
+                                if (strcmp(inserted_externs[e], s->data.function.name) == 0) {
+                                    found = 1;
+                                    break;
+                                }
                             }
                             if (!found) {
+                                if (!append_inserted_extern(&inserted_externs, &inserted_extern_count, s->data.function.name)) {
+                                    free_ast(module_root);
+                                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                                    return 0;
+                                }
                                 add_count++;
-                                inserted_externs = realloc(inserted_externs, sizeof(char*) * (inserted_extern_count + 1));
-                                inserted_externs[inserted_extern_count++] = strdup(s->data.function.name);
                             }
                         }
                     } else if (s->type == AST_CONST) {
@@ -2002,12 +2191,18 @@ static void inline_imports_in_node(ASTNode* node) {
                                 } else if (t->data.function.is_extern && t->data.function.name) {
                                     int found = 0;
                                     for (int e = 0; e < inserted_extern_count; e++) {
-                                        if (strcmp(inserted_externs[e], t->data.function.name) == 0) { found = 1; break; }
+                                        if (strcmp(inserted_externs[e], t->data.function.name) == 0) {
+                                            found = 1;
+                                            break;
+                                        }
                                     }
                                     if (!found) {
+                                        if (!append_inserted_extern(&inserted_externs, &inserted_extern_count, t->data.function.name)) {
+                                            free_ast(module_root);
+                                            free_inserted_externs(inserted_externs, inserted_extern_count);
+                                            return 0;
+                                        }
                                         add_count++;
-                                        inserted_externs = realloc(inserted_externs, sizeof(char*) * (inserted_extern_count + 1));
-                                        inserted_externs[inserted_extern_count++] = strdup(t->data.function.name);
                                     }
                                 }
                             } else if (t->type == AST_CONST) {
@@ -2036,8 +2231,16 @@ static void inline_imports_in_node(ASTNode* node) {
                 int old_count = node->data.program.statement_count;
                 int new_count = old_count - 1 + add_count;
                 ASTNode** new_statements = malloc(sizeof(ASTNode*) * new_count);
+                if (!new_statements) {
+                    free_ast(module_root);
+                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                    return 0;
+                }
+
                 int idx = 0;
-                for (int k = 0; k < i; k++) new_statements[idx++] = node->data.program.statements[k];//复制
+                for (int k = 0; k < i; k++) {
+                    new_statements[idx++] = node->data.program.statements[k];//复制
+                }
                 for (int j = 0; j < module_root->data.program.statement_count; j++) {
                     ASTNode* s = module_root->data.program.statements[j];
                     if (!s) continue;
@@ -2050,13 +2253,22 @@ static void inline_imports_in_node(ASTNode* node) {
                             for (int p = 0; p < idx; p++) {
                                 ASTNode* moved = new_statements[p];
                                 if (moved && moved->type == AST_FUNCTION && moved->data.function.is_extern && moved->data.function.name && strcmp(moved->data.function.name, s->data.function.name) == 0) {
-                                    already_moved = 1; break;
+                                    already_moved = 1;
+                                    break;
                                 }
                             }
-                        if (!already_moved) {
-                            new_statements[idx++] = s;
-                            module_root->data.program.statements[j] = NULL;
-                        }
+                            if (!already_moved) {
+                                for (int e = 0; e < extern_count_before_import; e++) {
+                                    if (strcmp(inserted_externs[e], s->data.function.name) == 0) {
+                                        already_moved = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!already_moved) {
+                                new_statements[idx++] = s;
+                                module_root->data.program.statements[j] = NULL;
+                            }
                         }
                     } else if (s->type == AST_CONST) {
                         if (s->data.assign.is_public) {
@@ -2086,7 +2298,16 @@ static void inline_imports_in_node(ASTNode* node) {
                                     for (int p = 0; p < idx; p++) {
                                         ASTNode* moved = new_statements[p];
                                         if (moved && moved->type == AST_FUNCTION && moved->data.function.is_extern && moved->data.function.name && strcmp(moved->data.function.name, t->data.function.name) == 0) {
-                                            already_moved = 1; break;
+                                            already_moved = 1;
+                                            break;
+                                        }
+                                    }
+                                    if (!already_moved) {
+                                        for (int e = 0; e < extern_count_before_import; e++) {
+                                            if (strcmp(inserted_externs[e], t->data.function.name) == 0) {
+                                                already_moved = 1;
+                                                break;
+                                            }
                                         }
                                     }
                                     if (!already_moved) {
@@ -2113,41 +2334,42 @@ static void inline_imports_in_node(ASTNode* node) {
                         }
                     }
                 }
-                for (int k = i + 1; k < old_count; k++) new_statements[idx++] = node->data.program.statements[k];//复制语句
+                for (int k = i + 1; k < old_count; k++) {
+                    new_statements[idx++] = node->data.program.statements[k];//复制语句
+                }
+
                 free(node->data.program.statements);
                 node->data.program.statements = new_statements;
                 node->data.program.statement_count = new_count;
                 free_ast(stmt);
-                int remaining = 0;
-                for (int j = 0; j < module_root->data.program.statement_count; j++) if (module_root->data.program.statements[j]) remaining++;
-                ASTNode** rem = NULL;
-                if (remaining > 0) {
-                    rem = malloc(sizeof(ASTNode*) * remaining);
-                    int r = 0;
-                    for (int j = 0; j < module_root->data.program.statement_count; j++) {
-                        if (module_root->data.program.statements[j]) rem[r++] = module_root->data.program.statements[j];
-                    }
-                }
-                free(module_root->data.program.statements);
-                module_root->data.program.statements = rem;
-                module_root->data.program.statement_count = remaining;
                 free_ast(module_root);
                 i += add_count; //next
             } else {
-                inline_imports_in_node(stmt);
+                if (!inline_imports_in_node_impl(stmt)) {
+                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                    return 0;
+                }
                 i++;
             }
         }
+
         /* cleanup inserted_externs */
-        for (int z = 0; z < inserted_extern_count; z++) free(inserted_externs[z]);
-        free(inserted_externs);
-        return;
+        free_inserted_externs(inserted_externs, inserted_extern_count);
+        return 1;
     }
 
     if (node->type == AST_FUNCTION) {
-        if (node->data.function.body) inline_imports_in_node(node->data.function.body);
-        return;
+        if (node->data.function.body && !inline_imports_in_node_impl(node->data.function.body)) {
+            return 0;
+        }
+        return 1;
     }
+
+    return 1;
+}
+
+static void inline_imports_in_node(ASTNode* node) {
+    (void)inline_imports_in_node_impl(node);
 }
 
 void inline_imports(ASTNode* node) {

@@ -2,6 +2,10 @@
 #define COMPILER_H
 #include "typeinfer.h"
 #include <stdio.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef enum {
     ERROR_LEVEL_WARNING,
     ERROR_LEVEL_ERROR,
@@ -52,6 +56,9 @@ void report_simple_error(ErrorLevel level, ErrorType error_type, const char* msg
 void report_unused_variable_warning(const char* variable_name, const char* filename, int line);
 void report_unused_variable_warning_with_location(const char* variable_name, const char* filename, int line, int column);
 void report_struct_field_missing_with_location_and_suggestion(const char* struct_name, const char* field_name, const char* suggestion, const char* filename, int line, int column);
+#ifdef __cplusplus
+}
+#endif
 #endif /*COMPILER_H*/
 
 

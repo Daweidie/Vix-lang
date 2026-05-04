@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 typedef struct {
     int first_line;
     int first_column;
@@ -20,6 +21,37 @@ typedef struct YYLTYPE {
 #endif
 
 typedef struct ASTNode ASTNode;
+
+typedef enum {
+    TYPEINFO_VOID,
+    TYPEINFO_I8,
+    TYPEINFO_I32,
+    TYPEINFO_I64,
+    TYPEINFO_F32,
+    TYPEINFO_F64,
+    TYPEINFO_BOOL,
+    TYPEINFO_STRING,
+    TYPEINFO_PTR,
+    TYPEINFO_STRUCT,
+    TYPEINFO_ARRAY,
+    TYPEINFO_FIXED_ARRAY,
+    TYPEINFO_FN,
+    TYPEINFO_APP,
+    TYPEINFO_VAR
+} TypeInfoKind;
+
+typedef struct TypeInfo {
+    TypeInfoKind kind;
+    struct TypeInfo* element;
+    size_t size;
+    char* name;
+    struct TypeInfo** params;
+    int param_count;
+    struct TypeInfo* ret;
+    struct TypeInfo* app_ctor;
+    struct TypeInfo** app_args;
+    int app_arg_count;
+} TypeInfo;
 
 typedef enum {
     AST_PROGRAM,
@@ -45,6 +77,7 @@ typedef enum {
     AST_TYPE_POINTER,
     AST_TYPE_LIST,
     AST_TYPE_FIXED_SIZE_LIST,  // 新增：固定大小列表类型
+    AST_TYPE_APP,
     AST_EXPRESSION_LIST,
     AST_INDEX,// 数组/列表索引访问
     AST_MEMBER_ACCESS,//结构体字段访问
@@ -99,6 +132,7 @@ typedef struct ASTNode {
     Location location;// 位置信息
     const char* source_file;
     MutabilityType mutability; // 可变性标记
+    TypeInfo* inferred_type;
     union {
         struct {
             struct ASTNode** statements;
@@ -154,10 +188,17 @@ typedef struct ASTNode {
         struct {
             struct ASTNode* element_type;
         } list_type;
+        struct {
+            struct ASTNode* element_type;
+        } pointer_type;
         struct {  // 新增：固定大小列表类型
             struct ASTNode* element_type;
             long long size;
         } fixed_size_list_type;
+        struct {
+            struct ASTNode* ctor;
+            struct ASTNode* args;
+        } type_app;
         struct {
             struct ASTNode* prompt;
         } input;
@@ -201,6 +242,7 @@ typedef struct ASTNode {
         struct {
             char* name;
             struct ASTNode* fields;
+            struct ASTNode* generic_params;
             int is_public;
         } struct_def;
         struct {
@@ -221,6 +263,12 @@ typedef struct ASTNode {
         } import;
     } data;
 } ASTNode;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void free_type_info(TypeInfo* info);
 
 ASTNode* create_program_node();
 ASTNode* create_program_node_with_location(Location location);
@@ -279,6 +327,9 @@ ASTNode* create_list_type_node_with_location(ASTNode* element_type, Location loc
 ASTNode* create_list_type_node(ASTNode* element_type);
 ASTNode* create_fixed_size_list_type_node_with_location(ASTNode* element_type, long long size, Location location);
 ASTNode* create_fixed_size_list_type_node(ASTNode* element_type, long long size);
+ASTNode* create_type_app_node_with_location(ASTNode* ctor, ASTNode* args, Location location);
+ASTNode* create_type_app_node(ASTNode* ctor, ASTNode* args);
+ASTNode* create_type_app_node_with_yyltype(ASTNode* ctor, ASTNode* args, void* yylloc);
 ASTNode* create_if_node_with_location(ASTNode* condition, ASTNode* then_body, ASTNode* else_body, Location location);
 ASTNode* create_if_node_with_yyltype(ASTNode* condition, ASTNode* then_body, ASTNode* else_body, void* yylloc);
 ASTNode* create_if_node(ASTNode* condition, ASTNode* then_body, ASTNode* else_body);
@@ -329,5 +380,9 @@ void print_ast(ASTNode* node, int indent);
 int get_array_length(ASTNode* node);
 // Inline imports: parse modules and inline their `pub` functions into the AST
 void inline_imports(ASTNode* node);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif/*AST_H*/
