@@ -7,6 +7,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ── Platform-specific tool names ─────────────────────────────────
+if(WIN32)
+    set(BISON_EXECUTABLE "win_bison" CACHE FILEPATH "Path to bison executable")
+    set(FLEX_EXECUTABLE "win_flex" CACHE FILEPATH "Path to flex executable")
+endif()
+
 # ── Required tools ────────────────────────────────────────────────
 find_package(BISON 3.0 REQUIRED)
 find_package(FLEX 2.6 REQUIRED)
@@ -67,10 +73,18 @@ target_include_directories(vixc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}/parser
 )
-target_compile_options(vixc PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -fno-stack-protector>
-    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -fno-stack-protector -fexceptions>
-)
+
+if(MSVC)
+    target_compile_options(vixc PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:/W4>
+        $<$<COMPILE_LANGUAGE:CXX>:/W4 /EHsc>
+    )
+else()
+    target_compile_options(vixc PRIVATE
+        $<$<COMPILE_LANGUAGE_C>:-Wall -Wextra -fno-stack-protector>
+        $<$<COMPILE_LANGUAGE_CXX>:-Wall -Wextra -fno-stack-protector -fexceptions>
+    )
+endif()
 
 if(NOT WIN32)
     target_compile_definitions(vixc PRIVATE
