@@ -12,6 +12,7 @@
 #include "../include/semantic.h"
 #include "../include/typeck.h"
 #include "compiler/Llc/Llc.h"
+#include "compiler/Linker/Linker.h"
 
 extern FILE* yyin;
 extern ASTNode* root;
@@ -433,40 +434,25 @@ int main(int argc, char **argv) {
                     return 1;
                 }
 
-                size_t ccmd_sz = 8192;
-                char *ccmd = malloc(ccmd_sz);
-                if (ccmd == NULL) {
-                    fprintf(stderr, "Er: Failed to allocate memory for clang command\n");
+                const char* link_err = NULL;
+                VixLinkOptions link_opts = {
+                    .target_triple = eff_t,
+                    .bare_mode = bare,
+                    .linker_script = ls,
+                    .static_link = bare,
+                    .entry_point = bare ? "_start" : NULL,
+                };
+                if (!vix_link(obj_file, out_f, &link_opts, &link_err)) {
+                    fprintf(stderr, "Error: Failed to link object file to executable");
+                    if (link_err && link_err[0] != '\0') {
+                        fprintf(stderr, ":\n%s", link_err);
+                    }
+                    fprintf(stderr, "\n");
                     remove(llvm_f);
                     remove(obj_file);
                     fclose(input_file);
                     return 1;
                 }
-
-                if (bare) {
-                    const char* f_t = eff_t ? eff_t : "x86_64-unknown-none";
-                    snprintf(ccmd, ccmd_sz,
-                             "clang %s -o %s -target %s -ffreestanding -fno-builtin -fno-pic -fno-pie -no-pie -nostdlib -nostartfiles -nodefaultlibs -static -Wl,--build-id=none -Wl,--no-dynamic-linker -Wl,-z,max-page-size=0x1000 -Wl,-e,_start -Wl,-T,%s",
-                             obj_file, out_f, f_t, ls);
-                } else if (eff_t) {
-                    snprintf(ccmd, ccmd_sz,
-                             "clang %s -o %s -target %s -lm -lstdc++",
-                             obj_file, out_f, eff_t);
-                } else {
-                    snprintf(ccmd, ccmd_sz, "clang %s -o %s -lm -lstdc++", obj_file, out_f);
-                }
-                
-                int cres = system(ccmd);
-                if (cres != 0) {
-                    fprintf(stderr, "Error: Failed to link object file to executable\n");
-                    free(ccmd);
-                    remove(llvm_f);
-                    remove(obj_file);
-                    fclose(input_file);
-                    return 1;
-                }
-                
-                free(ccmd);
                 
                 remove(llvm_f);
                 remove(obj_file);

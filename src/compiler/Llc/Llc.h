@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 
 #include <string>
-#include <llvm/Support/CodeGen.h>
+#include <llvm-18/llvm/Support/CodeGen.h>
 
 class Llc {
 public:

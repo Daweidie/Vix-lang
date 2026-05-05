@@ -11,11 +11,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(BISON 3.0 REQUIRED)
 find_package(FLEX 2.6 REQUIRED)
 find_package(LLVM REQUIRED CONFIG)
+find_package(LLD REQUIRED CONFIG
+    HINTS "${LLVM_DIR}/../lib/cmake/lld"
+)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+message(STATUS "Using LLDConfig.cmake in: ${LLD_CMAKE_DIR}")
 
-include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(${LLVM_INCLUDE_DIRS} ${LLD_INCLUDE_DIRS})
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 
@@ -50,6 +54,7 @@ set(CXX_SOURCES
     src/compiler/CodeGen.cpp
     src/compiler/Passes.cpp
     src/compiler/Llc/Llc.cpp
+    src/compiler/Linker/Linker.cpp
     src/Typeck/Typeck.cpp
     src/Typeck/TypeckInfer.cpp
     src/Typeck/LayOut.cpp
@@ -92,6 +97,11 @@ else()
     )
     target_link_libraries(vixc PRIVATE ${LLVM_LIBS} m)
 endif()
+
+# LLD libraries for in-process linking.
+target_link_libraries(vixc PRIVATE
+    lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon
+)
 
 # LLVM system libs (z, zstd, dl, pthread, etc.)
 foreach(lib IN LISTS LLVM_SYSTEM_LIBS)

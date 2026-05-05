@@ -1,9 +1,9 @@
+extern "C"
+{
+    fn printf(fmt:string, ...): i32
+}
 fn main(): i32
 {
-    let a = "Hello world"
-    for(i in a)
-    {
-        print(i)
-    }
+    printf("Hello, World!\n")
     return 0
 }

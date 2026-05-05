@@ -20,7 +20,7 @@ class Expectation:
 
 
 ROOT = Path(__file__).resolve().parent
-COMPILER = ROOT.parent / "src" / "vixc"
+COMPILER = ROOT.parent / "build" / "vixc"
 BIN_DIR = ROOT / "bin"
 
 

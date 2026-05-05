@@ -26,7 +26,7 @@ YELLOW = "\033[33m"
 RESET = "\033[0m"
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-COMPILER = ROOT / "src" / "vixc"
+COMPILER = ROOT / "build" / "vixc"
 
 CRASH_SIGNALS = {
     signal.SIGSEGV: "SIGSEGV",
