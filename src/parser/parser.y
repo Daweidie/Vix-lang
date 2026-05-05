@@ -655,6 +655,7 @@ statement
     | LET identifier COLON type ASSIGN expression SEMICOLON {
         $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$);
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $4;
     }
     | LET identifier COLON type SEMICOLON {
         ASTNode* init = create_default_value_for_type($4, (YYLTYPE*) &@$);
@@ -665,12 +666,14 @@ statement
         $$ = create_assign_node_with_yyltype($3, $7, (YYLTYPE*) &@$);
         $3->mutability = MUTABILITY_MUTABLE;
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $5;
     }
     | LET MUT identifier COLON type SEMICOLON {
         ASTNode* init = create_default_value_for_type($5, (YYLTYPE*) &@$);
         $$ = create_assign_node_with_yyltype($3, init, (YYLTYPE*) &@$);
         $3->mutability = MUTABILITY_MUTABLE;
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $5;
     }
     | identifier COLON expression SEMICOLON { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | identifier COLON type ASSIGN expression SEMICOLON { 
@@ -686,10 +689,22 @@ statement
     }
     | IMPORT STRING SEMICOLON { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | IMPORT STRING { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
-    | CONST identifier ASSIGN expression SEMICOLON { $$ = create_const_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
-    | CONST identifier COLON type ASSIGN expression SEMICOLON { $$ = create_const_node_with_yyltype($2, $6, (YYLTYPE*) &@$); }
-    | LET CONST identifier ASSIGN expression SEMICOLON { $$ = create_const_node_with_yyltype($3, $5, (YYLTYPE*) &@$); }
-    | LET CONST identifier COLON type ASSIGN expression SEMICOLON { $$ = create_const_node_with_yyltype($3, $7, (YYLTYPE*) &@$); }
+    | CONST IDENTIFIER ASSIGN expression SEMICOLON {
+        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $4, (YYLTYPE*) &@$);
+    }
+    | CONST IDENTIFIER COLON type ASSIGN expression SEMICOLON {
+        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $6, (YYLTYPE*) &@$);
+    }
+    | LET CONST IDENTIFIER ASSIGN expression SEMICOLON {
+        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $5, (YYLTYPE*) &@$);
+    }
+    | LET CONST IDENTIFIER COLON type ASSIGN expression SEMICOLON {
+        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $7, (YYLTYPE*) &@$);
+    }
     | GLOBAL identifier ASSIGN expression SEMICOLON { $$ = create_global_node_with_yyltype($2, NULL, $4, (YYLTYPE*) &@$); }
     | GLOBAL identifier COLON type ASSIGN expression SEMICOLON { $$ = create_global_node_with_yyltype($2, $4, $6, (YYLTYPE*) &@$); }
     | PUB GLOBAL identifier ASSIGN expression SEMICOLON {
@@ -722,22 +737,26 @@ statement
     | LET identifier COLON type ASSIGN expression {
         $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$);
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $4;
     }
     | LET identifier COLON type {
         ASTNode* init = create_default_value_for_type($4, (YYLTYPE*) &@$);
         $$ = create_assign_node_with_yyltype($2, init, (YYLTYPE*) &@$);
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $4;
     }
     | LET MUT identifier COLON type ASSIGN expression {
         $$ = create_assign_node_with_yyltype($3, $7, (YYLTYPE*) &@$);
         $3->mutability = MUTABILITY_MUTABLE;
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $5;
     }
     | LET MUT identifier COLON type {
         ASTNode* init = create_default_value_for_type($5, (YYLTYPE*) &@$);
         $$ = create_assign_node_with_yyltype($3, init, (YYLTYPE*) &@$);
         $3->mutability = MUTABILITY_MUTABLE;
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $5;
     }
     | identifier COLON expression { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | identifier COLON type ASSIGN expression { 
@@ -775,10 +794,22 @@ statement
     | RETURN                       { $$ = create_return_node_with_yyltype(NULL, (YYLTYPE*) &@$); }
     | expression SEMICOLON         { $$ = $1; }
     | expression                   { $$ = $1; }
-    | CONST identifier ASSIGN expression { $$ = create_const_node_with_yyltype($2, $4, (YYLTYPE*) &@$); }
-    | CONST identifier COLON type ASSIGN expression { $$ = create_const_node_with_yyltype($2, $6, (YYLTYPE*) &@$); }
-    | LET CONST identifier ASSIGN expression { $$ = create_const_node_with_yyltype($3, $5, (YYLTYPE*) &@$); }
-    | LET CONST identifier COLON type ASSIGN expression { $$ = create_const_node_with_yyltype($3, $7, (YYLTYPE*) &@$); }
+    | CONST IDENTIFIER ASSIGN expression {
+        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $4, (YYLTYPE*) &@$);
+    }
+    | CONST IDENTIFIER COLON type ASSIGN expression {
+        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $6, (YYLTYPE*) &@$);
+    }
+    | LET CONST IDENTIFIER ASSIGN expression {
+        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $5, (YYLTYPE*) &@$);
+    }
+    | LET CONST IDENTIFIER COLON type ASSIGN expression {
+        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
+        $$ = create_const_node_with_yyltype(id, $7, (YYLTYPE*) &@$);
+    }
     | GLOBAL identifier ASSIGN expression { $$ = create_global_node_with_yyltype($2, NULL, $4, (YYLTYPE*) &@$); }
     | GLOBAL identifier COLON type ASSIGN expression { $$ = create_global_node_with_yyltype($2, $4, $6, (YYLTYPE*) &@$); }
     | PUB GLOBAL identifier ASSIGN expression {
@@ -1355,7 +1386,6 @@ comparison_expression
 
 expression
     : logical_expression                    { $$ = $1; }
-    | lvalue ASSIGN expression              { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     ;
 
 additive_expression

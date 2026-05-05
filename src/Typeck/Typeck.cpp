@@ -376,6 +376,15 @@ struct TypeChecker {
 	}
 
 	void ensure_bool(ASTNode* node, const TypePtr& t) {
+		TypePtr resolved = unify.apply(t);
+		if (resolved->kind == TypeKind::Bool) return;
+		if (is_numeric(resolved)) return;
+		if (resolved->kind == TypeKind::Var) {
+			try {
+				unify.unify(t, builtin_bool);
+			} catch (...) {}
+			return;
+		}
 		try {
 			unify.unify(t, builtin_bool);
 		} catch (const std::exception& ex) {
@@ -739,6 +748,16 @@ struct TypeChecker {
 		ASTNode* right = node->data.assign.right;
 		TypePtr rtype = right ? check_expr(right) : builtin_void;
 
+		if (node->data.assign.declared_type) {
+			TypePtr annotated = type_from_ast(node->data.assign.declared_type);
+			if (annotated && right) {
+				try {
+					unify.unify(annotated, rtype);
+				} catch (...) {}
+			}
+			rtype = unify.apply(annotated);
+		}
+
 		if (left && left->type == AST_IDENTIFIER && right && right->type == AST_IDENTIFIER) {
 			const char* rhs_name = right->data.identifier.name;
 			if (rhs_name) {
@@ -882,6 +901,12 @@ struct TypeChecker {
 		{
 			TypePtr rl = unify.apply(lhs);
 			TypePtr rr = unify.apply(rhs);
+			if (rl->kind == TypeKind::Ptr && is_numeric(rhs)) {
+				return node_types[node] = rl;
+			}
+			if (rr->kind == TypeKind::Ptr && is_numeric(lhs)) {
+				return node_types[node] = rr;
+			}
 			if (rl->kind == TypeKind::Var || rr->kind == TypeKind::Var) {
 				try {
 					unify.unify(lhs, rhs);
@@ -1514,6 +1539,11 @@ struct TypeChecker {
 			}
 
 			for (size_t i = 0; i < actual && i < expected; i++) {
+				TypePtr param_type = unify.apply(fn_type->data.fn.params[i]);
+				TypePtr arg_type = unify.apply(arg_types[i]);
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::String) {
+					continue;
+				}
 				try {
 					unify.unify(fn_type->data.fn.params[i], arg_types[i]);
 				} catch (const std::exception& ex) {

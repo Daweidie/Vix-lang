@@ -484,7 +484,7 @@ ASTNode* create_const_node_with_location(ASTNode* left, ASTNode* right, Location
     node->location = location;
     node->data.assign.left = left;
     node->data.assign.right = right;
-    node->data.assign.is_declaration = 0;
+    node->data.assign.is_declaration = 1;
     node->data.assign.is_public = 0;
     return node;
 }

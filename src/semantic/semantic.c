@@ -413,6 +413,18 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                     }
                 }
             }
+            for (int i = 0; i < node->data.program.statement_count; i++) {
+                ASTNode* stmt = node->data.program.statements[i];
+                if (stmt && stmt->type == AST_CONST) {
+                    ASTNode* left = stmt->data.assign.left;
+                    if (left && left->type == AST_IDENTIFIER) {
+                        const char* name = left->data.identifier.name;
+                        if (name && !lookup_symbol(table, name)) {
+                            add_symbol(table, name, SYMBOL_CONSTANT, TYPE_UNKNOWN);
+                        }
+                    }
+                }
+            }
             destroy_symbol_table(func_table);
             for (int i = 0; i < node->data.program.statement_count; i++) {
                 errors_found += check_undefined_symbols_in_node_with_visited(node->data.program.statements[i], table, new_visited_list);
@@ -507,12 +519,12 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
             errors_found += check_undefined_symbols_in_node_with_visited(node->data.assign.right, table, new_visited_list);
             if (node->data.assign.left && node->data.assign.left->type == AST_IDENTIFIER) {
                 Symbol* existing = lookup_symbol(table, node->data.assign.left->data.identifier.name);
-                if (existing) {
+                if (existing && existing->type != SYMBOL_CONSTANT) {
                     const char* filename = current_input_filename ? current_input_filename : "unknown";
                     int line = (node->data.assign.left->location.first_line > 0) ? node->data.assign.left->location.first_line : 1;
                     report_redefinition_error_with_location(node->data.assign.left->data.identifier.name, filename, line);
                     errors_found++;
-                } else {
+                } else if (!existing) {
                     add_symbol(table, node->data.assign.left->data.identifier.name, SYMBOL_CONSTANT, TYPE_UNKNOWN);
                     if (node->data.assign.right && node->data.assign.right->type == AST_STRUCT_LITERAL &&
                         node->data.assign.right->data.struct_literal.type_name &&

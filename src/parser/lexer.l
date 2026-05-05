@@ -133,7 +133,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
                       }
                       } 
 
-"#"[ \t]*"["[^]\n]*"]" { UPDATE_COLUMN(); }
+"#"[^\n]* { UPDATE_COLUMN(); }
 "//"[^\n]*         { UPDATE_COLUMN(); }
 
 "print"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return PRINT; }
@@ -175,6 +175,8 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "pub"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return PUB; }
 "type"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_KW; }
 "match"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MATCH; }
+"true"              { UPDATE_COLUMN(); yylval.num_int = 1; return NUMBER_INT; }
+"false"             { UPDATE_COLUMN(); yylval.num_int = 0; return NUMBER_INT; }
 
 "="                 { UPDATE_COLUMN(); return ASSIGN; }
 "+="                { UPDATE_COLUMN(); return PLUS_ASSIGN; }

@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0 || strcmp(argv[i] , "-ver") == 0){
-            printf("Vix Compiler 0.1.0_rc.1 (Beta_26.05.01) Copyright(c) 2025-2026\n");
+            printf("Vix Compiler 0.1.0_rc.1 Copyright(c) 2025-2026\n");
             return 0;
         }
         else if (strcmp(argv[i], "-llvm") == 0) {
