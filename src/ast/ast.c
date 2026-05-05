@@ -2,9 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
-extern char* realpath(const char* path, char* resolved_path);
+#include "../include/compat.h"
 
 #ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告
 #include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
@@ -75,7 +73,7 @@ static int canonicalize_existing_path(const char* path, char* out, size_t out_si
     if (!path || !out || out_size == 0) return 0;
 
     char resolved[1024];
-    if (realpath(path, resolved) != NULL) {
+    if (vix_realpath(path, resolved, sizeof(resolved)) != NULL) {
         strncpy(out, resolved, out_size - 1);
         out[out_size - 1] = '\0';
         return 1;

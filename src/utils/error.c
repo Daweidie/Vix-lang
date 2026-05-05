@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
-#include <unistd.h>
+#include "../include/compat.h"
 #include "../include/compiler.h"
 
 static const char* current_filename = "unknown";
@@ -20,10 +20,7 @@ static void print_highlighted_line(const char* line, int column, int length, con
 static void print_caret_line(const char* line, int column, int length, const char* color);
 static void push_location(const char* filename, int line, int column, const char** old_filename, int* old_line, int* old_column);
 static void pop_location(const char* old_filename, int old_line, int old_column);
-
 void report_undefined_function_with_location_and_column(const char* function_name, const char* filename, int line, int column);
-
-/* ANSI styles for richer diagnostics (applied only when supported). */
 #define ANSI_RESET "\033[0m"
 #define ANSI_BOLD "\033[1m"
 #define ANSI_DIM "\033[2m"
@@ -240,7 +237,7 @@ static int supports_color(void) {
         return cached;
     }
 
-    cached = isatty(fileno(stderr)) ? 1 : 0;
+    cached = vix_is_stderr_tty() ? 1 : 0;
     return cached;
 }
 

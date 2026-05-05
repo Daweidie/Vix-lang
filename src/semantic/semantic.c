@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "../../include/compat.h"
 #include <ctype.h>
 extern const char* current_input_filename;
 static int extract_public_functions_from_module(const char* module_path, SymbolTable* table);
@@ -851,7 +851,7 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
             }
             char full_module_path[1024];
             snprintf(full_module_path, sizeof(full_module_path), "%s%s", dir_path, module_path);
-            if (access(full_module_path, F_OK) == -1)//文件不存在
+            if (!vix_file_exists(full_module_path))//文件不存在
             {
                 const char* filename = current_input_filename ? current_input_filename : "unknown";
                 int line = (node->location.first_line > 0) ? node->location.first_line : 1;

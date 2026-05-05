@@ -1,18 +1,10 @@
-/*
-vix 语言 0.0.1版本完工
-*/
 
-/*this vixc is for Linux and Unix-like system Not for Windows cause a lot of lib not compatible(Fuck you windows
- BUT azhz's fork fix these "BUGS"
- you can clone win-build-support(Thank you azhz
- Enjoy it!
-*/
 
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "../include/compat.h"
 #include "../include/ast.h"
 #include "../include/parser.h"
 #include "../include/compiler.h"
@@ -27,16 +19,20 @@ const char* current_input_filename = NULL;
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: %s <input.vix> [-o output_file]\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -ll <llvm_ir_file>\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -obj [obj_file] (output object file via llc)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -S [asm_file] (output assembly via llc)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -ast (output AST only)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> --debug (enable debug logs)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> -opt=lN (optimization level N=0..3)\n", argv[0]);
-        fprintf(stderr, "       %s <input.vix> --target=<triple> (set codegen/link target)\n", argv[0]);
+        fprintf(stderr, "OVERVIEW: Vix Compiler\n\n");
+        fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
+        fprintf(stderr, "OPTIONS:\n");
+        fprintf(stderr, "  -o <file>              Write output to <file>\n");
+        fprintf(stderr, "  -S [file]              Emit assembly to <file> (default: <input>.s)\n");
+        fprintf(stderr, "  -obj [file]            Emit object file to <file> (default: <input>.o)\n");
+        fprintf(stderr, "  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)\n");
+        fprintf(stderr, "  -llvm                  Print LLVM IR to stdout\n");
+        fprintf(stderr, "  -ast                   Print AST to stdout\n");
+        fprintf(stderr, "  -opt=lN                Set optimization level (N = 0..3)\n");
+        fprintf(stderr, "  --target=<triple>      Set codegen/link target triple\n");
+        fprintf(stderr, "  --debug                Enable debug output\n");
+        fprintf(stderr, "  -v, --version          Display compiler version information\n");
+        fprintf(stderr, "  -h, --help             Display this help message\n");
         return 1;
     }
     
@@ -117,18 +113,20 @@ int main(int argc, char **argv) {
             }
             opt_level = lvl;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            fprintf(stderr, "usage: %s <input.vix> [-o output_file]\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -llvm <llvm_ir_file>\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -ll <llvm_ir_file>\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -obj [obj_file] (output object file via llc)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -ast (output AST only)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -ll (output LLVM IR only)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -llvm (output LLVM IR only)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> --debug (enable debug logs)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -opt=lN (optimization level N=0..3)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> --target=<triple> (set codegen/link target, e.g. x86_64-unknown-none)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> (LLVM backend is the default backend)\n", argv[0]);
-            fprintf(stderr, "       %s <input.vix> -S (output assembly only)\n", argv[0]);
+            fprintf(stderr, "OVERVIEW: Vix Compiler\n\n");
+            fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
+            fprintf(stderr, "OPTIONS:\n");
+            fprintf(stderr, "  -o <file>              Write output to <file>\n");
+            fprintf(stderr, "  -S [file]              Emit assembly to <file> (default: <input>.s)\n");
+            fprintf(stderr, "  -obj [file]            Emit object file to <file> (default: <input>.o)\n");
+            fprintf(stderr, "  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)\n");
+            fprintf(stderr, "  -llvm                  Print LLVM IR to stdout\n");
+            fprintf(stderr, "  -ast                   Print AST to stdout\n");
+            fprintf(stderr, "  -opt=lN                Set optimization level (N = 0..3)\n");
+            fprintf(stderr, "  --target=<triple>      Set codegen/link target triple\n");
+            fprintf(stderr, "  --debug                Enable debug output\n");
+            fprintf(stderr, "  -v, --version          Display compiler version information\n");
+            fprintf(stderr, "  -h, --help             Display this help message\n");
             return 0;
         } else if (argv[i][0] == '-' && strcmp(argv[i], "-") != 0) {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
@@ -137,7 +135,7 @@ int main(int argc, char **argv) {
             is_vic = strlen(argv[i]) > 4 && strcmp(argv[i] + strlen(argv[i]) - 4, ".vic") == 0;
         }
     }
-    setenv("VIX_DEBUG", dbg ? "1" : "0", 1);//通过环境变量控制调试输出
+    vix_setenv("VIX_DEBUG", dbg ? "1" : "0", 1);//通过环境变量控制调试输出
     vix_set_opt_level(opt_level);
     if (!in_f) {
         in_f = argv[1];
@@ -408,7 +406,7 @@ int main(int argc, char **argv) {
             }
             if (out_f && save_c) {
                 const char* ls = "linker.ld";
-                if (bare && access(ls, R_OK) != 0 && access("src/linker.ld", R_OK) == 0) {
+                if (bare && !vix_file_readable(ls) && vix_file_readable("src/linker.ld")) {
                     ls = "src/linker.ld";
                 }
 
