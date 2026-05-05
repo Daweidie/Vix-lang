@@ -45,12 +45,20 @@ jobs:
           echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
 
-      - name: Install LLVM 18 and dependencies (Windows)
+      - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install llvm --version=18.1.8 -y
-          choco install win_flex_bison -y
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-lld
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-ninja
+            flex
+            bison
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
@@ -66,15 +74,20 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="C:/Program Files/LLVM" `
-            -DFLEX_EXECUTABLE="C:/ProgramData/chocolatey/lib/win_flex_bison/tools/win_flex.exe" `
-            -DBISON_EXECUTABLE="C:/ProgramData/chocolatey/lib/win_flex_bison/tools/win_bison.exe" `
-            -G "Visual Studio 17 2022" -A x64
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=/mingw64 \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++
 
-      - name: Build
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: cmake --build build --config Release --parallel
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
       - name: Prepare artifact (Linux)
@@ -93,10 +106,10 @@ jobs:
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          mkdir artifact
-          Copy-Item build/Release/vixc.exe artifact/vixc-windows-amd64.exe
+          mkdir -p artifact
+          cp build/vixc.exe artifact/vixc-windows-amd64.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

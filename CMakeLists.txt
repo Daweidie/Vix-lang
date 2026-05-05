@@ -97,7 +97,7 @@ endif()
 target_link_libraries(vixc PRIVATE
     lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon
 )
-]
+
 foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
     target_link_libraries(vixc PRIVATE ${lib})
 endforeach()
