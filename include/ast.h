@@ -157,9 +157,10 @@ typedef struct ASTNode {
         struct {
             struct ASTNode* left;
             struct ASTNode* right;
-            MutabilityType mutability; //可变性标记
+            MutabilityType mutability;
             int is_declaration;
             int is_public;
+            struct ASTNode* declared_type;
         } assign;
         struct {
             struct ASTNode* left;
