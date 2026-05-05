@@ -67,8 +67,6 @@ target_include_directories(vixc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}/parser
 )
-
-# ── Compile flags ────────────────────────────────────────────────
 target_compile_options(vixc PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -fno-stack-protector>
     $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -fno-stack-protector -fexceptions>
@@ -82,9 +80,8 @@ if(NOT WIN32)
 endif()
 
 # ── Link ─────────────────────────────────────────────────────────
-# Prefer the single shared libLLVM when available (matches llvm-config --libs all).
 if(TARGET LLVM)
-    target_link_libraries(vixc PRIVATE LLVM m)
+    target_link_libraries(vixc PRIVATE LLVM)
 else()
     llvm_map_components_to_libnames(LLVM_LIBS
         core support passes irreader target
@@ -95,15 +92,12 @@ else()
         mc mcparser mcdisassembler bitreader bitwriter
         linker instrumentation ipo codegen
     )
-    target_link_libraries(vixc PRIVATE ${LLVM_LIBS} m)
+    target_link_libraries(vixc PRIVATE ${LLVM_LIBS})
 endif()
-
-# LLD libraries for in-process linking.
 target_link_libraries(vixc PRIVATE
     lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon
 )
-
-# LLVM system libs (z, zstd, dl, pthread, etc.)
+]
 foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
     target_link_libraries(vixc PRIVATE ${lib})
 endforeach()
