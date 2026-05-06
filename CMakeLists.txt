@@ -8,10 +8,34 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(BISON 3.0 REQUIRED)
 find_package(FLEX 2.6 REQUIRED)
+
+if(APPLE)
+    execute_process(
+        COMMAND brew --prefix llvm
+        OUTPUT_VARIABLE BREW_LLVM_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT BREW_LLVM_PREFIX OR NOT EXISTS "${BREW_LLVM_PREFIX}/lib/cmake/llvm")
+        execute_process(
+            COMMAND brew --prefix llvm@20
+            OUTPUT_VARIABLE BREW_LLVM_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+    endif()
+    if(BREW_LLVM_PREFIX)
+        list(APPEND CMAKE_PREFIX_PATH "${BREW_LLVM_PREFIX}")
+    endif()
+endif()
+
 find_package(LLVM REQUIRED CONFIG)
-find_package(LLD REQUIRED CONFIG
-    HINTS "${LLVM_DIR}/../lib/cmake/lld"
-)
+
+set(LLD_HINTS "${LLVM_DIR}/../lib/cmake/lld")
+if(APPLE AND BREW_LLVM_PREFIX)
+    list(APPEND LLD_HINTS "${BREW_LLVM_PREFIX}/lib/cmake/lld")
+endif()
+find_package(LLD REQUIRED CONFIG HINTS ${LLD_HINTS})
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")

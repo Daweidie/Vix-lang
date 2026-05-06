@@ -52,7 +52,7 @@ jobs:
           msystem: MINGW64
           update: true
           install: >-
-            mingw-w64-x86_64-llvm-20
+            mingw-w64-x86_64-llvm
             mingw-w64-x86_64-lld
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-gcc
