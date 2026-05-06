@@ -42,8 +42,13 @@ static inline char* vix_realpath(const char* path, char* resolved, size_t resolv
     if (_fullpath(resolved, path, (unsigned int)resolved_size) != NULL) return resolved;
 #else
     {
-        char* r = realpath(path, resolved);
-        if (r != NULL) return r;
+        char* r = realpath(path, NULL);
+        if (r != NULL) {
+            strncpy(resolved, r, resolved_size - 1);
+            resolved[resolved_size - 1] = '\0';
+            free(r);
+            return resolved;
+        }
     }
 #endif
     strncpy(resolved, path, resolved_size - 1);

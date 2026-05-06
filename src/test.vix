@@ -1,13 +1,5 @@
-fn seg()
-{
-    seg()
-}
-
 fn main(): i32
 {
-    seg()
-    return -1
+    print("Vix 0.1.0-rc.1 release!")
+    return 0
 }
-/*
-This Program will seg :)
-*/

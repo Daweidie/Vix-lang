@@ -29,14 +29,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ===================== Linux =====================
       - name: Install LLVM 20 and dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 20
-          sudo apt-get install -y llvm-20-dev lld-20 liblld-20-dev clang-20 flex bison
+          sudo apt-get install -y llvm-20-dev lld-20 liblld-20-dev clang-20 flex bison patchelf
 
+      # ===================== macOS =====================
       - name: Install LLVM and dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -48,9 +50,8 @@ jobs:
           echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
           echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:$(brew --prefix lld@20)" >> $GITHUB_ENV
-          ls "${LLVM_PREFIX}/lib/cmake/llvm/LLVMConfig.cmake"
-          ls "$(brew --prefix lld@20)/lib/cmake/lld/LLDConfig.cmake"
 
+      # ===================== Windows =====================
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -66,6 +67,7 @@ jobs:
             flex
             bison
 
+      # ===================== Configure =====================
       - name: Configure (Linux)
         if: runner.os == 'Linux'
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/lib/llvm-20
@@ -87,6 +89,7 @@ jobs:
             -DCMAKE_C_COMPILER=gcc \
             -DCMAKE_CXX_COMPILER=g++
 
+      # ===================== Build =====================
       - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
         run: cmake --build build --config Release --parallel
@@ -96,32 +99,118 @@ jobs:
         shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
-      - name: Prepare artifact (Linux)
+      # ===================== Package =====================
+      - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          mkdir -p artifact
-          cp build/vixc artifact/vixc-linux-amd64
-          chmod +x artifact/vixc-linux-amd64
+          mkdir -p dist
+          cp build/vixc dist/vixc
 
-      - name: Prepare artifact (macOS)
+          # 复制非系统共享库并设置 RPATH 为 $ORIGIN
+          ldd dist/vixc | awk '/=>/ { print $3 }' | while read lib; do
+            case "$lib" in
+              /lib/*|/usr/lib/x86_64-linux-gnu/libc.*|/lib64/*|/usr/lib/x86_64-linux-gnu/libm.*|/usr/lib/x86_64-linux-gnu/libpthread.*|/usr/lib/x86_64-linux-gnu/libdl.*|/usr/lib/x86_64-linux-gnu/librt.*|/usr/lib/x86_64-linux-gnu/ld-*) continue ;;
+            esac
+            cp -L "$lib" dist/ 2>/dev/null || true
+          done
+
+          # 设置 RPATH 使得 vixc 从同目录加载 .so
+          patchelf --set-rpath '$ORIGIN' dist/vixc
+          chmod +x dist/vixc
+
+          cd dist
+          zip -r "../vixc-${{ matrix.name }}.zip" .
+
+      - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          mkdir -p artifact
-          cp build/vixc artifact/vixc-macos-arm64
-          chmod +x artifact/vixc-macos-arm64
+          mkdir -p dist
+          cp build/vixc dist/vixc
+          chmod +x dist/vixc
 
-      - name: Prepare artifact (Windows)
+          # 复制非系统 dylib
+          LLVM_PREFIX="$(brew --prefix llvm@20)"
+          LLD_PREFIX="$(brew --prefix lld@20)"
+
+          for dylib in \
+            "${LLVM_PREFIX}/lib/libLLVM.dylib" \
+            "${LLVM_PREFIX}/lib/libLLVM-20.dylib" \
+            "${LLD_PREFIX}/lib/liblldCommon.dylib" \
+            "${LLD_PREFIX}/lib/liblldELF.dylib" \
+            "${LLD_PREFIX}/lib/liblldMachO.dylib" \
+            "${LLD_PREFIX}/lib/liblldCOFF.dylib" \
+            "${LLD_PREFIX}/lib/liblldWasm.dylib" \
+            "${LLD_PREFIX}/lib/liblldMinGW.dylib"; do
+            if [ -f "$dylib" ]; then
+              cp -L "$dylib" dist/ 2>/dev/null || true
+            fi
+          done
+
+          # 用 otool 检查并复制其他缺失的 Homebrew dylib
+          otool -L dist/vixc | awk 'NR>1 { print $1 }' | while read lib; do
+            case "$lib" in
+              /usr/lib/*|/System/*) continue ;;
+            esac
+            libname="$(basename "$lib")"
+            if [ ! -f "dist/${libname}" ]; then
+              if [ -f "$lib" ]; then
+                cp -L "$lib" dist/ 2>/dev/null || true
+              fi
+            fi
+          done
+
+          # 修复 dylib 的 install name 指向 @executable_path/
+          for f in dist/*.dylib; do
+            [ -f "$f" ] || continue
+            chmod +w "$f"
+            otool -L "$f" | awk 'NR>1 { print $1 }' | while read dep; do
+              case "$dep" in
+                /usr/lib/*|/System/*) continue ;;
+              esac
+              depname="$(basename "$dep")"
+              if [ -f "dist/${depname}" ]; then
+                install_name_tool -change "$dep" "@executable_path/${depname}" "$f" 2>/dev/null || true
+              fi
+            done
+            install_name_tool -id "@executable_path/${depname}" "$f" 2>/dev/null || true
+          done
+
+          # 修复 vixc 本身的 dylib 引用
+          otool -L dist/vixc | awk 'NR>1 { print $1 }' | while read dep; do
+            case "$dep" in
+              /usr/lib/*|/System/*) continue ;;
+            esac
+            depname="$(basename "$dep")"
+            if [ -f "dist/${depname}" ]; then
+              install_name_tool -change "$dep" "@executable_path/${depname}" dist/vixc 2>/dev/null || true
+            fi
+          done
+
+          cd dist
+          zip -r "../vixc-${{ matrix.name }}.zip" .
+
+      - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          mkdir -p artifact
-          cp build/vixc.exe artifact/vixc-windows-amd64.exe
+          mkdir -p dist
+          cp build/vixc.exe dist/vixc.exe
 
+          # 用 ldd 找出所有非 Windows 系统 DLL，复制到 dist/
+          ldd dist/vixc.exe | grep -vi '/c/WINDOWS/' | awk '{ print $3 }' | while read dll; do
+            [ -f "$dll" ] && cp "$dll" dist/
+          done
+
+          cd dist
+          zip -r "../vixc-${{ matrix.name }}.zip" .
+
+      # ===================== Upload =====================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: vixc-${{ matrix.name }}
-          path: artifact/
+          path: |
+            vixc-${{ matrix.name }}.zip
 
   release:
     needs: build
@@ -134,10 +223,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release
-          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
+          files: release/**/*.zip
           generate_release_notes: true

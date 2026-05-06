@@ -5366,4 +5366,4 @@ extern "C" void llvm_set_target_triple(const char* triple) {
     } else {
         g_vix_target_triple.clear();
     }
-}//main.c接口
+}

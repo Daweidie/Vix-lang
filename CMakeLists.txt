@@ -55,6 +55,7 @@ set(_lld_cmake_candidates
     "${_llvm_cmake_dir}/../lld"
     "${_llvm_cmake_dir}/../../lld"
     "${_llvm_cmake_dir}/../../../lib/cmake/lld"
+    "${_llvm_cmake_dir}/../lib/cmake/lld"
 )
 if(APPLE AND _brew_llvm_prefix)
     list(APPEND _lld_cmake_candidates "${_brew_llvm_prefix}/lib/cmake/lld")
