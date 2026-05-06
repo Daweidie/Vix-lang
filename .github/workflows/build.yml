@@ -40,10 +40,14 @@ jobs:
       - name: Install LLVM 20 and dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@20 flex bison
-          echo "$(brew --prefix llvm@20)/bin" >> $GITHUB_PATH
+          brew update
+          brew install llvm flex bison
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          echo "${LLVM_PREFIX}/bin" >> $GITHUB_PATH
           echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
+          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}" >> $GITHUB_ENV
+          ls "${LLVM_PREFIX}/lib/cmake/lld/LLDConfig.cmake"
 
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
@@ -68,7 +72,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix llvm@20)" \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
             -DFLEX_EXECUTABLE="$(brew --prefix flex)/bin/flex" \
             -DBISON_EXECUTABLE="$(brew --prefix bison)/bin/bison"
 

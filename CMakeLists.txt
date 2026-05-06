@@ -10,36 +10,61 @@ find_package(BISON 3.0 REQUIRED)
 find_package(FLEX 2.6 REQUIRED)
 
 if(APPLE)
-    execute_process(
-        COMMAND brew --prefix llvm
-        OUTPUT_VARIABLE BREW_LLVM_PREFIX
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
-    )
-    if(NOT BREW_LLVM_PREFIX OR NOT EXISTS "${BREW_LLVM_PREFIX}/lib/cmake/llvm")
+    set(_brew_llvm_prefix "")
+    foreach(_candidate "llvm" "llvm@20" "llvm@19" "llvm@18")
         execute_process(
-            COMMAND brew --prefix llvm@20
-            OUTPUT_VARIABLE BREW_LLVM_PREFIX
+            COMMAND brew --prefix "${_candidate}"
+            OUTPUT_VARIABLE _prefix
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET
+            RESULT_VARIABLE _brew_rc
         )
-    endif()
-    if(BREW_LLVM_PREFIX)
-        list(APPEND CMAKE_PREFIX_PATH "${BREW_LLVM_PREFIX}")
+        if(_brew_rc EQUAL 0 AND EXISTS "${_prefix}/lib/cmake/llvm/LLVMConfig.cmake")
+            set(_brew_llvm_prefix "${_prefix}")
+            break()
+        endif()
+    endforeach()
+    if(_brew_llvm_prefix)
+        list(PREPEND CMAKE_PREFIX_PATH "${_brew_llvm_prefix}")
+        message(STATUS "Homebrew LLVM prefix: ${_brew_llvm_prefix}")
+    else()
+        message(WARNING "No Homebrew LLVM found. Install via: brew install llvm")
     endif()
 endif()
 
 find_package(LLVM REQUIRED CONFIG)
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
 
-set(LLD_HINTS "${LLVM_DIR}/../lib/cmake/lld")
-if(APPLE AND BREW_LLVM_PREFIX)
-    list(APPEND LLD_HINTS "${BREW_LLVM_PREFIX}/lib/cmake/lld")
+get_filename_component(_llvm_cmake_dir "${LLVM_DIR}" ABSOLUTE)
+set(_lld_cmake_candidates
+    "${_llvm_cmake_dir}/../lld"
+    "${_llvm_cmake_dir}/../../lld"
+    "${_llvm_cmake_dir}/../../../lib/cmake/lld"
+)
+if(APPLE AND _brew_llvm_prefix)
+    list(APPEND _lld_cmake_candidates "${_brew_llvm_prefix}/lib/cmake/lld")
 endif()
-find_package(LLD REQUIRED CONFIG HINTS ${LLD_HINTS})
+if(WIN32 AND CMAKE_PREFIX_PATH)
+    foreach(_pp IN LISTS CMAKE_PREFIX_PATH)
+        list(APPEND _lld_cmake_candidates "${_pp}/lib/cmake/lld")
+    endforeach()
+endif()
 
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-message(STATUS "Using LLDConfig.cmake in: ${LLD_CMAKE_DIR}")
+set(_lld_found OFF)
+foreach(_lld_dir IN LISTS _lld_cmake_candidates)
+    get_filename_component(_lld_dir "${_lld_dir}" ABSOLUTE)
+    if(EXISTS "${_lld_dir}/LLDConfig.cmake")
+        find_package(LLD REQUIRED CONFIG PATHS "${_lld_dir}" NO_DEFAULT_PATH)
+        set(_lld_found ON)
+        message(STATUS "Found LLD at ${_lld_dir}")
+        break()
+    endif()
+endforeach()
+
+if(NOT _lld_found)
+    find_package(LLD REQUIRED CONFIG)
+endif()
+
 include_directories(${LLVM_INCLUDE_DIRS} ${LLD_INCLUDE_DIRS})
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
