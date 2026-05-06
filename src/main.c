@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
             }
             opt_level = lvl;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            fprintf(stderr, "OVERVIEW: Vix Compiler\n\n");
+            fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:20.1\n\n");
             fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
             fprintf(stderr, "OPTIONS:\n");
             fprintf(stderr, "  -o <file>              Write output to <file>\n");

@@ -1,8 +1,13 @@
+fn seg()
+{
+    seg()
+}
+
 fn main(): i32
 {
-    for(i in 0 .. 10)
-    {
-        print("Hello, world!")
-    }
-    return 0
+    seg()
+    return -1
 }
+/*
+This Program will seg :)
+*/

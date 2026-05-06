@@ -6,8 +6,6 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# ── Required tools ────────────────────────────────────────────────
 find_package(BISON 3.0 REQUIRED)
 find_package(FLEX 2.6 REQUIRED)
 find_package(LLVM REQUIRED CONFIG)
@@ -18,12 +16,9 @@ find_package(LLD REQUIRED CONFIG
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 message(STATUS "Using LLDConfig.cmake in: ${LLD_CMAKE_DIR}")
-
 include_directories(${LLVM_INCLUDE_DIRS} ${LLD_INCLUDE_DIRS})
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
-
-# ── Bison / Flex ─────────────────────────────────────────────────
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/parser)
 
 BISON_TARGET(vix_parser
@@ -37,8 +32,6 @@ FLEX_TARGET(vix_lexer
     ${CMAKE_CURRENT_BINARY_DIR}/parser/lex.yy.c
 )
 ADD_FLEX_BISON_DEPENDENCY(vix_lexer vix_parser)
-
-# ── C sources ────────────────────────────────────────────────────
 set(C_SOURCES
     src/main.c
     src/ast/ast.c
@@ -48,8 +41,6 @@ set(C_SOURCES
     ${BISON_vix_parser_OUTPUTS}
     ${FLEX_vix_lexer_OUTPUTS}
 )
-
-# ── C++ sources ──────────────────────────────────────────────────
 set(CXX_SOURCES
     src/compiler/CodeGen.cpp
     src/compiler/Passes.cpp
@@ -59,8 +50,6 @@ set(CXX_SOURCES
     src/Typeck/TypeckInfer.cpp
     src/Typeck/LayOut.cpp
 )
-
-# ── Target ───────────────────────────────────────────────────────
 add_executable(vixc ${C_SOURCES} ${CXX_SOURCES})
 
 target_include_directories(vixc PRIVATE
@@ -78,8 +67,6 @@ if(NOT WIN32)
         _XOPEN_SOURCE=700
     )
 endif()
-
-# ── Link ─────────────────────────────────────────────────────────
 if(TARGET LLVM)
     target_link_libraries(vixc PRIVATE LLVM)
 else()
@@ -101,6 +88,4 @@ target_link_libraries(vixc PRIVATE
 foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
     target_link_libraries(vixc PRIVATE ${lib})
 endforeach()
-
-# ── Install ──────────────────────────────────────────────────────
 install(TARGETS vixc RUNTIME DESTINATION bin)

@@ -357,19 +357,19 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
     std::vector<lld::DriverDef> drivers;
     switch (flavor) {
         case LinkFlavor::ELF:
-            drivers.push_back({lld::Gnu, {&lld::elf::link}});
+            drivers.push_back({lld::Gnu, lld::elf::link});
             break;
         case LinkFlavor::MachO:
-            drivers.push_back({lld::Darwin, {&lld::macho::link}});
+            drivers.push_back({lld::Darwin, lld::macho::link});
             break;
         case LinkFlavor::COFF:
-            drivers.push_back({lld::WinLink, {&lld::coff::link}});
+            drivers.push_back({lld::WinLink, lld::coff::link});
             break;
         case LinkFlavor::MinGW:
-            drivers.push_back({lld::MinGW, {&lld::mingw::link}});
+            drivers.push_back({lld::MinGW, lld::mingw::link});
             break;
         case LinkFlavor::Wasm:
-            drivers.push_back({lld::Wasm, {&lld::wasm::link}});
+            drivers.push_back({lld::Wasm, lld::wasm::link});
             break;
     }
 
