@@ -98,7 +98,11 @@ bool Llc::compile(const std::string &llvm_ir_path,
 
 	std::string tripleStr = triple;
 	if (tripleStr.empty()) {
+	#ifdef WIN32
+		tripleStr = module->getTargetTriple().str();
+	#else
 		tripleStr = module->getTargetTriple();
+	#endif
 	}
 	if (tripleStr.empty()) {
 		tripleStr = sys::getDefaultTargetTriple();

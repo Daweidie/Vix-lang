@@ -1569,7 +1569,11 @@ public:
         module = std::make_unique<Module>("VixModule", context);
         std::string Triple = g_vix_target_triple.empty() ? sys::getProcessTriple() : g_vix_target_triple;
         llvm::Triple targetTriple(Triple);
-        module->setTargetTriple(targetTriple.str());
+        #ifdef WIN32
+            module->setTargetTriple(targetTriple);
+        #else
+            module->setTargetTriple(targetTriple.str());
+        #endif
         printfFunction = nullptr;
         strlenFunction = nullptr;
         isGlobalScope = true;

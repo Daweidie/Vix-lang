@@ -16,7 +16,7 @@
 
 using namespace llvm;
 
-static OptimizationLevel toLLVMLevel(int level) {
+static OptimizationLevel toOptimizationLevel(int level) {
     switch (level) {
         case 1:  return OptimizationLevel::O1;
         case 2:  return OptimizationLevel::O2;
@@ -24,8 +24,18 @@ static OptimizationLevel toLLVMLevel(int level) {
         default: return OptimizationLevel::O0;
     }
 }
+static CodeGenOptLevel toCodeGenOptLevel(OptimizationLevel OL) {
+    int level = OL.getSpeedupLevel();
+    switch (level) {
+        case 0: return CodeGenOptLevel::None;
+        case 1: return CodeGenOptLevel::Less;
+        case 2: return CodeGenOptLevel::Default;
+        case 3: return CodeGenOptLevel::Aggressive;
+        default: return CodeGenOptLevel::Default;
+    }
+}
 
-static std::unique_ptr<TargetMachine> createHostTM() {
+static std::unique_ptr<TargetMachine> createHostTM(OptimizationLevel OL) {
     InitializeAllTargetInfos();
     InitializeAllTargets();
 
@@ -35,8 +45,16 @@ static std::unique_ptr<TargetMachine> createHostTM() {
     if (!target) return nullptr;
 
     TargetOptions opts;
+    CodeGenOptLevel cgOpt = toCodeGenOptLevel(OL);
+#ifdef WIN32
     return std::unique_ptr<TargetMachine>(
-        target->createTargetMachine(triple.str(), "generic", "", opts, Reloc::PIC_));
+        target->createTargetMachine(triple, "generic", "", opts,
+                                    Reloc::Static, CodeModel::Small, cgOpt));
+#else
+    return std::unique_ptr<TargetMachine>(
+        target->createTargetMachine(triple.str(), "generic", "", opts,
+                                    Reloc::Static, CodeModel::Small, cgOpt));
+#endif
 }
 
 extern "C" void vix_optimize_module(void* llvm_module, int level) {
@@ -44,11 +62,16 @@ extern "C" void vix_optimize_module(void* llvm_module, int level) {
 
     Module* M = static_cast<Module*>(llvm_module);
 
-    auto TM = createHostTM();
+    OptimizationLevel OL = toOptimizationLevel(level);
+    auto TM = createHostTM(OL);
     if (!TM) return;
 
     M->setDataLayout(TM->createDataLayout());
+#ifdef WIN32
+    M->setTargetTriple(TM->getTargetTriple());
+#else
     M->setTargetTriple(TM->getTargetTriple().str());
+#endif
 
     PassBuilder PB(TM.get());
 
@@ -63,7 +86,6 @@ extern "C" void vix_optimize_module(void* llvm_module, int level) {
     PB.registerFunctionAnalyses(FAM);
     PB.registerLoopAnalyses(LAM);
 
-    OptimizationLevel OL = toLLVMLevel(level);
     ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(OL);
     MPM.run(*M, MAM);
 }
