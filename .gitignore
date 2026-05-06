@@ -12,3 +12,4 @@ build
 dist
 !lib
 .VSCodeCounter
+tag.sh
