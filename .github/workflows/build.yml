@@ -32,7 +32,7 @@ jobs:
       - name: Install LLVM 20 and dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
-          wget -O llvm.sh https://apt.llvm.org/llvm.sh
+          wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 20
           sudo apt-get install -y llvm-20-dev lld-20 liblld-20-dev clang-20 flex bison
@@ -51,16 +51,14 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: |
+          install: >-
             mingw-w64-x86_64-llvm-20
-            mingw-w64-x86_64-clang
             mingw-w64-x86_64-lld
-            mingw-w64-x86_64-flex
-            mingw-w64-x86_64-bison
             mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-make
-            git
-            base-devel
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-ninja
+            flex
+            bison
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
@@ -78,9 +76,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$(cygpath -w /mingw64)" \
-            -G "MinGW Makefiles"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=/mingw64 \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++
 
       - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
@@ -89,9 +88,7 @@ jobs:
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: |
-          cd build
-          mingw32-make -j$(nproc)
+        run: cmake --build build --config Release --parallel
 
       - name: Prepare artifact (Linux)
         if: runner.os == 'Linux'
@@ -113,7 +110,6 @@ jobs:
         run: |
           mkdir -p artifact
           cp build/vixc.exe artifact/vixc-windows-amd64.exe
-          chmod +x artifact/vixc-windows-amd64.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
