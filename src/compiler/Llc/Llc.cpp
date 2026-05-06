@@ -105,8 +105,12 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	}
 
 	Triple effectiveTriple(tripleStr);
-	module->setTargetTriple(effectiveTriple.str());
+#ifdef WIN32
+	module->setTargetTriple(effectiveTriple);
 
+#else
+	module->setTargetTriple(effectiveTriple.str());
+#endif
 	std::string targetError;
 	const Target *target = TargetRegistry::lookupTarget(effectiveTriple.str(), targetError);
 	if (!target) {
@@ -122,8 +126,14 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	auto codeModel = std::optional<CodeModel::Model>(CodeModel::Small);
 	CodeGenOptLevel cgOpt = toCodeGenOpt(optLevel);
 	std::unique_ptr<TargetMachine> targetMachine(
+	#ifdef WIN32
+		target->createTargetMachine(effectiveTriple, cpu, features, options,
+									relocationModel, codeModel, cgOpt));
+
+	#else
 		target->createTargetMachine(effectiveTriple.str(), cpu, features, options,
 									relocationModel, codeModel, cgOpt));
+	#endif
 	if (!targetMachine) {
 		errMsg = "failed to create target machine for triple '" + tripleStr + "'";
 		return false;
