@@ -11,6 +11,7 @@ find_package(FLEX 2.6 REQUIRED)
 
 if(APPLE)
     set(_brew_llvm_prefix "")
+    set(_brew_lld_prefix "")
     foreach(_candidate "llvm" "llvm@20" "llvm@19" "llvm@18")
         execute_process(
             COMMAND brew --prefix "${_candidate}"
@@ -24,11 +25,25 @@ if(APPLE)
             break()
         endif()
     endforeach()
+    execute_process(
+        COMMAND brew --prefix lld
+        OUTPUT_VARIABLE _prefix
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _brew_rc
+    )
+    if(_brew_rc EQUAL 0 AND EXISTS "${_prefix}/lib/cmake/lld/LLDConfig.cmake")
+        set(_brew_lld_prefix "${_prefix}")
+    endif()
     if(_brew_llvm_prefix)
         list(PREPEND CMAKE_PREFIX_PATH "${_brew_llvm_prefix}")
         message(STATUS "Homebrew LLVM prefix: ${_brew_llvm_prefix}")
     else()
         message(WARNING "No Homebrew LLVM found. Install via: brew install llvm")
+    endif()
+    if(_brew_lld_prefix)
+        list(PREPEND CMAKE_PREFIX_PATH "${_brew_lld_prefix}")
+        message(STATUS "Homebrew LLD prefix: ${_brew_lld_prefix}")
     endif()
 endif()
 
@@ -43,6 +58,9 @@ set(_lld_cmake_candidates
 )
 if(APPLE AND _brew_llvm_prefix)
     list(APPEND _lld_cmake_candidates "${_brew_llvm_prefix}/lib/cmake/lld")
+endif()
+if(APPLE AND _brew_lld_prefix)
+    list(APPEND _lld_cmake_candidates "${_brew_lld_prefix}/lib/cmake/lld")
 endif()
 if(WIN32 AND CMAKE_PREFIX_PATH)
     foreach(_pp IN LISTS CMAKE_PREFIX_PATH)

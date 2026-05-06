@@ -96,20 +96,21 @@ bool Llc::compile(const std::string &llvm_ir_path,
 		return false;
 	}
 
-	std::string effectiveTriple = triple;
-	if (effectiveTriple.empty()) {
-		effectiveTriple = module->getTargetTriple();
+	std::string tripleStr = triple;
+	if (tripleStr.empty()) {
+		tripleStr = module->getTargetTriple().str();
 	}
-	if (effectiveTriple.empty()) {
-		effectiveTriple = sys::getDefaultTargetTriple();
+	if (tripleStr.empty()) {
+		tripleStr = sys::getDefaultTargetTriple();
 	}
 
+	Triple effectiveTriple(tripleStr);
 	module->setTargetTriple(effectiveTriple);
 
 	std::string targetError;
 	const Target *target = TargetRegistry::lookupTarget(effectiveTriple, targetError);
 	if (!target) {
-		errMsg = "failed to lookup target for triple '" + effectiveTriple + "': " + targetError;
+		errMsg = "failed to lookup target for triple '" + tripleStr + "': " + targetError;
 		return false;
 	}
 
@@ -124,7 +125,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 		target->createTargetMachine(effectiveTriple, cpu, features, options,
 									relocationModel, codeModel, cgOpt));
 	if (!targetMachine) {
-		errMsg = "failed to create target machine for triple '" + effectiveTriple + "'";
+		errMsg = "failed to create target machine for triple '" + tripleStr + "'";
 		return false;
 	}
 
