@@ -31,12 +31,12 @@ static std::unique_ptr<TargetMachine> createHostTM() {
 
     Triple triple(sys::getDefaultTargetTriple());
     std::string error;
-    const Target* target = TargetRegistry::lookupTarget(triple, error);
+    const Target* target = TargetRegistry::lookupTarget(triple.str(), error);
     if (!target) return nullptr;
 
     TargetOptions opts;
     return std::unique_ptr<TargetMachine>(
-        target->createTargetMachine(triple, "generic", "", opts, Reloc::PIC_));
+        target->createTargetMachine(triple.str(), "generic", "", opts, Reloc::PIC_));
 }
 
 extern "C" void vix_optimize_module(void* llvm_module, int level) {
@@ -48,7 +48,7 @@ extern "C" void vix_optimize_module(void* llvm_module, int level) {
     if (!TM) return;
 
     M->setDataLayout(TM->createDataLayout());
-    M->setTargetTriple(TM->getTargetTriple());
+    M->setTargetTriple(TM->getTargetTriple().str());
 
     PassBuilder PB(TM.get());
 

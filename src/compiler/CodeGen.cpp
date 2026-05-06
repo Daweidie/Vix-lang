@@ -516,9 +516,9 @@ public:
             case ValueType::FLOAT32: return Type::getFloatTy(context);
             case ValueType::FLOAT64: return Type::getDoubleTy(context);
             case ValueType::BOOL:    return Type::getInt1Ty(context);
-            case ValueType::POINTER: return PointerType::getUnqual(Type::getInt8Ty(context));
-            case ValueType::STRING:  return PointerType::getUnqual(Type::getInt8Ty(context));
-            case ValueType::ARRAY:   return PointerType::getUnqual(Type::getInt8Ty(context));
+            case ValueType::POINTER: return PointerType::get(context, 0);
+            case ValueType::STRING:  return PointerType::get(context, 0);
+            case ValueType::ARRAY:   return PointerType::get(context, 0);
             default:                 return Type::getVoidTy(context);
         }
     }
@@ -556,19 +556,19 @@ public:
         if (node->type == AST_TYPE_INT8) return Type::getInt8Ty(context);
         if (node->type == AST_TYPE_FLOAT32) return Type::getFloatTy(context);
         if (node->type == AST_TYPE_FLOAT64) return Type::getDoubleTy(context);
-        if (node->type == AST_TYPE_STRING) return PointerType::getUnqual(Type::getInt8Ty(context));
+        if (node->type == AST_TYPE_STRING) return PointerType::get(context, 0);
         if (node->type == AST_TYPE_VOID) return Type::getVoidTy(context);
         if (node->type == AST_TYPE_POINTER) {
             if (node->data.pointer_type.element_type) {
                 Type* elemType = getTypeFromTypeNode(node->data.pointer_type.element_type);
-                return PointerType::getUnqual(elemType ? elemType : Type::getInt8Ty(context));
+                return PointerType::get(context, 0);
             }
-            return PointerType::getUnqual(Type::getInt8Ty(context));
+            return PointerType::get(context, 0);
         }
         
         if (node->type == AST_TYPE_LIST) {
             Type* elementType = getArrayElementTypeFromNode(node);
-            return PointerType::getUnqual(elementType);
+            return PointerType::get(context, 0);
         }
         
         if (node->type == AST_TYPE_FIXED_SIZE_LIST) {
@@ -577,7 +577,7 @@ public:
             if (elementCount > 0) {
                 return createArrayType(elementType, elementCount);
             }
-            return PointerType::getUnqual(elementType);
+            return PointerType::get(context, 0);
         }
 
         if (node->type == AST_TYPE_APP) {
@@ -600,12 +600,12 @@ public:
                 }
             }
             if (vix_is_adt_definition(baseName.c_str())) {
-                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::getUnqual(Type::getInt8Ty(context))});
-                return PointerType::getUnqual(adtStructTy);
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                return PointerType::get(context, 0);
             }
             if (baseName == "Option" || baseName == "Result") {
-                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::getUnqual(Type::getInt8Ty(context))});
-                return PointerType::getUnqual(adtStructTy);
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                return PointerType::get(context, 0);
             }
             return Type::getInt32Ty(context);
         }
@@ -616,8 +616,8 @@ public:
             if (git != genericTypeBindings.end() && git->second) {
                 return git->second;
             }
-            if (typeName == "ptr") return PointerType::getUnqual(Type::getInt8Ty(context));
-            if (typeName == "str") return PointerType::getUnqual(Type::getInt8Ty(context));
+            if (typeName == "ptr") return PointerType::get(context, 0);
+            if (typeName == "str") return PointerType::get(context, 0);
             if (typeName == "i8" || typeName == "u8" || typeName == "char") return Type::getInt8Ty(context);
             if (typeName == "i32") return Type::getInt32Ty(context);
             if (typeName == "i64") return Type::getInt64Ty(context);
@@ -629,7 +629,7 @@ public:
             
             auto* arrayInfo = getArrayTypeInfo(typeName);
             if (arrayInfo) {
-                return PointerType::getUnqual(arrayInfo->first);
+                return PointerType::get(context, 0);
             }
         }
         
@@ -740,14 +740,14 @@ public:
             Value* intVal = val;
             if (!intVal->getType()->isIntegerTy()) {
                 if (intVal->getType()->isPointerTy()) {
-                    return builder.CreateBitCast(intVal, PointerType::getUnqual(Type::getInt8Ty(context)), "ptr_to_ptr");
+                    return builder.CreateBitCast(intVal, PointerType::get(context, 0), "ptr_to_ptr");
                 }
                 return intVal;
             }
             if (!intVal->getType()->isIntegerTy(64)) {
                 intVal = builder.CreateIntCast(intVal, Type::getInt64Ty(context), true, "int_to_ptr_int64");
             }
-            return builder.CreateIntToPtr(intVal, PointerType::getUnqual(Type::getInt8Ty(context)), "int_to_ptr");
+            return builder.CreateIntToPtr(intVal, PointerType::get(context, 0), "int_to_ptr");
         }
 
         if (from == ValueType::POINTER && (to == ValueType::INT64 || to == ValueType::INT32)) {
@@ -763,7 +763,7 @@ public:
             return val;
 
         if (from == ValueType::POINTER && to == ValueType::POINTER && val->getType()->isPointerTy()) {
-            return builder.CreateBitCast(val, PointerType::getUnqual(Type::getInt8Ty(context)), "ptr_cast");
+            return builder.CreateBitCast(val, PointerType::get(context, 0), "ptr_cast");
         }
         
         return val;
@@ -995,16 +995,16 @@ private:
         return false;
     }
     
-    Value* safeCreateGlobalStringPtr(const std::string& str, const std::string& name) {
+    Value* safeCreateGlobalString(const std::string& str, const std::string& name) {
         if (!ensureValidInsertPoint()) {
             return nullptr;
         }
         
         if (str.empty()) {
-            return builder.CreateGlobalStringPtr("", name.c_str());
+            return builder.CreateGlobalString("", name);
         }
         
-        return builder.CreateGlobalStringPtr(str, name.c_str());
+        return builder.CreateGlobalString(str, name);
     }
     
     Type* getActualType(AllocaInst* alloc) {
@@ -1031,23 +1031,23 @@ private:
             case TYPEINFO_BOOL:
                 return Type::getInt1Ty(context);
             case TYPEINFO_STRING:
-                return PointerType::getUnqual(Type::getInt8Ty(context));
+                return PointerType::get(context, 0);
             case TYPEINFO_PTR: {
                 Type* elem = getLLVMTypeFromTypeInfo(info->element);
                 if (!elem) elem = Type::getInt8Ty(context);
-                return PointerType::getUnqual(elem);
+                return PointerType::get(context, 0);
             }
             case TYPEINFO_STRUCT: {
                 if (info->name) {
                     StructType* st = typeHelper.getStructType(info->name);
                     if (st) return st;
                 }
-                return PointerType::getUnqual(Type::getInt8Ty(context));
+                return PointerType::get(context, 0);
             }
             case TYPEINFO_ARRAY: {
                 Type* elem = getLLVMTypeFromTypeInfo(info->element);
                 if (!elem) elem = Type::getInt8Ty(context);
-                return PointerType::getUnqual(elem);
+                return PointerType::get(context, 0);
             }
             case TYPEINFO_FIXED_ARRAY: {
                 Type* elem = getLLVMTypeFromTypeInfo(info->element);
@@ -1055,17 +1055,17 @@ private:
                 return ArrayType::get(elem, info->size);
             }
             case TYPEINFO_FN:
-                return PointerType::getUnqual(Type::getInt8Ty(context));
+                return PointerType::get(context, 0);
             case TYPEINFO_APP: {
                 if (info->app_ctor && info->app_ctor->kind == TYPEINFO_STRUCT && info->app_ctor->name) {
                     StructType* st = typeHelper.getStructType(info->app_ctor->name);
                     if (st) return st;
                 }
-                return PointerType::getUnqual(Type::getInt8Ty(context));
+                return PointerType::get(context, 0);
             }
             case TYPEINFO_VAR:
             default:
-                return PointerType::getUnqual(Type::getInt8Ty(context));
+                return PointerType::get(context, 0);
         }
     }
 
@@ -1139,7 +1139,7 @@ private:
         
         FunctionType* strlenType = FunctionType::get(
             Type::getInt64Ty(context),
-            {PointerType::getUnqual(Type::getInt8Ty(context))},
+            {PointerType::get(context, 0)},
             false
         );
         
@@ -1165,7 +1165,7 @@ private:
 
         if (varName == "argv") {
             VIX_DEBUG_LOG << "[DEBUG] argv: using char** as element type\n";
-            return PointerType::getUnqual(Type::getInt8Ty(context));
+            return PointerType::get(context, 0);
         }
 
         AllocaInst* alloc = scopeManager.findVariable(varName);
@@ -1317,7 +1317,7 @@ private:
             return fn;
         }
 
-        Type* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+        Type* i8PtrTy = PointerType::get(context, 0);
         Type* i64Ty = Type::getInt64Ty(context);
         FunctionType* reallocType = FunctionType::get(i8PtrTy, {i8PtrTy, i64Ty}, false);
         Function* reallocFn = Function::Create(reallocType, Function::ExternalLinkage, "realloc", module.get());
@@ -1331,7 +1331,7 @@ private:
         if (!dataPtr || !dataPtr->getType()->isPointerTy())
             return ConstantInt::get(Type::getInt32Ty(context), 0);
 
-        PointerType* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+        PointerType* i8PtrTy = PointerType::get(context, 0);
         Value* dataI8 = builder.CreateBitCast(dataPtr, i8PtrTy, name + "_as_i8");
 
         Function* func = builder.GetInsertBlock()->getParent();
@@ -1347,7 +1347,7 @@ private:
         Value* ptrInt = builder.CreatePtrToInt(dataI8, Type::getInt64Ty(context));
         Value* headerInt = builder.CreateSub(ptrInt, ConstantInt::get(Type::getInt64Ty(context), ARRAY_HEADER_BYTES));
         Value* headerPtr = builder.CreateIntToPtr(headerInt, i8PtrTy);
-        Value* lenPtr = builder.CreateBitCast(headerPtr, PointerType::getUnqual(Type::getInt32Ty(context)));
+        Value* lenPtr = builder.CreateBitCast(headerPtr, PointerType::get(context, 0));
         Value* loadedLen = builder.CreateLoad(Type::getInt32Ty(context), lenPtr, name + "_loaded");
         builder.CreateBr(mergeBB);
 
@@ -1408,7 +1408,7 @@ private:
             }
         }
 
-        Value* typedFnPtr = builder.CreateBitCast(rawCalleePtr, PointerType::getUnqual(fnType), "fnptr_cast");
+        Value* typedFnPtr = builder.CreateBitCast(rawCalleePtr, PointerType::get(context, 0), "fnptr_cast");
         CallInst* callInst = builder.CreateCall(fnType, typedFnPtr, argValues, "fpcalltmp");
         return VisitResult(callInst, typeHelper.getValueTypeFromType(returnType));
     }
@@ -1569,7 +1569,7 @@ public:
         module = std::make_unique<Module>("VixModule", context);
         std::string Triple = g_vix_target_triple.empty() ? sys::getProcessTriple() : g_vix_target_triple;
         llvm::Triple targetTriple(Triple);
-        module->setTargetTriple(targetTriple);
+        module->setTargetTriple(targetTriple.str());
         printfFunction = nullptr;
         strlenFunction = nullptr;
         isGlobalScope = true;
@@ -1629,7 +1629,7 @@ public:
     void initPrintf() {
         if (printfFunction) return;
         std::vector<Type*> printfArgs;
-        printfArgs.push_back(PointerType::getUnqual(Type::getInt8Ty(context)));
+        printfArgs.push_back(PointerType::get(context, 0));
         FunctionType* printfType = FunctionType::get(
             Type::getInt32Ty(context), printfArgs, true);
         printfFunction = Function::Create(
@@ -1641,7 +1641,7 @@ public:
         if (module->getFunction("main") || mainFunctionCreated) return;
         std::vector<Type*> mainParamTypes;
         mainParamTypes.push_back(Type::getInt32Ty(context));  // argc
-        mainParamTypes.push_back(PointerType::getUnqual(PointerType::getUnqual(Type::getInt8Ty(context))));  // argv as char**
+        mainParamTypes.push_back(PointerType::get(context, 0));  // argv as char**
 
         FunctionType* mainType = FunctionType::get(
             Type::getInt32Ty(context), mainParamTypes, false);
@@ -1720,17 +1720,17 @@ public:
     
     VisitResult visitString(ASTNode* node) {
         if (!node) {
-            Value* value = safeCreateGlobalStringPtr("", "empty_str_const");
+            Value* value = safeCreateGlobalString("", "empty_str_const");
             return VisitResult(value, ValueType::STRING);
         }
         
         const char* str = node->data.string.value;
         if (!str) {
-            Value* value = safeCreateGlobalStringPtr("", "null_str_const");
+            Value* value = safeCreateGlobalString("", "null_str_const");
             return VisitResult(value, ValueType::STRING);
         }
         
-        Value* value = safeCreateGlobalStringPtr(str, "str_lit");
+        Value* value = safeCreateGlobalString(str, "str_lit");
         return VisitResult(value, ValueType::STRING);
     }
 
@@ -1747,7 +1747,7 @@ public:
 
     VisitResult visitNil(ASTNode* node) {
         (void)node;
-        Type* nilPtrType = PointerType::getUnqual(Type::getInt8Ty(context));
+        Type* nilPtrType = PointerType::get(context, 0);
         Value* nilValue = ConstantPointerNull::get(cast<PointerType>(nilPtrType));
         return VisitResult(nilValue, ValueType::POINTER);
     }
@@ -1757,7 +1757,7 @@ public:
         
         std::string name(node->data.identifier.name);
         if (name == "None") {
-            Value* nil = ConstantPointerNull::get(PointerType::getUnqual(Type::getInt8Ty(context)));
+            Value* nil = ConstantPointerNull::get(PointerType::get(context, 0));
             return VisitResult(nil, ValueType::POINTER);
         }
         if (name == "Some" || name == "Ok" || name == "Err") {
@@ -1932,7 +1932,7 @@ public:
                 if (!elemType) {
                     elemType = Type::getInt32Ty(context);
                 }
-                Type* expectPtrType = PointerType::getUnqual(elemType);
+                Type* expectPtrType = PointerType::get(context, 0);
                 if (ptrVal->getType() != expectPtrType) {
                     ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "ptr_arith_cast");
                 }
@@ -2255,7 +2255,7 @@ public:
                     elemType = Type::getInt32Ty(context);
                 }
 
-                Type* expectPtrType = PointerType::getUnqual(elemType);
+                Type* expectPtrType = PointerType::get(context, 0);
                 if (ptrVal->getType() != expectPtrType) {
                     ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "deref_ptrcast");
                 }
@@ -2313,7 +2313,7 @@ public:
             }
 
             Value* ptrVal = ptrRes.value;
-            Type* expectPtrType = PointerType::getUnqual(elemType);
+            Type* expectPtrType = PointerType::get(context, 0);
             if (ptrVal->getType() != expectPtrType) {
                 ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "deref_store_ptrcast");
             }//处理赋值右侧的值
@@ -2379,7 +2379,7 @@ public:
             }
 
             Value* srcPtr = rightVal.value;
-            Type* expectPtrType = PointerType::getUnqual(rightVal.structType);
+            Type* expectPtrType = PointerType::get(context, 0);
             if (srcPtr->getType() != expectPtrType) {
                 srcPtr = builder.CreateBitCast(srcPtr, expectPtrType, "ret_struct_ptrcast");
             }
@@ -2489,7 +2489,7 @@ public:
             
             Type* varType = nullptr;
             if (isStringAssign) {
-                varType = PointerType::getUnqual(Type::getInt8Ty(context));
+                varType = PointerType::get(context, 0);
             } else {
                 varType = rightVal.value->getType();
             }
@@ -2525,7 +2525,7 @@ public:
                         ASTNode* firstElem = node->data.assign.right->data.expression_list.expressions[0];
                         if (firstElem) {
                             if (firstElem->type == AST_STRING) {
-                                elemType = PointerType::getUnqual(Type::getInt8Ty(context));
+                                elemType = PointerType::get(context, 0);
                             } else if (firstElem->type == AST_CHAR) {
                                 elemType = Type::getInt8Ty(context);
                             } else if (firstElem->type == AST_NUM_FLOAT) {
@@ -2604,7 +2604,7 @@ public:
                 Value* arrayPtr = builder.CreateLoad(allocatedType, baseAlloc, "array_ptr");
                 Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(allocatedType), varName);
                 if (varName == "argv") {
-                    elemType = PointerType::getUnqual(Type::getInt8Ty(context));
+                    elemType = PointerType::get(context, 0);
                 }
 
                 Value* gep = builder.CreateInBoundsGEP(elemType, arrayPtr, idxVal, "ptr_index_ptr");
@@ -2636,7 +2636,7 @@ public:
 
                 Type* elemType = Type::getInt8Ty(context);
                 ValueType vt = ValueType::INT8;
-                Value* basePtr = builder.CreateIntToPtr(baseInt, PointerType::getUnqual(elemType), "mmio_ptr");
+                Value* basePtr = builder.CreateIntToPtr(baseInt, PointerType::get(context, 0), "mmio_ptr");
                 Value* gep = builder.CreateInBoundsGEP(elemType, basePtr, idx64, "mmio_index_ptr");
                 Value* casted = typeHelper.castValue(builder, rightVal.value, rightVal.type, vt);
                 if (!casted->getType()->isIntegerTy(8)) {
@@ -3332,21 +3332,21 @@ public:
                                     Type* llvmParamType = gbt->second;
                                     if (llvmParamType->isStructTy()) {
                                         paramType = ValueType::POINTER;
-                                        paramTypes.push_back(PointerType::getUnqual(llvmParamType));
+                                        paramTypes.push_back(PointerType::get(context, 0));
                                     } else {
                                         paramType = typeHelper.getValueTypeFromType(llvmParamType);
                                         paramTypes.push_back(llvmParamType);
                                     }
                                 } else if (StructType* structTy = typeHelper.getStructType(typeName)) {
                                     paramType = ValueType::POINTER;
-                                    paramTypes.push_back(PointerType::getUnqual(structTy));
+                                    paramTypes.push_back(PointerType::get(context, 0));
                                 } else if (typeName == "ptr") {
                                     if (funcName == "main" && paramName == "argv") {
                                         paramType = ValueType::POINTER;
-                                        paramTypes.push_back(PointerType::getUnqual(PointerType::getUnqual(Type::getInt8Ty(context))));
+                                        paramTypes.push_back(PointerType::get(context, 0));
                                     } else {
                                         paramType = ValueType::POINTER;
-                                        paramTypes.push_back(PointerType::getUnqual(Type::getInt8Ty(context)));
+                                        paramTypes.push_back(PointerType::get(context, 0));
                                         typeHelper.registerStringVariable(paramName);//未指明更具体类型的 ptr 参数，通常按字符串/字节指针处理
                                     }
                                 } else if (typeName == "i32") {
@@ -3363,7 +3363,7 @@ public:
                                     paramTypes.push_back(Type::getDoubleTy(context));
                                 } else if (typeName == "str") {
                                     paramType = ValueType::STRING;
-                                    paramTypes.push_back(PointerType::getUnqual(Type::getInt8Ty(context)));
+                                    paramTypes.push_back(PointerType::get(context, 0));
                                 } else {
                                     paramTypes.push_back(Type::getInt32Ty(context));
                                 }
@@ -3372,16 +3372,16 @@ public:
                                 paramType = typeHelper.fromTypeNode(right);
                                 if (right->type == AST_TYPE_POINTER) {
                                     if (funcName == "main" && paramName == "argv") {
-                                        paramTypes.push_back(PointerType::getUnqual(PointerType::getUnqual(Type::getInt8Ty(context))));
+                                        paramTypes.push_back(PointerType::get(context, 0));
                                     } else {
-                                        paramTypes.push_back(PointerType::getUnqual(Type::getInt8Ty(context)));
+                                        paramTypes.push_back(PointerType::get(context, 0));
                                         typeHelper.registerArrayType(paramName, Type::getInt32Ty(context), -1);
                                     }
                                 } else if (right->type == AST_TYPE_LIST || right->type == AST_TYPE_FIXED_SIZE_LIST) {
                                     Type* elemType = typeHelper.getArrayElementTypeFromNode(right);
                                     int elemCount = typeHelper.getArrayElementCountFromNode(right);
                                     paramType = ValueType::POINTER;
-                                    paramTypes.push_back(PointerType::getUnqual(elemType));
+                                    paramTypes.push_back(PointerType::get(context, 0));
                                     typeHelper.registerArrayType(paramName, elemType, elemCount > 0 ? elemCount : -1);
                                     isArrayParam = true;
                                     arrayElementType = elemType;
@@ -3390,7 +3390,7 @@ public:
                                     Type* llvmParamType = typeHelper.getTypeFromTypeNode(right);
                                     if (llvmParamType && llvmParamType->isStructTy()) {
                                         paramType = ValueType::POINTER;
-                                        paramTypes.push_back(PointerType::getUnqual(llvmParamType));
+                                        paramTypes.push_back(PointerType::get(context, 0));
                                     } else {
                                         paramType = typeHelper.getValueTypeFromType(llvmParamType);
                                         paramTypes.push_back(llvmParamType);
@@ -3445,7 +3445,7 @@ public:
         if (useStructSRet) {
             logicalReturnStructType = cast<StructType>(logicalReturnType);
             abiReturnType = Type::getVoidTy(context);
-            paramTypes.insert(paramTypes.begin(), PointerType::getUnqual(logicalReturnStructType));
+            paramTypes.insert(paramTypes.begin(), PointerType::get(context, 0));
         }
 
         bool isVarArg = node->data.function.vararg == 1;
@@ -3531,7 +3531,7 @@ public:
             if (curBB && !curBB->getTerminator() && lastBodyResult.value && logicalReturnStructType) {
                 Argument* sretArg = func->arg_begin();
                 Value* sretPtr = sretArg;
-                Type* expectSretPtrType = PointerType::getUnqual(logicalReturnStructType);
+                Type* expectSretPtrType = PointerType::get(context, 0);
                 if (sretPtr->getType() != expectSretPtrType) {
                     sretPtr = builder.CreateBitCast(sretPtr, expectSretPtrType, "fn_sret_ptrcast");
                 }
@@ -3700,7 +3700,7 @@ public:
                 else if (elemType->isFloatTy()) elemBytes = 4;
 
                 Value* oldPtr = objectRes.value;
-                Type* targetPtrTy = PointerType::getUnqual(elemType);
+                Type* targetPtrTy = PointerType::get(context, 0);
                 if (oldPtr->getType() != targetPtrTy) {
                     oldPtr = builder.CreateBitCast(oldPtr, targetPtrTy, "push_old_ptr_cast");
                 }
@@ -3708,7 +3708,7 @@ public:
                 Value* oldLen = emitLoadArrayLength(oldPtr, pushStateName + "_old_len");
                 Value* newLen = builder.CreateAdd(oldLen, ConstantInt::get(Type::getInt32Ty(context), 1), pushStateName + "__len_new");
 
-                PointerType* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+                PointerType* i8PtrTy = PointerType::get(context, 0);
                 Value* oldPtrI8 = builder.CreateBitCast(oldPtr, i8PtrTy, "push_old_i8");
 
                 Value* oldPtrInt = builder.CreatePtrToInt(oldPtrI8, Type::getInt64Ty(context));
@@ -3729,7 +3729,7 @@ public:
                 Function* reallocFn = getOrCreateReallocFunction();
                 Value* newBaseI8 = builder.CreateCall(reallocFn, {baseI8, totalBytes}, "push_realloc");
 
-                Value* newLenPtr = builder.CreateBitCast(newBaseI8, PointerType::getUnqual(Type::getInt32Ty(context)));
+                Value* newLenPtr = builder.CreateBitCast(newBaseI8, PointerType::get(context, 0));
                 builder.CreateStore(newLen, newLenPtr);
 
                 Value* newDataI8 = builder.CreateInBoundsGEP(Type::getInt8Ty(context), newBaseI8, headerSizeVal, "push_new_data_i8");
@@ -3785,7 +3785,7 @@ public:
             int stdinArgCount = node->data.call.args ?
                 node->data.call.args->data.expression_list.expression_count : 0;
             if (stdinArgCount == 0) {
-                Type* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+                Type* i8PtrTy = PointerType::get(context, 0);
                 Function* fdopenFn = module->getFunction("fdopen");
                 if (!fdopenFn) {
                     FunctionType* fdopenTy = FunctionType::get(
@@ -3802,7 +3802,7 @@ public:
                     fdopenFn->setCallingConv(CallingConv::C);
                 }
 
-                Value* modeStr = safeCreateGlobalStringPtr("r", "stdin_mode");
+                Value* modeStr = safeCreateGlobalString("r", "stdin_mode");
                 Value* fdZero = ConstantInt::get(Type::getInt32Ty(context), 0);
                 Value* stdinVal = builder.CreateCall(fdopenFn, {fdZero, modeStr}, "stdin_val");
                 return VisitResult(stdinVal, ValueType::POINTER);
@@ -3829,7 +3829,7 @@ public:
                     llvm::errs() << "Error: None() does not accept arguments\n";
                     return VisitResult();
                 }
-                return VisitResult(ConstantPointerNull::get(PointerType::getUnqual(Type::getInt8Ty(context))), ValueType::POINTER);
+                return VisitResult(ConstantPointerNull::get(PointerType::get(context, 0)), ValueType::POINTER);
             }
 
             if (isRegisteredUnionCtorName(calleeName) && !isBuiltinUnionCtorName(calleeName)) {
@@ -3841,7 +3841,7 @@ public:
 
                     int32_t tagValue = ctorTagValue(calleeName);
                     Type* i32Ty = Type::getInt32Ty(context);
-                    Type* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+                    Type* i8PtrTy = PointerType::get(context, 0);
                     StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
 
                     Function* func = getCurrentFunction();
@@ -3890,7 +3890,7 @@ public:
             if (calleeName == "Ok" || calleeName == "Err") {
                 int32_t tagValue = (calleeName == "Err") ? 1 : 0;
                 Type* i32Ty = Type::getInt32Ty(context);
-                Type* i8PtrTy = PointerType::getUnqual(Type::getInt8Ty(context));
+                Type* i8PtrTy = PointerType::get(context, 0);
                 StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
 
                 Function* func = getCurrentFunction();
@@ -4052,7 +4052,7 @@ public:
                                     switch (spec.conv) {
                                         case 's':
                                         case 'p':
-                                            expectedType = PointerType::getUnqual(Type::getInt8Ty(context));
+                                            expectedType = PointerType::get(context, 0);
                                             break;
                                         case 'f':
                                         case 'F':
@@ -4143,7 +4143,7 @@ public:
                                     reIdxVal = builder.CreateIntCast(reIdxVal, Type::getInt32Ty(context), true, "idxcast_printf");
                                 }
 
-                                Type* forcedElemType = PointerType::getUnqual(Type::getInt8Ty(context));
+                                Type* forcedElemType = PointerType::get(context, 0);
                                 Value* forcedGep = builder.CreateInBoundsGEP(forcedElemType, indexedBasePtr, reIdxVal, "fmt_ptr_index_ptr");
                                 Value* forcedLoaded = builder.CreateLoad(forcedElemType, forcedGep, "fmt_ptr_index_load");
 
@@ -4209,7 +4209,7 @@ public:
         if (sretType) {
             Argument* sretArg = currentFunc->arg_begin();
             Value* sretPtr = sretArg;
-            Type* expectSretPtrType = PointerType::getUnqual(sretType);
+            Type* expectSretPtrType = PointerType::get(context, 0);
             if (sretPtr->getType() != expectSretPtrType) {
                 sretPtr = builder.CreateBitCast(sretPtr, expectSretPtrType, "sret_ptrcast");
             }
@@ -4223,7 +4223,7 @@ public:
                     retStructValue = retVal.value;
                 } else if (retVal.value->getType()->isPointerTy()) {
                     Value* srcPtr = retVal.value;
-                    Type* expectSrcPtrType = PointerType::getUnqual(sretType);
+                    Type* expectSrcPtrType = PointerType::get(context, 0);
                     if (srcPtr->getType() != expectSrcPtrType) {
                         srcPtr = builder.CreateBitCast(srcPtr, expectSrcPtrType, "ret_sret_src_ptrcast");
                     }
@@ -4565,7 +4565,7 @@ public:
                   (vix_is_adt_definition(object->inferred_type->name) ||
                    strcmp(object->inferred_type->name, "Option") == 0 ||
                    strcmp(object->inferred_type->name, "Result") == 0)))) {
-                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::getUnqual(Type::getInt8Ty(context))});
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
                 elemType = adtStructTy;
             }
             if (!elemType) {
@@ -4605,7 +4605,7 @@ public:
             }
 
             Value* basePtr = objectRes.value;
-            Type* expectedPtrType = PointerType::getUnqual(elemType);
+            Type* expectedPtrType = PointerType::get(context, 0);
             if (basePtr->getType() != expectedPtrType && basePtr->getType()->isPointerTy() && expectedPtrType->isPointerTy()) {
                 basePtr = builder.CreateBitCast(basePtr, expectedPtrType, "tuple_base_cast");
             }
@@ -4657,7 +4657,7 @@ public:
                     }
                     addrVal = builder.CreateIntCast(addrVal, int64Ty, true, "member_addr64");
                 }
-                basePtr = builder.CreateIntToPtr(addrVal, PointerType::getUnqual(structType), "member_obj_ptr");
+                basePtr = builder.CreateIntToPtr(addrVal, PointerType::get(context, 0), "member_obj_ptr");
             }
         }
 
@@ -4693,7 +4693,7 @@ public:
             StructType* inferredStructType = typeHelper.inferStructTypeByFieldName(fieldName, &inferredStructName);
             if (inferredStructType) {
                 structType = inferredStructType;
-                Type* expectedPtrType = PointerType::getUnqual(structType);
+                Type* expectedPtrType = PointerType::get(context, 0);
                 if (objectRes.value->getType() == expectedPtrType) {
                     basePtr = objectRes.value;
                 } else {
@@ -4760,7 +4760,7 @@ public:
             if (inferredElem) {
                 pointerElementHints[fieldVal] = inferredElem;
             } else if (fieldName == "scopes") {
-                pointerElementHints[fieldVal] = PointerType::getUnqual(Type::getInt32Ty(context));
+                pointerElementHints[fieldVal] = PointerType::get(context, 0);
             } else {
                 pointerElementHints[fieldVal] = Type::getInt32Ty(context);
             }
@@ -4788,8 +4788,8 @@ public:
                 VisitResult exprRes = visit(expr);
                 
                 if (!exprRes.value) {
-                    Value* emptyStr = safeCreateGlobalStringPtr("", "empty_str");
-                    Value* formatStr = safeCreateGlobalStringPtr("%s", "fmt_s");
+                    Value* emptyStr = safeCreateGlobalString("", "empty_str");
+                    Value* formatStr = safeCreateGlobalString("%s", "fmt_s");
                     builder.CreateCall(printfFunction, {formatStr, emptyStr});
                     continue;
                 }
@@ -4800,50 +4800,50 @@ public:
                 
                 switch (printType) {
                     case ValueType::INT32:
-                        formatStr = safeCreateGlobalStringPtr("%d", "fmt_i32");
+                        formatStr = safeCreateGlobalString("%d", "fmt_i32");
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::INT8:
-                        formatStr = safeCreateGlobalStringPtr("%c", "fmt_c");
+                        formatStr = safeCreateGlobalString("%c", "fmt_c");
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::INT64:
-                        formatStr = safeCreateGlobalStringPtr("%lld", "fmt_i64");
+                        formatStr = safeCreateGlobalString("%lld", "fmt_i64");
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::FLOAT32:
                     case ValueType::FLOAT64:
-                        formatStr = safeCreateGlobalStringPtr("%f", "fmt_f");
+                        formatStr = safeCreateGlobalString("%f", "fmt_f");
                         printValue = typeHelper.castValue(builder, printValue, printType, ValueType::FLOAT64);
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::STRING:
-                        formatStr = safeCreateGlobalStringPtr("%s", "fmt_s");
+                        formatStr = safeCreateGlobalString("%s", "fmt_s");
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::BOOL:
-                        formatStr = safeCreateGlobalStringPtr("%d", "fmt_b");
+                        formatStr = safeCreateGlobalString("%d", "fmt_b");
                         printValue = typeHelper.castValue(builder, printValue, printType, ValueType::INT32);
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::POINTER:
-                        formatStr = safeCreateGlobalStringPtr("%p", "fmt_p");
+                        formatStr = safeCreateGlobalString("%p", "fmt_p");
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     case ValueType::ARRAY:
-                        formatStr = safeCreateGlobalStringPtr("%p", "fmt_p");
+                        formatStr = safeCreateGlobalString("%p", "fmt_p");
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                         break;
                         
                     default:
-                        formatStr = safeCreateGlobalStringPtr("%d", "fmt_d");
+                        formatStr = safeCreateGlobalString("%d", "fmt_d");
                         if (printValue->getType()->isIntegerTy()) {
                             builder.CreateCall(printfFunction, {formatStr, printValue});
                         } else {
@@ -4854,7 +4854,7 @@ public:
                 }
             }
             
-            Value* newline = safeCreateGlobalStringPtr("\n", "fmt_nl");
+            Value* newline = safeCreateGlobalString("\n", "fmt_nl");
             if (newline) {
                 builder.CreateCall(printfFunction, {newline});
             }
@@ -4873,50 +4873,50 @@ public:
             
             switch (printType) {
                 case ValueType::INT32:
-                    formatStr = safeCreateGlobalStringPtr("%d\n", "fmt_i32_nl");
+                    formatStr = safeCreateGlobalString("%d\n", "fmt_i32_nl");
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::INT8:
-                    formatStr = safeCreateGlobalStringPtr("%c\n", "fmt_c_nl");
+                    formatStr = safeCreateGlobalString("%c\n", "fmt_c_nl");
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::INT64:
-                    formatStr = safeCreateGlobalStringPtr("%lld\n", "fmt_i64_nl");
+                    formatStr = safeCreateGlobalString("%lld\n", "fmt_i64_nl");
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::FLOAT32:
                 case ValueType::FLOAT64:
-                    formatStr = safeCreateGlobalStringPtr("%f\n", "fmt_f_nl");
+                    formatStr = safeCreateGlobalString("%f\n", "fmt_f_nl");
                     printValue = typeHelper.castValue(builder, printValue, printType, ValueType::FLOAT64);
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::STRING:
-                    formatStr = safeCreateGlobalStringPtr("%s\n", "fmt_s_nl");
+                    formatStr = safeCreateGlobalString("%s\n", "fmt_s_nl");
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::BOOL:
-                    formatStr = safeCreateGlobalStringPtr("%d\n", "fmt_b_nl");
+                    formatStr = safeCreateGlobalString("%d\n", "fmt_b_nl");
                     printValue = typeHelper.castValue(builder, printValue, printType, ValueType::INT32);
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::POINTER:
-                    formatStr = safeCreateGlobalStringPtr("%p\n", "fmt_p_nl");
+                    formatStr = safeCreateGlobalString("%p\n", "fmt_p_nl");
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 case ValueType::ARRAY:
-                    formatStr = safeCreateGlobalStringPtr("%p\n", "fmt_p_nl");
+                    formatStr = safeCreateGlobalString("%p\n", "fmt_p_nl");
                     builder.CreateCall(printfFunction, {formatStr, printValue});
                     break;
                     
                 default:
-                    formatStr = safeCreateGlobalStringPtr("%d\n", "fmt_d_nl");
+                    formatStr = safeCreateGlobalString("%d\n", "fmt_d_nl");
                     if (printValue->getType()->isIntegerTy()) {
                         builder.CreateCall(printfFunction, {formatStr, printValue});
                     } else {
@@ -4991,13 +4991,13 @@ public:
         Function* reallocFn = getOrCreateReallocFunction();
         Value* heapI8 = builder.CreateCall(
             reallocFn,
-            {ConstantPointerNull::get(PointerType::getUnqual(Type::getInt8Ty(context))), totalBytes},
+            {ConstantPointerNull::get(PointerType::get(context, 0)), totalBytes},
             "arr_heap"
         );
-        Value* lenPtr = builder.CreateBitCast(heapI8, PointerType::getUnqual(Type::getInt32Ty(context)), "arr_len_ptr");
+        Value* lenPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "arr_len_ptr");
         builder.CreateStore(ConstantInt::get(Type::getInt32Ty(context), count), lenPtr);
         Value* dataI8 = builder.CreateInBoundsGEP(Type::getInt8Ty(context), heapI8, headerSizeVal, "arr_data_i8");
-        Value* arrayPtr = builder.CreateBitCast(dataI8, PointerType::getUnqual(elemType), "arr_ptr");
+        Value* arrayPtr = builder.CreateBitCast(dataI8, PointerType::get(context, 0), "arr_ptr");
 
         for (int i = 0; i < count; i++) {
             Value* idx = ConstantInt::get(Type::getInt32Ty(context), i);
@@ -5234,7 +5234,7 @@ public:
                 Value* arrayPtr = builder.CreateLoad(allocatedType, baseAlloc, "array_ptr");
                 Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(allocatedType), varName);
                 if (varName == "argv") {//处理argv特殊情况
-                    elemType = PointerType::getUnqual(Type::getInt8Ty(context));
+                    elemType = PointerType::get(context, 0);
                 }
                 ValueType vt = typeHelper.getValueTypeFromType(elemType);
 
