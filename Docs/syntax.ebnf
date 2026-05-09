@@ -1,0 +1,194 @@
+program = statement_list ;
+
+statement_list = statement { statement } ;
+
+statement =
+      print_statement ";"
+    | assignment_statement ";"
+    | "let" identifier "=" expression [ ":" type ] ";"
+    | "let" "mut" identifier "=" expression ";"
+    | "let" identifier ":" type [ "=" expression ] ";"
+    | "let" "mut" identifier ":" type [ "=" expression ] ";"
+    | identifier ":" expression ";"
+    | identifier ":" type "=" expression ";"
+    | "mut" identifier "=" expression ";"
+    | "mut" identifier ":" type "=" expression ";"
+    | "import" string ";"
+    | "const" identifier "=" expression [ ":" type ] ";"
+    | "let" "const" identifier "=" expression [ ":" type ] ";"
+    | "global" identifier [ ":" type ] "=" expression ";"
+    | "pub" "global" identifier [ ":" type ] "=" expression ";"
+    | compound_assignment_statement ";"
+    | if_statement
+    | while_statement
+    | for_statement
+    | type_definition
+    | match_statement
+    | "return" [ expression ] ";"
+    | expression [ ";" ]
+    | function_definition
+    | "pub" function_definition
+    | extern_block
+    | "break" [ ";" ]
+    | "continue" [ ";" ]
+    | "struct" identifier [ ":" "[" generic_param_list "]" ] "{" struct_fields "}"
+    | "pub" "struct" identifier [ ":" "[" generic_param_list "]" ] "{" struct_fields "}"
+    ;
+
+type_definition =
+      [ "pub" ] "type" identifier [ ":" "[" generic_param_list "]" ] "=" enum_variant_list
+    ;
+
+enum_variant_list = enum_variant { "|" enum_variant } ;
+enum_variant =
+      identifier
+    | identifier "(" type ")"
+    ;
+
+generic_param_list = identifier { "," identifier } ;
+generic_type_args = type { "," type } ;
+
+struct_fields = [ struct_field { "," struct_field } ] ;
+struct_field = identifier ":" type ;
+
+struct_init_fields = [ struct_init_field { "," struct_init_field } ] ;
+struct_init_field = identifier ":" expression ;
+
+type =
+      "i32" | "i64" | "i8"
+    | "f32" | "f64"
+    | "str" | "void"
+    | "ptr" "(" type ")"
+    | "&" type
+    | "[" type "*" number_int "]"
+    | "[" type "]"
+    | "?" type
+    | "fn" "(" [ type_list ] ")" ":" type
+    | "(" type_list ")"
+    | identifier [ "[" generic_type_args "]" ]
+    ;
+
+type_list = type { "," type } ;
+
+param_list =
+      identifier [ ":" type ]
+    | "mut" identifier [ ":" type ]
+    | param_list "," identifier [ ":" type ]
+    | param_list "," "mut" identifier [ ":" type ]
+    ;
+
+function_definition =
+      [ "pub" ] "fn" identifier [ ":" "[" generic_param_list "]" ]
+      "(" [ param_list ] ")"
+      [ ("->" | ":") type ]
+      "{" statement_list "}"
+    ;
+
+extern_block = "extern" string "{" extern_decl_list "}" ;
+extern_decl_list = [ extern_decl { extern_decl } ] ;
+extern_decl =
+      "fn" identifier "(" [ param_list ] [ "," "..." ] ")" [ ("->" | ":") type ]
+    ;
+
+match_statement = "match" match_target "{" match_arms "}" ;
+match_target = identifier | literal | "(" expression ")" ;
+match_arms = match_arm { match_arm } ;
+match_arm = match_arm_pattern "->" block_statement ;
+match_arm_pattern =
+      identifier
+    | literal
+    | identifier "(" identifier ")"
+    ;
+
+block_statement = "{" statement_list "}" | statement ;
+
+if_statement = "if" "(" expression ")" block_statement if_rest ;
+if_rest = [ "else" block_statement | "elif" "(" expression ")" block_statement if_rest ] ;
+
+while_statement = "while" "(" expression ")" block_statement ;
+
+for_statement =
+      "for" "(" identifier ";" expression ".." expression ")" block_statement
+    | "for" "(" identifier "in" expression ".." expression ")" block_statement
+    | "for" "(" identifier "in" expression ")" block_statement
+    | "for" "(" identifier ";" expression ")" block_statement
+    | "for" "(" identifier identifier ";" expression ")" block_statement
+    ;
+
+print_statement = "print" ( expression | "(" expression [ "," expression_list ] ")" ) ;
+
+compound_assignment_statement =
+      identifier ( "+=" | "-=" | "*=" | "/=" | "%=" ) expression
+    ;
+
+assignment_statement =
+      lvalue "=" expression
+    | identifier "[" expression "]" "=" expression
+    ;
+
+lvalue =
+      identifier
+    | lvalue "." identifier
+    | lvalue "[" expression "]"
+    | "@" lvalue
+    ;
+
+expression = logical_expression ;
+
+logical_expression =
+      comparison_expression
+    | logical_expression ("&&" | "||") comparison_expression
+    ;
+
+comparison_expression =
+      additive_expression
+    | additive_expression ("==" | "!=" | "<" | "<=" | ">" | ">=") additive_expression
+    ;
+
+additive_expression =
+      term
+    | additive_expression ("+" | "-") term
+    ;
+
+term =
+      factor
+    | term ("*" | "/" | "%") factor
+    ;
+
+factor = power ;
+power = factor_unary [ "^" factor ] ;
+
+factor_unary =
+      identifier "(" [ expression_list ] ")"
+    | identifier "[" expression "]"
+    | identifier ":" "[" generic_type_args "]" "(" [ expression_list ] ")"
+    | identifier "{" [ struct_init_fields ] "}"
+    | identifier ":" "[" generic_type_args "]" "{" [ struct_init_fields ] "}"
+    | identifier
+    | literal
+    | "toint" "(" expression ")"
+    | "tofloat" "(" expression ")"
+    | "input" "(" [ string ] ")"
+    | ("+" | "-" | "*") factor_unary
+    | "&" factor_unary
+    | "@" factor_unary
+    | "(" expression ")"
+    | "(" expression "," expression_list ")"
+    | factor_unary "." identifier [ "(" [ expression_list ] ")" ]
+    | factor_unary "." number_int
+    | factor_unary "[" expression "]"
+    | "fn" "(" [ identifier ":" type | param_list ] ")" [ ("->" | ":") type ] block_statement
+    ;
+
+expression_list = expression { "," expression } ;
+
+literal =
+      number_int
+    | number_float
+    | string
+    | char_literal
+    | "nil"
+    | "[" [ expression_list ] "]"
+    ;
+
+identifier = IDENTIFIER ;
