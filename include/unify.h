@@ -84,7 +84,12 @@ public:
 		}
 
 		if (a->kind != b->kind) {
-			throw std::runtime_error("type mismatch: " + pretty(a) + " vs " + pretty(b));
+			bool compatible = (a->kind == TypeKind::Bool && (b->kind == TypeKind::I32 || b->kind == TypeKind::I8)) ||
+							  (b->kind == TypeKind::Bool && (a->kind == TypeKind::I32 || a->kind == TypeKind::I8));
+			if (!compatible) {
+				throw std::runtime_error("type mismatch: " + pretty(a) + " vs " + pretty(b));
+			}
+			return;
 		}
 
 		switch (a->kind) {

@@ -1,0 +1,16 @@
+const PI: f64 = 3.14
+const GREETING = "hello"
+const MAX = 100
+
+fn main(): i32
+{
+	print(GREETING)
+	print(MAX)
+	let r = 5.0
+	let area = PI * r * r
+	print(area)
+	if (MAX > 50) {
+		print("large")
+	}
+	return 0
+}

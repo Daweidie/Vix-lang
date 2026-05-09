@@ -1,0 +1,3467 @@
+=======test1.vix========
+fn id:[T](x: T): T
+{
+    return x
+}
+
+fn main(): i32
+{
+    print(id:[i32](123))
+    print(id:[str]("xyz"))
+    print(id("abc"))
+    return 0
+}
+=======test10.vix========
+struct Bag
+{
+    items: [i32]
+}
+
+fn main(): i32
+{
+    let b = Bag{ items: [1, 2, 3] }
+    print(b.items.length)
+    print(b.items[1])
+    return 0
+}
+=======test100.vix========
+fn main(): i32
+{
+	let list = [10, 20, 30]
+	print(list[0])
+	print(list[1])
+	print(list[2])
+	print(list.length)
+	return 0
+}
+=======test101.vix========
+fn main(): i32
+{
+	let list = [1, 2, 3, 99]
+	print(list.length)
+	print(list[3])
+	return 0
+}
+=======test102.vix========
+fn main(): i32
+{
+	let x = 42
+	let ptr = &x
+	print(@ptr)
+	return 0
+}
+=======test103.vix========
+fn main(): i32
+{
+	let mut x = 10
+	let mut ptr = &x
+	@ptr = 20
+	print(x)
+	print(@ptr)
+	return 0
+}
+=======test104.vix========
+fn main(): i32
+{
+	let mut x = 10
+	let mut y = 20
+	print(x)
+	print(y)
+	let temp = x
+	x = y
+	y = temp
+	print(x)
+	print(y)
+	return 0
+}
+=======test105.vix========
+fn main(): i32
+{
+	let x = 2
+	match x {
+		1 -> { print("one") }
+		2 -> { print("two") }
+		3 -> { print("three") }
+		_ -> { print("other") }
+	}
+	return 0
+}
+=======test106.vix========
+fn classify(x: i32) -> string
+{
+	match x {
+		0 -> { return "zero" }
+		1 -> { return "one" }
+		_ -> { return "many" }
+	}
+}
+
+fn main(): i32
+{
+	print(classify(0))
+	print(classify(1))
+	print(classify(42))
+	return 0
+}
+=======test107.vix========
+fn safe_div(a: i32, b: i32) -> i32
+{
+	if (b == 0) {
+		return -1
+	}
+	return a / b
+}
+
+fn main(): i32
+{
+	let r1 = safe_div(10, 3)
+	let r2 = safe_div(10, 0)
+	print(r1)
+	print(r2)
+	return 0
+}
+=======test108.vix========
+fn main(): i32
+{
+	let a: i32 = 0
+	let b: i64 = 0
+	let c: f64 = 0.0
+	let d: string = ""
+	let e: i32
+	print(a)
+	print(b)
+	print(c)
+	print("ok")
+	print(e)
+	return 0
+}
+=======test109.vix========
+fn main(): i32
+{
+	let x = 10
+	x += 5
+	print(x)
+	x -= 3
+	print(x)
+	x *= 4
+	print(x)
+	x /= 2
+	print(x)
+	x %= 7
+	print(x)
+	return 0
+}
+=======test11.vix========
+struct A
+{
+    b: B,
+    value: i32
+}
+
+struct B
+{
+    a: A
+}
+
+fn main(): i32
+{
+    let x = A{ value: 9 }
+    print(x.b)
+    return 0
+}
+=======test110.vix========
+fn main(): i32
+{
+	print(0xFF)
+	print(0x00)
+	print(0x0A)
+	print(0x10)
+	print(0xFF + 1)
+	return 0
+}
+=======test111.vix========
+fn main(): i32
+{
+	let p = (10, 20)
+	print(p.0)
+	print(p.1)
+	return 0
+}
+=======test112.vix========
+fn main(): i32
+{
+	let t = (1, 2, 3)
+	print(t.0)
+	print(t.1)
+	print(t.2)
+	return 0
+}
+=======test113.vix========
+fn double(x: i32) -> i32
+{
+	return x * 2
+}
+
+fn triple(x: i32) -> i32
+{
+	return x * 3
+}
+
+fn apply(f: fn(i32): i32, x: i32) -> i32
+{
+	return f(x)
+}
+
+fn main(): i32
+{
+	let f = fn(n: i32): i32 { n + 1 }
+	print(apply(double, 5))
+	print(apply(triple, 5))
+	print(f(10))
+	return 0
+}
+=======test114.vix========
+fn double(x: i32) -> i32
+{
+	return x * 2
+}
+
+fn apply(f: fn(i32): i32, x: i32) -> i32
+{
+	return f(x)
+}
+
+fn main(): i32
+{
+	print(apply(double, 5))
+	print(apply(double, 21))
+	return 0
+}
+=======test115.vix========
+fn main(): i32
+{
+	let mut counter = 0
+	counter = counter + 1
+	counter = counter + 1
+	counter = counter + 1
+	print(counter)
+	return 0
+}
+=======test116.vix========
+const MAX = 100
+
+fn main(): i32
+{
+	print(MAX)
+	return 0
+}
+=======test117.vix========
+fn main(): i32
+{
+	let x = 10
+	x += 0
+	print(x)
+	x -= 0
+	print(x)
+	x *= 1
+	print(x)
+	x /= 1
+	print(x)
+	x %= 1
+	print(x)
+	return 0
+}
+=======test118.vix========
+fn main(): i32
+{
+	let a = 0
+	let b = 0 - 1
+	let c = 0 - 100
+	print(a)
+	print(b)
+	print(c)
+	print(b * b)
+	print(c + 100)
+	return 0
+}
+=======test119.vix========
+fn is_even(n: i32) -> i32
+{
+	if (n % 2 == 0) {
+		return 1
+	}
+	return 0
+}
+
+fn main(): i32
+{
+	print(is_even(0))
+	print(is_even(1))
+	print(is_even(2))
+	print(is_even(3))
+	print(is_even(100))
+	return 0
+}
+=======test12.vix========
+struct Inner
+{
+    value: i32
+}
+
+struct Outer
+{
+    inner: Inner
+}
+
+fn main(): i32
+{
+    let o = Outer{ inner: Inner{ value: 1 } }
+    print(o.inner.missing)
+    return 0
+}
+=======test120.vix========
+fn abs_val(n: i32) -> i32
+{
+	if (n < 0) {
+		return 0 - n
+	}
+	return n
+}
+
+fn main(): i32
+{
+	print(abs_val(5))
+	print(abs_val(-5))
+	print(abs_val(0))
+	print(abs_val(-100))
+	return 0
+}
+=======test121.vix========
+fn min_val(a: i32, b: i32) -> i32
+{
+	if (a < b) {
+		return a
+	}
+	return b
+}
+
+fn max_val(a: i32, b: i32) -> i32
+{
+	if (a > b) {
+		return a
+	}
+	return b
+}
+
+fn main(): i32
+{
+	print(min_val(3, 7))
+	print(min_val(10, 2))
+	print(min_val(5, 5))
+	print(max_val(3, 7))
+	print(max_val(10, 2))
+	print(max_val(5, 5))
+	return 0
+}
+=======test122.vix========
+fn is_prime(n: i32) -> i32
+{
+	if (n <= 1) {
+		return 0
+	}
+	if (n <= 3) {
+		return 1
+	}
+	if (n % 2 == 0) {
+		return 0
+	}
+	let i = 3
+	while (i * i <= n) {
+		if (n % i == 0) {
+			return 0
+		}
+		i = i + 2
+	}
+	return 1
+}
+
+fn main(): i32
+{
+	print(is_prime(0))
+	print(is_prime(1))
+	print(is_prime(2))
+	print(is_prime(3))
+	print(is_prime(4))
+	print(is_prime(5))
+	print(is_prime(17))
+	print(is_prime(100))
+	return 0
+}
+=======test123.vix========
+fn power(base: i32, exp: i32) -> i32
+{
+	let result = 1
+	let i = 0
+	while (i < exp) {
+		result = result * base
+		i = i + 1
+	}
+	return result
+}
+
+fn main(): i32
+{
+	print(power(2, 0))
+	print(power(2, 1))
+	print(power(2, 10))
+	print(power(3, 3))
+	print(power(10, 3))
+	return 0
+}
+=======test124.vix========
+fn fib_iter(n: i32) -> i32
+{
+	if (n <= 1) {
+		return n
+	}
+	let a = 0
+	let b = 1
+	let i = 2
+	while (i <= n) {
+		let c = a + b
+		a = b
+		b = c
+		i = i + 1
+	}
+	return b
+}
+
+fn main(): i32
+{
+	print(fib_iter(0))
+	print(fib_iter(1))
+	print(fib_iter(10))
+	print(fib_iter(20))
+	return 0
+}
+=======test125.vix========
+fn fact_iter(n: i32) -> i32
+{
+	let result = 1
+	let i = 2
+	while (i <= n) {
+		result = result * i
+		i = i + 1
+	}
+	return result
+}
+
+fn main(): i32
+{
+	print(fact_iter(0))
+	print(fact_iter(1))
+	print(fact_iter(5))
+	print(fact_iter(10))
+	return 0
+}
+=======test126.vix========
+fn gcd(a: i32, b: i32) -> i32
+{
+	while (b != 0) {
+		let t = b
+		b = a % b
+		a = t
+	}
+	return a
+}
+
+fn lcm(a: i32, b: i32) -> i32
+{
+	return (a / gcd(a, b)) * b
+}
+
+fn main(): i32
+{
+	print(lcm(4, 6))
+	print(lcm(3, 7))
+	print(lcm(12, 18))
+	print(lcm(1, 100))
+	return 0
+}
+=======test127.vix========
+fn main(): i32
+{
+	let sum = 0
+	let i = 1
+	while (i <= 100) {
+		sum = sum + i
+		i = i + 1
+	}
+	print(sum)
+	return 0
+}
+=======test128.vix========
+struct Person
+{
+	name: string
+	age: i32
+}
+
+fn describe(p: Person) -> string
+{
+	return p.name
+}
+
+fn main(): i32
+{
+	let p = Person { name: "Alice", age: 30 }
+	print(describe(p))
+	print(p.age)
+	return 0
+}
+=======test129.vix========
+fn main(): i32
+{
+	let arr: [i32 * 5] = [0, 0, 0, 0, 0]
+	arr[0] = 10
+	arr[1] = 20
+	arr[2] = 30
+	print(arr[0])
+	print(arr[1])
+	print(arr[2])
+	print(arr.length)
+	return 0
+}
+=======test13.vix========
+struct Table:[T]
+{
+    scopes: [[T]]
+}
+
+fn main(): i32
+{
+    let t = Table:[i32]{ scopes: [[1, 2], [3, 4]] }
+    print(t.scopes[0].length)
+    return 0
+}
+=======test130.vix========
+fn main(): i32
+{
+	let mut total = 0
+	let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+	for (item in arr) {
+		total = total + item
+	}
+	print(total)
+	return 0
+}
+=======test131.vix========
+fn bubble_sort(arr: [i32], size: i32)
+{
+	for (i in 0 .. size - 1) {
+		for (j in 0 .. size - i - 1) {
+			if (arr[j] > arr[j + 1]) {
+				let temp = arr[j]
+				arr[j] = arr[j + 1]
+				arr[j + 1] = temp
+			}
+		}
+	}
+}
+
+fn main(): i32
+{
+	let arr = [64, 34, 25, 12, 22, 11, 90]
+	bubble_sort(arr, 7)
+	for (i in 0 .. arr.length) {
+		print(arr[i])
+	}
+	return 0
+}
+=======test132.vix========
+fn reverse_array(arr: [i32], size: i32)
+{
+	let left = 0
+	let right = size - 1
+	while (left < right) {
+		let temp = arr[left]
+		arr[left] = arr[right]
+		arr[right] = temp
+		left = left + 1
+		right = right - 1
+	}
+}
+
+fn main(): i32
+{
+	let arr = [1, 2, 3, 4, 5]
+	reverse_array(arr, 5)
+	for (i in 0 .. 5) {
+		print(arr[i])
+	}
+	return 0
+}
+=======test133.vix========
+fn count_occurrences(arr: [i32], size: i32, target: i32) -> i32
+{
+	let count = 0
+	for (i in 0 .. size) {
+		if (arr[i] == target) {
+			count = count + 1
+		}
+	}
+	return count
+}
+
+fn main(): i32
+{
+	let arr = [1, 2, 3, 2, 4, 2, 5]
+	print(count_occurrences(arr, 7, 2))
+	print(count_occurrences(arr, 7, 1))
+	print(count_occurrences(arr, 7, 99))
+	return 0
+}
+=======test134.vix========
+fn find_max(arr: [i32], size: i32) -> i32
+{
+	let max_val = arr[0]
+	for (i in 1 .. size) {
+		if (arr[i] > max_val) {
+			max_val = arr[i]
+		}
+	}
+	return max_val
+}
+
+fn main(): i32
+{
+	let arr = [3, 7, 2, 9, 1, 5]
+	print(find_max(arr, 6))
+	let arr2 = [100]
+	print(find_max(arr2, 1))
+	return 0
+}
+=======test135.vix========
+fn linear_search(arr: [i32], size: i32, target: i32) -> i32
+{
+	for (i in 0 .. size) {
+		if (arr[i] == target) {
+			return i
+		}
+	}
+	return -1
+}
+
+fn main(): i32
+{
+	let arr = [10, 20, 30, 40, 50]
+	print(linear_search(arr, 5, 30))
+	print(linear_search(arr, 5, 10))
+	print(linear_search(arr, 5, 99))
+	return 0
+}
+=======test136.vix========
+fn main(): i32
+{
+	let s = "hello"
+	print(s)
+	let t = "world"
+	print(t)
+	return 0
+}
+=======test137.vix========
+fn main(): i32
+{
+	let s1 = "abc"
+	let s2 = "abc"
+	let s3 = "xyz"
+	if (s1 == s2) {
+		print("equal")
+	}
+	if (s1 != s3) {
+		print("not-equal")
+	}
+	return 0
+}
+=======test138.vix========
+fn main(): i32
+{
+	let arr = [10, 20, 30]
+	for (i in 0 .. arr.length) {
+		let doubled = arr[i] * 2
+		print(doubled)
+	}
+	return 0
+}
+=======test139.vix========
+fn main(): i32
+{
+	let x = 0
+	let y = 1
+	let z = x + y
+	print(z)
+	let a = 10
+	let b = 20
+	let c = a + b
+	let d = c * 2
+	print(d)
+	return 0
+}
+=======test14.vix========
+struct Table:[T]
+{
+    scopes: [[T]]
+}
+
+fn main(): i32
+{
+    let t = Table:[i32]{ scopes: [[1, 2], [3, 4]] }
+    print(t.scopes.length)
+    return 0
+}
+=======test140.vix========
+fn main(): i32
+{
+	let mut i = 0
+	while (i < 5) {
+		let j = 0
+		while (j < 5) {
+			if (j == 3) {
+				break
+			}
+			j = j + 1
+		}
+		print(j)
+		i = i + 1
+	}
+	return 0
+}
+=======test141.vix========
+fn collatz_steps(n: i32) -> i32
+{
+	let steps = 0
+	let mut val = n
+	while (val != 1) {
+		if (val % 2 == 0) {
+			val = val / 2
+		}
+		else {
+			val = val * 3 + 1
+		}
+		steps = steps + 1
+	}
+	return steps
+}
+
+fn main(): i32
+{
+	print(collatz_steps(1))
+	print(collatz_steps(2))
+	print(collatz_steps(6))
+	print(collatz_steps(27))
+	return 0
+}
+=======test142.vix========
+fn digit_sum(n: i32) -> i32
+{
+	let sum = 0
+	let mut val = n
+	while (val > 0) {
+		sum = sum + val % 10
+		val = val / 10
+	}
+	return sum
+}
+
+fn main(): i32
+{
+	print(digit_sum(0))
+	print(digit_sum(1))
+	print(digit_sum(123))
+	print(digit_sum(9999))
+	return 0
+}
+=======test143.vix========
+fn clamp(x: i32, lo: i32, hi: i32) -> i32
+{
+	if (x < lo) {
+		return lo
+	}
+	if (x > hi) {
+		return hi
+	}
+	return x
+}
+
+fn main(): i32
+{
+	print(clamp(5, 0, 10))
+	print(clamp(-5, 0, 10))
+	print(clamp(15, 0, 10))
+	print(clamp(0, 0, 10))
+	print(clamp(10, 0, 10))
+	return 0
+}
+=======test144.vix========
+fn main(): i32
+{
+	let a = 1
+	let b = 2
+	let c = 3
+	let d = 4
+	let e = 5
+	print(a + b + c + d + e)
+	print(a * b * c * d * e)
+	print(e - d - c - b - a)
+	return 0
+}
+=======test145.vix========
+fn main(): i32
+{
+	let x = 10
+	let y = 3
+	print(x / y)
+	print(x % y)
+	print(0 - x / y)
+	return 0
+}
+=======test146.vix========
+struct Point { x: i32, y: i32 }
+struct Line { start: Point, end_: Point }
+
+fn main(): i32
+{
+	let l = Line {
+		start: Point { x: 0, y: 0 },
+		end_: Point { x: 10, y: 20 }
+	}
+	print(l.start.x)
+	print(l.start.y)
+	print(l.end_.x)
+	print(l.end_.y)
+	return 0
+}
+=======test147.vix========
+fn main(): i32
+{
+	let mut x = 0
+	x = x + 1
+	x = x + 1
+	x = x + 1
+	x = x + 1
+	x = x + 1
+	print(x)
+	return 0
+}
+=======test148.vix========
+fn main(): i32
+{
+	let arr = [5, 3, 8, 1, 9, 2, 7, 4, 6]
+	let mut sum = 0
+	for (item in arr) {
+		if (item > 4) {
+			sum = sum + item
+		}
+	}
+	print(sum)
+	return 0
+}
+=======test149.vix========
+fn main(): i32
+{
+	let mut count = 0
+	for (i in 0 .. 20) {
+		if (i % 3 == 0) {
+			count = count + 1
+		}
+	}
+	print(count)
+	return 0
+}
+=======test15.vix========
+struct Table:[T]
+{
+    scopes: [[T]]
+}
+
+fn main(): i32
+{
+    let t = Table:[i32]{ scopes: [[1, 2], [3, 4]] }
+    print(t.scopes[1][0])
+    return 0
+}
+=======test150.vix========
+fn main(): i32
+{
+	let x = 1
+	while (x < 1000) {
+		x = x * 2
+	}
+	print(x)
+	return 0
+}
+=======test151.vix========
+fn nested_if(x: i32) -> i32
+{
+	if (x > 0) {
+		if (x > 10) {
+			if (x > 100) {
+				return 3
+			}
+			return 2
+		}
+		return 1
+	}
+	return 0
+}
+
+fn main(): i32
+{
+	print(nested_if(-5))
+	print(nested_if(5))
+	print(nested_if(50))
+	print(nested_if(500))
+	return 0
+}
+=======test152.vix========
+type Color = Red | Green | Blue
+
+fn main(): i32
+{
+	let c = Red
+	let d = Blue
+	match c {
+		Red -> { print("red") }
+		Green -> { print("green") }
+		Blue -> { print("blue") }
+	}
+	match d {
+		Red -> { print("red") }
+		Green -> { print("green") }
+		Blue -> { print("blue") }
+	}
+	return 0
+}
+=======test153.vix========
+fn main(): i32
+{
+	let a = Ok(42) : Result[i32, string]
+	match a {
+		Ok(v) -> { print(v) }
+		Err(e) -> { print(e) }
+	}
+	let b = Err("oops") : Result[i32, string]
+	match b {
+		Ok(v) -> { print(v) }
+		Err(e) -> { print(e) }
+	}
+	return 0
+}
+=======test154.vix========
+fn main(): i32
+{
+	let a = Some(10)
+	match a {
+		Some(v) -> { print(v) }
+		None -> { print("none") }
+	}
+	let b = None
+	match b {
+		Some(v) -> { print(v) }
+		None -> { print("none") }
+	}
+	return 0
+}
+=======test155.vix========
+fn main(): i32
+{
+	let mut total = 0
+	for (i in 1 .. 6) {
+		total = total + i * i
+	}
+	print(total)
+	return 0
+}
+=======test156.vix========
+fn fizzbuzz(n: i32)
+{
+	for (i in 1 .. n + 1) {
+		if (i % 15 == 0) {
+			print("fizzbuzz")
+		}
+		elif (i % 3 == 0) {
+			print("fizz")
+		}
+		elif (i % 5 == 0) {
+			print("buzz")
+		}
+		else {
+			print(i)
+		}
+	}
+}
+
+fn main(): i32
+{
+	fizzbuzz(15)
+	return 0
+}
+=======test157.vix========
+fn main(): i32
+{
+	let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+	let evens = 0
+	let odds = 0
+	for (item in arr) {
+		if (item % 2 == 0) {
+			evens = evens + 1
+		}
+		else {
+			odds = odds + 1
+		}
+	}
+	print(evens)
+	print(odds)
+	return 0
+}
+=======test158.vix========
+fn main(): i32
+{
+	let x = 5
+	match x {
+		1 -> { print("one") }
+		2 -> { print("two") }
+		3 -> { print("three") }
+		4 -> { print("four") }
+		5 -> { print("five") }
+		_ -> { print("other") }
+	}
+	return 0
+}
+=======test159.vix========
+fn main(): i32
+{
+	let x: i32
+	let y: i64
+	let z: f64
+	let s: string
+	print(x)
+	print(y)
+	print(z)
+	print("ok")
+	return 0
+}
+=======test16.vix========
+struct Box:[T]
+{
+    next: Box:[T],
+    value: T
+}
+
+fn main(): i32
+{
+    let x = Box:[i32]{ value: 11 }
+    print(x.value)
+    return 0
+}
+=======test160.vix========
+fn main(): i32
+{
+	let x = toint(3.99)
+	print(x)
+	let y = tofloat(42)
+	print(y)
+	let z = toint(0.1)
+	print(z)
+	return 0
+}
+=======test161.vix========
+fn main(): i32
+{
+	let a = 10
+	let b = 20
+	let c = 30
+	print(a + b + c)
+	print(a * b + c)
+	print(a + b * c)
+	print((a + b) * c)
+	return 0
+}
+=======test162.vix========
+fn main(): i32
+{
+	let mut i = 0
+	let mut sum = 0
+	while (i < 1000) {
+		sum = sum + i
+		i = i + 1
+	}
+	print(sum)
+	return 0
+}
+=======test163.vix========
+fn tribonacci(n: i32) -> i32
+{
+	if (n == 0) {
+		return 0
+	}
+	if (n == 1) {
+		return 0
+	}
+	if (n == 2) {
+		return 1
+	}
+	let a = 0
+	let b = 0
+	let c = 1
+	let i = 3
+	while (i <= n) {
+		let d = a + b + c
+		a = b
+		b = c
+		c = d
+		i = i + 1
+	}
+	return c
+}
+
+fn main(): i32
+{
+	print(tribonacci(0))
+	print(tribonacci(1))
+	print(tribonacci(2))
+	print(tribonacci(5))
+	print(tribonacci(10))
+	return 0
+}
+=======test164.vix========
+fn is_palindrome(n: i32) -> i32
+{
+	let reversed = 0
+	let temp = n
+	while (temp > 0) {
+		reversed = reversed * 10 + temp % 10
+		temp = temp / 10
+	}
+	if (reversed == n) {
+		return 1
+	}
+	return 0
+}
+
+fn main(): i32
+{
+	print(is_palindrome(121))
+	print(is_palindrome(123))
+	print(is_palindrome(1))
+	print(is_palindrome(1221))
+	return 0
+}
+=======test165.vix========
+fn main(): i32
+{
+	let x = 1
+	let y = 1
+	x += y
+	print(x)
+	x *= 3
+	print(x)
+	x -= 2
+	print(x)
+	x /= 4
+	print(x)
+	x %= 3
+	print(x)
+	return 0
+}
+=======test166.vix========
+fn sum_range(start: i32, end_: i32) -> i32
+{
+	let sum = 0
+	for (i in start .. end_) {
+		sum = sum + i
+	}
+	return sum
+}
+
+fn main(): i32
+{
+	print(sum_range(0, 10))
+	print(sum_range(1, 11))
+	print(sum_range(5, 10))
+	return 0
+}
+=======test167.vix========
+fn main(): i32
+{
+	let mut s = [0, 0, 0, 0, 0]
+	s[0] = 10
+	s[1] = 20
+	s[2] = 30
+	print(s[0])
+	print(s[1])
+	print(s[2])
+	print(s.length)
+	return 0
+}
+=======test168.vix========
+fn main(): i32
+{
+	let x = 0
+	if (x == 0) {
+		print("zero")
+	}
+	else {
+		print("nonzero")
+	}
+	if (x != 0) {
+		print("nonzero")
+	}
+	else {
+		print("zero")
+	}
+	return 0
+}
+=======test169.vix========
+fn main(): i32
+{
+	let arr = [10, 20, 30, 40, 50]
+	let mut sum = 0
+	for (i in 0 .. arr.length) {
+		sum = sum + arr[i]
+	}
+	print(sum)
+	print(arr.length)
+	return 0
+}
+=======test17.vix========
+struct Node
+{
+    next: Node,
+    value: i32
+}
+
+fn main(): i32
+{
+    let n = Node{ value: 7 }
+    print(n.value)
+    return 0
+}
+=======test170.vix========
+fn main(): i32
+{
+	let pair = (10, 20)
+	print(pair.0 + pair.1)
+	print(pair.0 * pair.1)
+	let triple = (1, 2, 3)
+	print(triple.0 + triple.1 + triple.2)
+	return 0
+}
+=======test171.vix========
+fn ackermann(m: i32, n: i32): i32
+{
+	if (m == 0)
+	{
+		return n + 1
+	}
+	if (n == 0)
+	{
+		return ackermann(m - 1, 1)
+	}
+	return ackermann(m - 1, ackermann(m, n - 1))
+}
+
+fn main(): i32
+{
+	print(ackermann(0, 0))
+	print(ackermann(0, 5))
+	print(ackermann(1, 0))
+	print(ackermann(1, 1))
+	print(ackermann(2, 1))
+	print(ackermann(3, 2))
+	return 0
+}
+=======test172.vix========
+fn main(): i32
+{
+	let a: ?i32 = Some(42)
+	let b: ?i32 = None
+
+	match a {
+		Some(v) -> print(v)
+		None -> print("none")
+	}
+
+	match b {
+		Some(v) -> print(v)
+		None -> print("none")
+	}
+
+	let c: ?string = Some("hello")
+	match c {
+		Some(v) -> print(v)
+		None -> print("empty")
+	}
+
+	return 0
+}
+=======test173.vix========
+fn main(): i32
+{
+	let a = Some(42)
+	let b: ?i32 = None
+
+	match a {
+		Some(_) -> print("has-value")
+		None -> print("none")
+	}
+	match b {
+		Some(_) -> print("has-value")
+		None -> print("none")
+	}
+
+	let c = Some("hello")
+	match c {
+		Some(_) -> print("has-string")
+		None -> print("none")
+	}
+	return 0
+}
+=======test174.vix========
+fn main(): i32
+{
+	let a = true
+	let b = false
+	if (a) {
+		print("true")
+	}
+	if (b == false) {
+		print("not-false")
+	}
+	let c = a and b
+	let d = a or b
+	if (c) {
+		print("and-true")
+	} else {
+		print("and-false")
+	}
+	if (d) {
+		print("or-true")
+	} else {
+		print("or-false")
+	}
+	return 0
+}
+=======test175.vix========
+fn main(): i32
+{
+	print(2 ** 10)
+	print(3 ** 3)
+	print(0 ** 0)
+	print(5 ** 1)
+	print(1 ** 100)
+	return 0
+}
+=======test176.vix========
+fn main(): i32
+{
+	let x = 10
+	if (x > 5) {
+		let y = 20
+		print(y)
+	}
+	print(x)
+	return 0
+}
+=======test177.vix========
+fn main(): i32
+{
+	let a: i32 = 0xFF
+	let b: i32 = 0x0A
+	print(a)
+	print(b)
+	print(a + b)
+	print(0x10)
+	return 0
+}
+=======test178.vix========
+fn main(): i32
+{
+	let t1 = (10, 20, 30)
+	print(t1.0)
+	print(t1.1)
+	print(t1.2)
+
+	let t2 = (100, 200)
+	print(t2.0)
+	print(t2.1)
+	return 0
+}
+=======test179.vix========
+fn main(): i32
+{
+	let t = (10, 20, 30)
+	print(t.0)
+	print(t.1)
+	print(t.2)
+	print(t.0 + t.1 + t.2)
+	return 0
+}
+=======test18.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32 {
+    let bad = Err("boom"): Result[i32, str]
+    
+    match bad {
+        Ok(v) -> print("matched-ok")
+        Err(e) -> print("matched-err")
+    }
+    
+    return 0
+}=======test180.vix========
+struct Point {
+	x: i32,
+	y: i32
+}
+
+fn main(): i32
+{
+	let mut p = Point{ x: 1, y: 2 }
+	print(p.x)
+	print(p.y)
+	let q = Point{ x: 100, y: 200 }
+	print(q.x)
+	print(q.y)
+	return 0
+}
+=======test181.vix========
+global counter: i32 = 100
+
+fn main(): i32
+{
+	print(counter)
+	return 0
+}
+=======test182.vix========
+const PI: f64 = 3.14
+const GREETING = "hello"
+const MAX = 100
+
+fn main(): i32
+{
+	print(GREETING)
+	print(MAX)
+	let r = 5.0
+	let area = PI * r * r
+	print(area)
+	if (MAX > 50) {
+		print("large")
+	}
+	return 0
+}
+=======test183.vix========
+fn add(a: i32, b: i32): i32
+{
+	return a + b
+}
+
+fn mul(a: i32, b: i32): i32
+{
+	return a * b
+}
+
+fn apply2(f: fn(i32, i32): i32, a: i32, b: i32): i32
+{
+	return f(a, b)
+}
+
+fn compose(f: fn(i32): i32, g: fn(i32): i32, x: i32): i32
+{
+	return f(g(x))
+}
+
+fn double_val(x: i32): i32 { return x * 2 }
+fn add_one(x: i32): i32 { return x + 1 }
+
+fn main(): i32
+{
+	print(apply2(add, 3, 4))
+	print(apply2(mul, 3, 4))
+	print(compose(double_val, add_one, 5))
+	print(compose(add_one, double_val, 5))
+	return 0
+}
+=======test184.vix========
+fn main(): i32
+{
+	let a: i32 = 0xFF
+	let b: i32 = 0x0A
+	print(a)
+	print(b)
+	print(a + b)
+	print(0x10)
+	return 0
+}
+=======test185.vix========
+fn main(): i32
+{
+	let x = 10
+	let mut y = 0
+	while (x > 0) {
+		if (x == 5) {
+			x = x - 1
+			continue
+		}
+		y = y + x
+		x = x - 1
+	}
+	print(y)
+
+	let mut i = 0
+	let mut sum = 0
+	while (i < 10) {
+		i = i + 1
+		if (i > 5) {
+			break
+		}
+		sum = sum + i
+	}
+	print(sum)
+	print(i)
+	return 0
+}
+=======test186.vix========
+fn main(): i32
+{
+	for (i in 0 .. 5) {
+		if (i == 2) {
+			continue
+		}
+		print(i)
+	}
+	let mut sum = 0
+	for (i in 0 .. 10) {
+		if (i == 6) {
+			break
+		}
+		sum = sum + i
+	}
+	print(sum)
+	return 0
+}
+=======test187.vix========
+fn fib(n: i32): i32
+{
+	if (n <= 1) {
+		return n
+	}
+	return fib(n - 1) + fib(n - 2)
+}
+
+fn main(): i32
+{
+	let r1 = fib(fib(3))
+	print(r1)
+	print(fib(5) + fib(6))
+	let x = fib(2)
+	let y = fib(3)
+	print(x + y)
+	return 0
+}
+=======test188.vix========
+struct Stack:[T] {
+	items: [T]
+}
+
+fn main(): i32 {
+	let s = Stack:[i32]{ items: [10, 20, 30] }
+	print(s.items.length)
+	print(s.items[0])
+	print(s.items[1])
+	print(s.items[2])
+	return 0
+}
+=======test189.vix========
+fn negate(b: bool): bool {
+	if (b) {
+		return false
+	}
+	return true
+}
+
+fn main(): i32 {
+	let a = true
+	let b = false
+	print(negate(a))
+	print(negate(b))
+
+	let x = 10
+	if (x <= 20) {
+		print("less")
+	}
+	if (x != 0) {
+		print("not-zero")
+	}
+	return 0
+}
+=======test19.vix========
+fn main(): i32
+{
+    let arr = [10, 20, 30]
+    for (x in arr) {
+        print(x)
+    }
+    print(arr.length)
+    return 0
+}
+=======test190.vix========
+fn main(): i32
+{
+	let arr: [i32 * 3] = [10, 20, 30]
+	for (i in 0 .. 3) {
+		print(arr[i])
+	}
+	arr[0] = 100
+	arr[2] = 300
+	print(arr[0])
+	print(arr[2])
+	return 0
+}
+=======test191.vix========
+fn factorial(n: i64): i64
+{
+	if (n <= 1) {
+		return 1
+	}
+	return n * factorial(n - 1)
+}
+
+fn main(): i32
+{
+	let a: i64 = 20
+	print(factorial(a))
+	let b: u8 = 255
+	print(b)
+	let c: f32 = 1.5
+	print(c)
+	return 0
+}
+=======test192.vix========
+fn apply(f: fn(i32): i32, x: i32) -> i32
+{
+	return f(x)
+}
+
+fn double_val(x: i32): i32 { return x * 2 }
+fn add_one(x: i32): i32 { return x + 1 }
+
+fn main(): i32
+{
+	print(apply(double_val, 5))
+	print(apply(add_one, 10))
+	let f = fn(n: i32): i32 { n * 3 }
+	print(f(4))
+	return 0
+}
+=======test193.vix========
+struct Rect {
+	width: f64,
+	height: f64
+}
+
+fn area(r: Rect): f64
+{
+	return r.width * r.height
+}
+
+fn main(): i32
+{
+	let r = Rect{ width: 3.0, height: 4.0 }
+	print(area(r))
+	let r2 = Rect{ width: 5.0, height: 6.0 }
+	print(area(r2))
+	return 0
+}
+=======test194.vix========
+type Status = Active | Inactive | Pending
+
+fn main(): i32
+{
+	let s = Active
+	match s {
+		Active -> print("active")
+		Inactive -> print("inactive")
+		Pending -> print("pending")
+	}
+	return 0
+}
+=======test195.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32
+{
+	let r1: Result[i32, i32] = Ok(42)
+	let r2: Result[i32, i32] = Err(-1)
+
+	match r1 {
+		Ok(v) -> print(v)
+		Err(e) -> print(e)
+	}
+
+	match r2 {
+		Ok(v) -> print(v)
+		Err(e) -> print(e)
+	}
+	return 0
+}
+=======test196.vix========
+type Color = Red | Green | Blue
+
+fn main(): i32
+{
+	let mut s = "hello"
+	s = "world"
+	print(s)
+	print("hello" + " " + "world")
+	print("abc" == "abc")
+	print("abc" == "xyz")
+	print("abc" != "xyz")
+	return 0
+}
+=======test197.vix========
+fn main(): i32
+{
+	let mut x = 42
+	let mut p = &x
+	@p = 100
+	print(x)
+	print(@p)
+	return 0
+}
+=======test198.vix========
+fn main(): i32
+{
+	let mut x = 42
+	let mut p = &x
+	@p = 100
+	print(x)
+	print(@p)
+
+	let mut a = 10
+	let mut b = 20
+	let mut pa = &a
+	let mut pb = &b
+	@pa = @pa + @pb
+	print(a)
+	print(b)
+	return 0
+}
+=======test199.vix========
+fn main(): i32
+{
+	let arr = [1, 2, 3, 4, 5]
+	print(arr.length)
+	print(arr[0])
+	print(arr[4])
+	let mut sum = 0
+	for (i in 0 .. 5) {
+		sum = sum + arr[i]
+	}
+	print(sum)
+	return 0
+}
+=======test2.vix========
+fn main(): i32
+{
+    let x = 5
+    fn inner(): i32
+    {
+        return x
+    }
+    print(inner())
+    return 0
+}
+=======test20.vix========
+fn main(): i32
+{
+    let i = 0
+    let sum = 0
+    while (i < 10) {
+        sum = sum + i
+        i = i + 1
+    }
+    print(sum)
+    return 0
+}
+=======test200.vix========
+fn main(): i32
+{
+	/* block comment test */
+	let x = 10 // line comment
+	print(x)
+	/* multi
+	   line
+	   comment */
+	let y = 20
+	print(y)
+	return 0
+}
+=======test201.vix========
+fn main(): i32
+{
+	let a = 12
+	let b = 10
+	print(a + b)
+	print(a - b)
+	print(a * b)
+	print(a / b)
+	print(a % b)
+	return 0
+}
+=======test202.vix========
+struct Pair:[A, B] {
+	first: A,
+	second: B
+}
+
+fn main(): i32
+{
+	let p1 = Pair:[i32, i32]{ first: 1, second: 2 }
+	print(p1.first)
+	print(p1.second)
+	return 0
+}
+=======test203.vix========
+fn gcd(a: i32, b: i32): i32
+{
+	while (b != 0) {
+		let t = b
+		b = a % b
+		a = t
+	}
+	return a
+}
+
+fn lcm(a: i32, b: i32): i32
+{
+	return a / gcd(a, b) * b
+}
+
+fn main(): i32
+{
+	print(gcd(12, 8))
+	print(gcd(100, 75))
+	print(lcm(4, 6))
+	print(lcm(3, 7))
+	return 0
+}
+=======test204.vix========
+fn is_prime(n: i32): bool
+{
+	if (n < 2) {
+		return false
+	}
+	let mut i = 2
+	while (i * i <= n) {
+		if (n % i == 0) {
+			return false
+		}
+		i = i + 1
+	}
+	return true
+}
+
+fn main(): i32
+{
+	for (i in 0 .. 20) {
+		if (is_prime(i)) {
+			print(i)
+		}
+	}
+	return 0
+}
+=======test205.vix========
+fn forward_test(): i32
+{
+	return helper()
+}
+
+fn helper(): i32
+{
+	return 42
+}
+
+fn main(): i32
+{
+	print(forward_test())
+	print(helper())
+	return 0
+}
+=======test206.vix========
+fn main(): i32
+{
+	let x = undefined_func_xyz
+	return 0
+}
+=======test207.vix========
+fn main(): i32
+{
+	let x = 10
+	let x = 20
+	return 0
+}
+=======test208.vix========
+fn main(): i32
+{
+	let mut p = &10
+	@p = 20
+	return 0
+}
+=======test209.vix========
+fn main(): i32
+{
+	let a: i32 = 0xFF
+	let b: i32 = 0x0A
+	print(a)
+	print(b)
+	print(a + b)
+	return 0
+}
+=======test21.vix========
+fn fib(n: i32): i32
+{
+    if (n <= 1) {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main(): i32
+{
+    print(fib(10))
+    return 0
+}
+=======test210.vix========
+fn main(): i32
+{
+	let x = 42
+	let p = &x
+	print(@p)
+	return 0
+}
+=======test211.vix========
+fn main(): i32
+{
+	let nums = [1, 2, 3, 4, 5]
+	let mut sum = 0
+	for (item in nums) {
+		sum = sum + item * 2
+	}
+	print(sum)
+	return 0
+}
+=======test212.vix========
+fn main(): i32
+{
+	let mut x = 10
+	x += 5
+	print(x)
+	x -= 3
+	print(x)
+	x *= 4
+	print(x)
+	x /= 2
+	print(x)
+	x %= 7
+	print(x)
+	return 0
+}
+=======test22.vix========
+fn classify(x: i32): i32
+{
+    if (x > 100) {
+        print("large")
+    } elif (x > 10) {
+        print("medium")
+    } elif (x > 0) {
+        print("small")
+    } else {
+        print("non-positive")
+    }
+    return 0
+}
+
+fn main(): i32
+{
+    classify(200)
+    classify(50)
+    classify(5)
+    classify(-1)
+    return 0
+}
+=======test23.vix========
+struct Point
+{
+    x: i32,
+    y: i32
+}
+
+fn distance_sq(p: Point): i32
+{
+    return p.x * p.x + p.y * p.y
+}
+
+fn main(): i32
+{
+    let p = Point{ x: 3, y: 4 }
+    print(distance_sq(p))
+    return 0
+}
+=======test24.vix========
+struct Pair:[A, B]
+{
+    first: A,
+    second: B
+}
+
+fn main(): i32
+{
+    let p1 = Pair:[i32, i32]{ first: 1, second: 2 }
+    let p2 = Pair:[i32, str]{ first: 42, second: "hello" }
+    print(p1.first)
+    print(p1.second)
+    print(p2.first)
+    print(p2.second)
+    return 0
+}
+=======test25.vix========
+struct IntList
+{
+    items: [i32]
+}
+
+fn main(): i32
+{
+    let a = IntList{ items: [1, 2, 3, 4, 5] }
+    print(a.items[2])
+    print(a.items.length)
+    print(a.items[0])
+    print(a.items[4])
+    return 0
+}
+=======test26.vix========
+fn main(): i32
+{
+    let x: i32 = 42
+    let y: str = "hello"
+    let z: i32 = x + 1
+    print(x)
+    print(y)
+    print(z)
+    return 0
+}
+=======test27.vix========
+fn main(): i32
+{
+    let result = undefined_var_xyz
+    return 0
+}
+=======test28.vix========
+struct Inner
+{
+    value: i32
+}
+
+struct Outer
+{
+    inner: Inner,
+    name: str
+}
+
+fn main(): i32
+{
+    let o = Outer{ inner: Inner{ value: 99 }, name: "test" }
+    print(o.inner.value)
+    print(o.name)
+    return 0
+}
+=======test29.vix========
+fn main(): i32
+{
+    let i = 0
+    while (i < 100) {
+        if (i == 5) {
+            break
+        }
+        i = i + 1
+    }
+    print(i)
+    return 0
+}
+=======test3.vix========
+fn apply(f: fn(): i32): i32
+{
+    return f()
+}
+
+fn main(): i32
+{
+    let x = 3
+    print(apply(fn(): i32 { x }))
+    return 0
+}
+=======test30.vix========
+fn identity:[T](x: T): T
+{
+    return x
+}
+
+fn main(): i32
+{
+    let a = identity:[i32](42)
+    let b = identity:[str]("world")
+    print(a)
+    print(b)
+    return 0
+}
+=======test31.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32
+{
+    let ok = Ok(42) : Result[i32, string]
+    let bad = Err("division by zero") : Result[i32, string]
+
+    match ok
+    {
+        Ok(v) -> print(v)
+        Err(e) -> print(e)
+    }
+
+    match bad
+    {
+        Ok(v) -> print(v)
+        Err(e) -> print(e)
+    }
+
+    return 0
+}
+=======test32.vix========
+struct List {
+    head: i32,
+    tail: &List
+}
+
+fn main(): i32 
+{
+    let l = List{ head: 1, tail: &List{ head: 2, tail: &List{ head: 3, tail: nil } } }
+    print(l.head)
+    print(l.tail.head)
+    print(l.tail.tail.head)
+    return 0
+}
+=======test33.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32
+{
+    let r1 = Ok(5) : Result[i32, string]
+    let r2 = Err("cannot divide by zero") : Result[i32, string]
+
+    match r1
+    {
+        Ok(v) -> print(v)
+        Err(e) -> print(e)
+    }
+
+    match r2
+    {
+        Ok(v) -> print(v)
+        Err(e) -> print(e)
+    }
+
+    return 0
+}
+=======test34.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn process(r: Result[i32, string]): i32
+{
+    match r
+    {
+        Ok(v) -> return v
+        Err(e) -> {
+            return -1
+        }
+    }
+    return 0
+}
+
+fn main(): i32
+{
+    let a = Ok(100) : Result[i32, string]
+    let b = Err("failed") : Result[i32, string]
+
+    let x = process(a)
+    let y = process(b)
+
+    print(x)
+    print(y)
+
+    return 0
+}
+=======test35.vix========
+struct Node {
+    value: i32,
+    next: &Node
+}
+
+fn print_list(n: &Node): void
+{
+    let cur = n
+    print(cur.value)
+    if (cur.next != nil)
+    {
+        print_list(cur.next)
+    }
+}
+
+fn main(): i32
+{
+    let list = Node{ value: 10, next: &Node{ value: 20, next: &Node{ value: 30, next: nil } } }
+    print_list(&list)
+    return 0
+}
+=======test36.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32
+{
+    let x = Ok(42) : Result[i32, string]
+    let y = Err("error") : Result[i32, string]
+    let z = Ok(0) : Result[i32, string]
+
+    match x
+    {
+        Ok(v) -> {
+            if (v == 42)
+            {
+                print("correct")
+            }
+        }
+        Err(e) -> print(e)
+    }
+
+    match y
+    {
+        Ok(v) -> print(v)
+        Err(e) -> {
+            if (e == "error")
+            {
+                print("error matched")
+            }
+        }
+    }
+
+    match z
+    {
+        Ok(v) -> print(v)
+        Err(e) -> print(e)
+    }
+
+    return 0
+}
+=======test37.vix========
+fn first_or_none(list: [string]): ?string
+{
+    if (list.length > 0)
+    {
+        return Some(list[0])
+    }
+    return None
+}
+
+fn main(): i32
+{
+    let names = ["i32", "f64"]
+    let empty = []
+
+    let a = first_or_none(names)
+    let b = first_or_none(empty)
+
+    match a
+    {
+        Some(v) -> print(v)
+        None -> print("names is empty")
+    }
+
+    match b
+    {
+        Some(v) -> print(v)
+        None -> print("empty is empty")
+    }
+
+    return 0
+}
+=======test38.vix========
+fn main(): i32
+{
+    let ints = [1, 2, 3, 4, 5]
+    let strs = ["hello", "world"]
+    let floats = [1.5, 2.5, 3.5]
+
+    print(ints.length)
+    print(strs.length)
+    print(floats.length)
+
+    print(ints[0])
+    print(ints[4])
+    print(strs[0])
+    print(strs[1])
+    print(floats[0])
+
+    return 0
+}
+=======test39.vix========
+fn sum(arr: [i32]): i32
+{
+    let s = 0
+    let len = arr.length
+    for (i in 0..length)
+    {
+        s = s + arr[i]
+    }
+    return s
+}
+
+fn main(): i32
+{
+    let a = [10, 20, 30]
+    let b = [100, 200]
+
+    print(sum(a))
+    print(sum(b))
+    print(sum([1, 2, 3, 4, 5]))
+
+    return 0
+}
+=======test4.vix========
+fn make(): fn(): i32
+{
+    let x = 9
+    return fn(): i32 { x }
+}
+
+fn main(): i32
+{
+    let f = make()
+    print(f())
+    return 0
+}
+=======test40.vix========
+fn main(): i32
+{
+    let x: i32 = 42
+    let y: i64 = 100
+    let z: f64 = 3.14
+    let s: string = "hello"
+    let c: i8 = 65
+
+    print(x)
+    print(y)
+    print(z)
+    print(s)
+    print(c)
+
+    print(x + 8)
+    print(y + 1)
+    print(z + 0.86)
+
+    return 0
+}
+=======test41.vix========
+struct Pair {
+    first: i32,
+    second: i32
+}
+
+struct Container {
+    name: string,
+    data: [i32],
+    point: Pair
+}
+
+fn main(): i32
+{
+    let p = Pair{ first: 10, second: 20 }
+    let c = Container{ name: "test", data: [1, 2, 3], point: p }
+
+    print(p.first)
+    print(p.second)
+    print(c.name)
+    print(c.data.length)
+    print(c.data[0])
+    print(c.point.first)
+
+    return 0
+}
+=======test42.vix========
+struct Pair {
+    first: i32,
+    second: i32
+}
+
+fn add(a: i32, b: i32): i32
+{
+    return a + b
+}
+
+fn greet(name: str): str
+{
+    return name
+}
+
+fn make_pair(x: i32, y: i32): Pair
+{
+    return Pair{ first: x, second: y }
+}
+
+fn main(): i32
+{
+    let result = add(3, 4)
+    print(result)
+
+    let msg = greet("world")
+    print(msg)
+
+    let p = make_pair(100, 200)
+    print(p.first)
+    print(p.second)
+
+    return 0
+}
+=======test43.vix========
+fn main(): i32
+{
+    let x = 10
+    let y = 20
+    let z = x + y
+    let w = z * 2
+    let q = w - 5
+
+    print(z)
+    print(w)
+    print(q)
+
+    let a = 3.14
+    let b = 2.0
+    let c = a + b
+    print(c)
+
+    let s1 = "hello"
+    let s2 = "world"
+    print(s1)
+    print(s2)
+
+    let flag = 1
+    let n = 0
+    if (flag == 1)
+    {
+        n = 1
+    }
+    print(n)
+
+    return 0
+}
+=======test44.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn unwrap_or(r: Result[i32, string], default: i32): i32
+{
+    match r
+    {
+        Ok(v) -> return v
+        Err(_) -> return default
+    }
+    return default
+}
+
+fn main(): i32
+{
+    let a = Ok(42) : Result[i32, string]
+    let b = Err("fail") : Result[i32, string]
+
+    let x = unwrap_or(a, 0)
+    let y = unwrap_or(b, -1)
+
+    print(x)
+    print(y)
+
+    let names = ["alice", "bob", "charlie"]
+    let first = "none"
+    if (names.length > 0)
+    {
+        first = names[0]
+    }
+    print(first)
+
+    return 0
+}
+=======test45.vix========
+fn main(): i32
+{
+	let mut i = 0
+	let mut count = 0
+	while (i < 20)
+	{
+		i += 1
+		if (i % 2 == 0) { continue }
+		count += 1
+	}
+	print(count)
+
+	let mut j = 0
+	let mut evens = 0
+	while (j < 10)
+	{
+		j += 1
+		if (j > 5) { break }
+		if (j % 2 == 0) { evens += 1 }
+	}
+	print(evens)
+
+	return 0
+}
+=======test46.vix========
+fn main(): i32
+{
+	let mut x = 100
+	x += 50
+	print(x)
+	x -= 20
+	print(x)
+	x *= 3
+	print(x)
+	x /= 10
+	print(x)
+	x %= 7
+	print(x)
+
+	let mut y = 0
+	y += 1
+	y += 1
+	y += 1
+	print(y)
+
+	return 0
+}
+=======test47.vix========
+fn main(): i32
+{
+	let a = 1
+	let b = 2
+	let c = 3
+
+	if (a == 1 and b == 2) { print("ab") }
+	if (a == 1 and b == 3) { print("no") }
+	if (a == 0 or b == 2) { print("bc") }
+	if (a == 0 or b == 0) { print("no") }
+
+	if (a < b and b < c) { print("ascending") }
+	if (a > b or b < c) { print("mixed") }
+
+	print(17 % 5)
+	print(100 % 7)
+	print(0 % 1)
+
+	return 0
+}
+=======test48.vix========
+global counter: i32 = 100
+global scale: i32 = 3
+
+fn double(x: i32): i32
+{
+	return x * scale
+}
+
+fn main(): i32
+{
+	print(counter)
+	print(scale)
+	print(counter + scale)
+	print(double(7))
+	return 0
+}
+=======test49.vix========
+fn main(): i32
+{
+	let mut arr = [10, 20, 30, 40, 50]
+	print(arr.length)
+	print(arr[0])
+	print(arr[4])
+
+	arr[0] = 99
+	arr[2] = 77
+	arr[4] = 55
+	print(arr[0])
+	print(arr[2])
+	print(arr[4])
+
+	let sum = 0
+	for (v in arr)
+	{
+		sum += v
+	}
+	print(sum)
+
+	return 0
+}
+=======test5.vix========
+fn main(): i32
+{
+    let f = fn(): i32 { 42 }
+    return 0
+}
+=======test50.vix========
+fn main(): i32
+{
+	print(0xFF)
+	print(0x0A)
+	print(0x10)
+
+	let x: i32 = 42
+	let y: i64 = 100
+	let z: f64 = 3.14
+	let w: f32 = 2.5
+	print(x)
+	print(y)
+	print(z)
+	print(w)
+
+	return 0
+}
+=======test51.vix========
+fn main(): i32
+{
+	let arr = [5, 3, 8, 1, 9, 2, 7, 4, 6]
+	let n = arr.length
+
+	let mut i = 0
+	while (i < n - 1)
+	{
+		let j = 0
+		while (j < n - 1 - i)
+		{
+			if (arr[j] > arr[j + 1])
+			{
+				let tmp = arr[j]
+				arr[j] = arr[j + 1]
+				arr[j + 1] = tmp
+			}
+			j += 1
+		}
+		i += 1
+	}
+
+	for (v in arr)
+	{
+		print(v)
+	}
+
+	return 0
+}
+=======test52.vix========
+fn main(): i32
+{
+	let x = toint("123")
+	print(x)
+
+	let y = tofloat("3.14")
+	print(y)
+
+	let c = 'A'
+	print(c)
+
+	print(10 % 3)
+	print(7 % 7)
+	print(0 % 5)
+
+	return 0
+}
+=======test53.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32
+{
+	let r1: Result[i32, string] = Ok(42)
+	let r2: Result[i32, string] = Err("fail")
+
+	match r1
+	{
+		Ok(_) -> print("has-value")
+		Err(_) -> print("error")
+	}
+
+	match r2
+	{
+		Ok(_) -> print("has-value")
+		Err(_) -> print("error")
+	}
+
+	return 0
+}
+=======test54.vix========
+fn sum_range(start: i32, end: i32): i32
+{
+	let s = 0
+	let i = start
+	while (i <= end)
+	{
+		s += i
+		i += 1
+	}
+	return s
+}
+
+fn factorial(n: i32): i32
+{
+	if (n <= 1) { return 1 }
+	return n * factorial(n - 1)
+}
+
+fn is_even(n: i32): i32
+{
+	if (n % 2 == 0) { return 1 }
+	return 0
+}
+
+fn main(): i32
+{
+	print(sum_range(1, 10))
+	print(sum_range(1, 100))
+	print(factorial(5))
+	print(factorial(10))
+	print(is_even(4))
+	print(is_even(7))
+
+	return 0
+}
+=======test55.vix========
+struct Point
+{
+	x: i32
+	y: i32
+}
+
+fn manhattan(p: Point): i32
+{
+	let ax = p.x
+	if (ax < 0) { ax = 0 - ax }
+	let ay = p.y
+	if (ay < 0) { ay = 0 - ay }
+	return ax + ay
+}
+
+fn main(): i32
+{
+	let p1 = Point { x: 3, y: 4 }
+	let p2 = Point { x: -5, y: 12 }
+	let p3 = Point { x: 0, y: 0 }
+
+	print(manhattan(p1))
+	print(manhattan(p2))
+	print(manhattan(p3))
+
+	return 0
+}
+=======test56.vix========
+type Result:[T, E] = Ok(T) | Err(E)
+
+fn main(): i32
+{
+	let results = [0, 0, 0]
+	let cases = [10, 0, 5]
+	let divisors = [2, 0, 5]
+
+	let i = 0
+	while (i < 3)
+	{
+		if (divisors[i] == 0)
+		{
+			results[i] = -1
+		}
+		else
+		{
+			results[i] = cases[i] / divisors[i]
+		}
+		i += 1
+	}
+
+	for (v in results)
+	{
+		print(v)
+	}
+
+	let nested = [[1, 2], [3, 4], [5, 6]]
+	print(nested[0][0])
+	print(nested[1][1])
+	print(nested[2][0])
+
+	return 0
+}
+=======test57.vix========
+fn main(): i32
+{
+	let i = 0
+	let j = 0
+	while (i < 3)
+	{
+		j = 0
+		while (j < 3)
+		{
+			print(i * 3 + j)
+			j += 1
+		}
+		i += 1
+	}
+
+	return 0
+}
+=======test58.vix========
+fn identity:[T](x: T): T
+{
+	return x
+}
+
+fn main(): i32
+{
+	let a = identity:[i32](42)
+	print(a)
+
+	let b = identity:[string]("hello")
+	print(b)
+
+	let c = identity:[f64](2.718)
+	print(c)
+
+	return 0
+}
+=======test59.vix========
+fn add(a: i32, b: i32) -> i32
+{
+	return a + b
+}
+
+fn greet(name: string) -> void
+{
+	print(name)
+}
+
+fn main() -> i32
+{
+	print(add(10, 20))
+	print(add(-5, 15))
+	greet("world")
+
+	return 0
+}
+=======test6.vix========
+fn apply(f: fn(i32): f64, x: i32): f64
+{
+    return f(x)
+}
+
+fn main(): i32
+{
+    print(apply(fn(n: i32): f64 { 3.5 }, 1))
+    return 0
+}
+=======test60.vix========
+struct Pair
+{
+	first: i32
+	second: i32
+}
+
+fn main(): i32
+{
+	let p = Pair { first: 10, second: 20 }
+	print(p.first)
+	print(p.second)
+
+	let q = Pair { first: p.second, second: p.first }
+	print(q.first)
+	print(q.second)
+
+	let r = Pair { first: p.first * 2, second: p.second * 2 }
+	print(r.first)
+	print(r.second)
+
+	return 0
+}
+=======test61.vix========
+type Status = Active | Inactive
+
+fn main(): i32
+{
+	let s = Active
+	match s
+	{
+		Active -> print("active")
+	}
+	return 0
+}
+=======test62.vix========
+fn main(): i32
+{
+	print(10 + 20)
+	print(50 - 30)
+	print(6 * 7)
+	print(100 / 4)
+	print(17 % 5)
+	return 0
+}
+=======test63.vix========
+fn main(): i32
+{
+	print(2 + 3 * 4)
+	print((2 + 3) * 4)
+	print(10 - 2 * 3)
+	print(100 / 10 / 2)
+	print(2 * 3 + 4 * 5)
+	return 0
+}
+=======test64.vix========
+fn main(): i32
+{
+	let a = 10
+	let b = 20
+	print(a + b)
+	print(b - a)
+	print(a * b)
+	print(b / a)
+	print(b % a)
+	return 0
+}
+=======test65.vix========
+fn main(): i32
+{
+	let x = 5
+	let y = 3
+	if (x > y) {
+		print("greater")
+	}
+	if (x == 5) {
+		print("equal")
+	}
+	if (x != y) {
+		print("not-equal")
+	}
+	if (y < x) {
+		print("less")
+	}
+	if (x >= 5) {
+		print("gte")
+	}
+	if (y <= 3) {
+		print("lte")
+	}
+	return 0
+}
+=======test66.vix========
+fn main(): i32
+{
+	let a = 1
+	let b = 1
+	if (a == 1 and b == 1) {
+		print("both")
+	}
+	if (a == 1 or b == 0) {
+		print("at-least-one")
+	}
+	if (a == 0 and b == 1) {
+		print("should-not-print")
+	}
+	if (a == 0 or b == 0) {
+		print("should-not-print-2")
+	}
+	return 0
+}
+=======test67.vix========
+fn main(): i32
+{
+	let a = 0 - 5
+	let b = 0 - 3
+	print(a + 10)
+	print(a * b)
+	print(0 - a)
+	return 0
+}
+=======test68.vix========
+fn main(): i32
+{
+	let x: i8 = 42
+	let y: i8 = 10
+	print(x + y)
+	print(x - y)
+	print(x * y)
+	return 0
+}
+=======test69.vix========
+fn main(): i32
+{
+	let x: u8 = 200
+	let y: u8 = 55
+	print(x)
+	print(y)
+	print(x + y)
+	return 0
+}
+=======test7.vix========
+fn make(): fn(): i32
+{
+    return fn(): i32 { 42 }
+}
+
+fn main(): i32
+{
+    let f = make()
+    print(f())
+    return 0
+}
+=======test70.vix========
+fn main(): i32
+{
+	let x: i64 = 999999
+	let y: i64 = 1
+	print(x + y)
+	print(x - y)
+	print(x * 2)
+	return 0
+}
+=======test71.vix========
+fn main(): i32
+{
+	let x: u32 = 100
+	let y: u32 = 3
+	print(x + y)
+	print(x - y)
+	print(x * y)
+	print(x / y)
+	print(x % y)
+	return 0
+}
+=======test72.vix========
+fn main(): i32
+{
+	let x: f32 = 3.14
+	let y: f32 = 2.0
+	print(x + y)
+	print(x * y)
+	return 0
+}
+=======test73.vix========
+fn main(): i32
+{
+	let x: f64 = 1.5
+	let y: f64 = 2.5
+	print(x + y)
+	print(x * y)
+	print(y / x)
+	return 0
+}
+=======test74.vix========
+fn main(): i32
+{
+	let a = "hello"
+	let b = "hello"
+	let c = "world"
+	if (a == b) {
+		print("same")
+	}
+	if (a != c) {
+		print("different")
+	}
+	return 0
+}
+=======test75.vix========
+fn main(): i32
+{
+	let greeting = "Hello, World!"
+	print(greeting)
+	let empty = ""
+	print("not-empty")
+	return 0
+}
+=======test76.vix========
+fn main(): i32
+{
+	print("line1\nline2")
+	print("tab\there")
+	print("backslash: \\")
+	print("quote: \"")
+	return 0
+}
+=======test77.vix========
+fn main(): i32
+{
+	let x = 5
+	if (x > 10) {
+		print("big")
+	}
+	elif (x > 3) {
+		print("medium")
+	}
+	elif (x > 1) {
+		print("small")
+	}
+	else {
+		print("tiny")
+	}
+	return 0
+}
+=======test78.vix========
+fn main(): i32
+{
+	let i = 5
+	while (i > 0) {
+		print(i)
+		i = i - 1
+	}
+	print("done")
+	return 0
+}
+=======test79.vix========
+fn main(): i32
+{
+	let i = 0
+	while (i < 3) {
+		let j = 0
+		while (j < 3) {
+			print(i * 3 + j)
+			j = j + 1
+		}
+		i = i + 1
+	}
+	return 0
+}
+=======test8.vix========
+fn A(mut k: i32, x1: fn(): i32, x2: fn(): i32, x3: fn(): i32, x4: fn(): i32, x5: fn(): i32): i32
+{
+    fn B(): i32 {
+        k = k - 1
+        return A(k,
+            fn(): i32 { B() },
+            x1,
+            x2,
+            x3,
+            x4)
+    }
+
+    if (k <= 0) {
+        return x4() + x5()
+    }
+
+    return B()
+}
+
+fn main(): i32
+{
+    print(A(10,
+        fn(): i32 { 1 },
+        fn(): i32 { -1 },
+        fn(): i32 { -1 },
+        fn(): i32 { 1 },
+        fn(): i32 { 0 }
+    ))
+    return 0
+}
+=======test80.vix========
+fn main(): i32
+{
+	for (i in 0 .. 5) {
+		print(i)
+	}
+	return 0
+}
+=======test81.vix========
+fn main(): i32
+{
+	let sum = 0
+	for (i in 1 .. 11) {
+		sum = sum + i
+	}
+	print(sum)
+	return 0
+}
+=======test82.vix========
+fn main(): i32
+{
+	let count = 0
+	for (i in 0 .. 3) {
+		for (j in 0 .. 3) {
+			count = count + 1
+		}
+	}
+	print(count)
+	return 0
+}
+=======test83.vix========
+fn main(): i32
+{
+	let i = 0
+	while (i < 100) {
+		if (i == 5) {
+			break
+		}
+		i = i + 1
+	}
+	print(i)
+	return 0
+}
+=======test84.vix========
+fn main(): i32
+{
+	let count = 0
+	for (i in 0 .. 10) {
+		if (i % 2 == 0) {
+			continue
+		}
+		count = count + 1
+	}
+	print(count)
+	return 0
+}
+=======test85.vix========
+fn fib(n: i32) -> i32
+{
+	if (n <= 1) {
+		return n
+	}
+	return fib(n - 1) + fib(n - 2)
+}
+
+fn main(): i32
+{
+	print(fib(0))
+	print(fib(1))
+	print(fib(5))
+	print(fib(10))
+	return 0
+}
+=======test86.vix========
+fn fact(n: i32) -> i32
+{
+	if (n <= 1) {
+		return 1
+	}
+	return n * fact(n - 1)
+}
+
+fn main(): i32
+{
+	print(fact(0))
+	print(fact(1))
+	print(fact(5))
+	print(fact(10))
+	return 0
+}
+=======test87.vix========
+fn gcd(a: i32, b: i32) -> i32
+{
+	while (b != 0) {
+		let t = b
+		b = a % b
+		a = t
+	}
+	return a
+}
+
+fn main(): i32
+{
+	print(gcd(12, 8))
+	print(gcd(100, 75))
+	print(gcd(17, 13))
+	print(gcd(0, 5))
+	return 0
+}
+=======test88.vix========
+fn add3(a: i32, b: i32, c: i32) -> i32
+{
+	return a + b + c
+}
+
+fn main(): i32
+{
+	print(add3(1, 2, 3))
+	print(add3(10, 20, 30))
+	print(add3(0, 0, 0))
+	print(add3(-1, 1, 0))
+	return 0
+}
+=======test89.vix========
+fn square(x: i32) -> i32
+{
+	return x * x
+}
+
+fn main(): i32
+{
+	print(square(0))
+	print(square(1))
+	print(square(5))
+	print(square(10))
+	print(square(-3))
+	return 0
+}
+=======test9.vix========
+struct Box:[T]
+{
+    value: T
+}
+
+fn main(): i32
+{
+    let a = Box:[i32]{ value: 123 }
+    let b = Box:[str]{ value: "xyz" }
+    print(a.value)
+    print(b.value)
+    return 0
+}
+=======test90.vix========
+struct Point
+{
+	x: i32
+	y: i32
+}
+
+fn main(): i32
+{
+	let p = Point { x: 10, y: 20 }
+	print(p.x)
+	print(p.y)
+	return 0
+}
+=======test91.vix========
+fn main(): i32
+{
+	let c = 0
+	print(c)
+	return 0
+}
+=======test92.vix========
+struct Inner
+{
+	val: i32
+}
+
+struct Outer
+{
+	inner: Inner
+	name: string
+}
+
+fn main(): i32
+{
+	let o = Outer { inner: Inner { val: 42 }, name: "test" }
+	print(o.inner.val)
+	print(o.name)
+	return 0
+}
+=======test93.vix========
+struct Data
+{
+	values: [i32]
+}
+
+fn main(): i32
+{
+	let d = Data { values: [10, 20, 30] }
+	print(d.values.length)
+	print(d.values[0])
+	print(d.values[2])
+	return 0
+}
+=======test94.vix========
+struct Container:[T]
+{
+	value: T
+	label: string
+}
+
+fn main(): i32
+{
+	let a = Container:[i32]{ value: 100, label: "num" }
+	let b = Container:[string]{ value: "hello", label: "str" }
+	print(a.value)
+	print(a.label)
+	print(b.value)
+	print(b.label)
+	return 0
+}
+=======test95.vix========
+struct Vec2
+{
+	x: i32
+	y: i32
+}
+
+fn main(): i32
+{
+	let a = Vec2 { x: 1, y: 2 }
+	let b = Vec2 { x: 3, y: 4 }
+	print(a.x + b.x)
+	print(a.y + b.y)
+	let c = Vec2 { x: a.x * b.x, y: a.y * b.y }
+	print(c.x)
+	print(c.y)
+	return 0
+}
+=======test96.vix========
+fn main(): i32
+{
+	let arr: [i32 * 3] = [10, 20, 30]
+	print(arr[0])
+	print(arr[1])
+	print(arr[2])
+	return 0
+}
+=======test97.vix========
+fn main(): i32
+{
+	let arr = [1, 2, 3, 4, 5]
+	print(arr.length)
+	let empty_arr: [i32 * 0] = []
+	print("ok")
+	return 0
+}
+=======test98.vix========
+fn sum_arr(arr: [i32]) -> i32
+{
+	let s = 0
+	for (i in 0 .. arr.length) {
+		s = s + arr[i]
+	}
+	return s
+}
+
+fn main(): i32
+{
+	let a = [1, 2, 3, 4, 5]
+	print(sum_arr(a))
+	let b = [10, 20, 30]
+	print(sum_arr(b))
+	return 0
+}
+=======test99.vix========
+fn main(): i32
+{
+	let list = [1, 2, 3]
+	print(list.length)
+	print(list[0])
+	print(list[1])
+	print(list[2])
+	return 0
+}

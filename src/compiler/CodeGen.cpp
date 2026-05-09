@@ -20,6 +20,7 @@ vix0.0.1 released!
 #include <llvm/Target/TargetOptions.h>
 #include <stdio.h>
 #include <map>
+#include <set>
 #include <string>
 #include <iostream>
 #include <cstdint>
@@ -805,6 +806,8 @@ private:
     std::map<std::string, Type*> functionArrayReturnElementTypes;
     std::map<std::string, ASTNode*> genericFunctionTemplates;
     std::map<std::string, int> genericFunctionArity;
+    std::map<std::string, ASTNode*> allFunctionNodes;
+    std::set<std::string> compiledFunctions;
     std::map<std::string, Type*> activeGenericTypeBindings;
     std::map<const Value*, Type*> pointerElementHints;
     std::map<std::string, int> memberArrayLengthHints;
@@ -2930,9 +2933,12 @@ public:
         for (int i = 0; i < node->data.program.statement_count; i++) {
             ASTNode* stmt = node->data.program.statements[i];
             if (!stmt || stmt->type != AST_FUNCTION) continue;
+            std::string name(stmt->data.function.name ? stmt->data.function.name : "");
+            if (!name.empty()) {
+                allFunctionNodes[name] = stmt;
+            }
             ASTNode* gparams = stmt->data.function.generic_params;
             if (gparams && gparams->type == AST_EXPRESSION_LIST && gparams->data.expression_list.expression_count > 0) {
-                std::string name(stmt->data.function.name ? stmt->data.function.name : "");
                 if (!name.empty()) {
                     genericFunctionTemplates[name] = stmt;
                     genericFunctionArity[name] = gparams->data.expression_list.expression_count;
@@ -3295,16 +3301,109 @@ public:
         return VisitResult();
     }
     
+    void preDeclareFunction(ASTNode* node) {
+        if (!node || node->type != AST_FUNCTION || !node->data.function.name) return;
+        std::string funcName(node->data.function.name);
+        if (module->getFunction(funcName)) return;
+
+        std::vector<Type*> paramTypes;
+        if (node->data.function.params && node->data.function.params->type == AST_EXPRESSION_LIST) {
+            int paramCount = node->data.function.params->data.expression_list.expression_count;
+            for (int i = 0; i < paramCount; i++) {
+                ASTNode* param = node->data.function.params->data.expression_list.expressions[i];
+                if (!param) {
+                    paramTypes.push_back(Type::getInt32Ty(context));
+                    continue;
+                }
+                ASTNode* typeNode = nullptr;
+                if (param->type == AST_ASSIGN) {
+                    typeNode = param->data.assign.right;
+                } else if (param->type == AST_IDENTIFIER) {
+                    paramTypes.push_back(Type::getInt32Ty(context));
+                    continue;
+                }
+                if (typeNode) {
+                    if (typeNode->type == AST_TYPE_INT32) paramTypes.push_back(Type::getInt32Ty(context));
+                    else if (typeNode->type == AST_TYPE_INT64) paramTypes.push_back(Type::getInt64Ty(context));
+                    else if (typeNode->type == AST_TYPE_INT8) paramTypes.push_back(Type::getInt8Ty(context));
+                    else if (typeNode->type == AST_TYPE_FLOAT32) paramTypes.push_back(Type::getFloatTy(context));
+                    else if (typeNode->type == AST_TYPE_FLOAT64) paramTypes.push_back(Type::getDoubleTy(context));
+                    else if (typeNode->type == AST_TYPE_STRING) paramTypes.push_back(PointerType::get(context, 0));
+                    else if (typeNode->type == AST_TYPE_VOID) paramTypes.push_back(Type::getVoidTy(context));
+                    else if (typeNode->type == AST_IDENTIFIER) {
+                        std::string typeName(typeNode->data.identifier.name);
+                        if (typeName == "i64") paramTypes.push_back(Type::getInt64Ty(context));
+                        else if (typeName == "f32") paramTypes.push_back(Type::getFloatTy(context));
+                        else if (typeName == "f64") paramTypes.push_back(Type::getDoubleTy(context));
+                        else if (typeName == "str" || typeName == "string") paramTypes.push_back(PointerType::get(context, 0));
+                        else if (typeName == "ptr") paramTypes.push_back(PointerType::get(context, 0));
+                        else if (typeName == "bool") paramTypes.push_back(Type::getInt1Ty(context));
+                        else paramTypes.push_back(Type::getInt32Ty(context));
+                    } else if (typeNode->type == AST_TYPE_POINTER || typeNode->type == AST_TYPE_LIST ||
+                               typeNode->type == AST_TYPE_FIXED_SIZE_LIST) {
+                        paramTypes.push_back(PointerType::get(context, 0));
+                    } else {
+                        paramTypes.push_back(Type::getInt32Ty(context));
+                    }
+                } else {
+                    paramTypes.push_back(Type::getInt32Ty(context));
+                }
+            }
+        }
+
+        Type* returnType = Type::getVoidTy(context);
+        if (node->data.function.return_type) {
+            ASTNode* rt = node->data.function.return_type;
+            if (rt->type == AST_TYPE_INT32) {
+                returnType = Type::getInt32Ty(context);
+            } else if (rt->type == AST_TYPE_INT64) {
+                returnType = Type::getInt64Ty(context);
+            } else if (rt->type == AST_TYPE_INT8) {
+                returnType = Type::getInt8Ty(context);
+            } else if (rt->type == AST_TYPE_FLOAT32) {
+                returnType = Type::getFloatTy(context);
+            } else if (rt->type == AST_TYPE_FLOAT64) {
+                returnType = Type::getDoubleTy(context);
+            } else if (rt->type == AST_TYPE_STRING) {
+                returnType = PointerType::get(context, 0);
+            } else if (rt->type == AST_TYPE_VOID) {
+                returnType = Type::getVoidTy(context);
+            } else if (rt->type == AST_TYPE_POINTER || rt->type == AST_TYPE_LIST ||
+                       rt->type == AST_TYPE_FIXED_SIZE_LIST) {
+                returnType = PointerType::get(context, 0);
+            } else if (rt->type == AST_IDENTIFIER) {
+                std::string rtName(rt->data.identifier.name);
+                if (rtName == "i32") returnType = Type::getInt32Ty(context);
+                else if (rtName == "i64") returnType = Type::getInt64Ty(context);
+                else if (rtName == "f32") returnType = Type::getFloatTy(context);
+                else if (rtName == "f64") returnType = Type::getDoubleTy(context);
+                else if (rtName == "str" || rtName == "string") returnType = PointerType::get(context, 0);
+                else if (rtName == "bool") returnType = Type::getInt1Ty(context);
+                else if (rtName == "void") returnType = Type::getVoidTy(context);
+                else returnType = Type::getInt32Ty(context);
+                    } else {
+                        returnType = Type::getInt32Ty(context);
+                    }
+        }
+
+        bool isVarArg = node->data.function.vararg == 1;
+        FunctionType* funcType = FunctionType::get(returnType, paramTypes, isVarArg);
+        Function::Create(funcType, Function::ExternalLinkage, funcName, module.get());
+    }
+
     VisitResult visitFunction(ASTNode* node, const std::string* overrideName = nullptr) {
         std::string funcName = overrideName ? *overrideName : std::string(node->data.function.name);
         IRBuilder<>::InsertPoint callerIP = builder.saveIP();
         
         if (Function* existingFunc = module->getFunction(funcName)) {
-            StructType* sretStructType = getStructSRetType(existingFunc);
-            if (sretStructType) {
-                return VisitResult(existingFunc, ValueType::POINTER, sretStructType);
+            if (!existingFunc->isDeclaration()) {
+                StructType* sretStructType = getStructSRetType(existingFunc);
+                if (sretStructType) {
+                    return VisitResult(existingFunc, ValueType::POINTER, sretStructType);
+                }
+                return VisitResult(existingFunc, ValueType::POINTER);
             }
-            return VisitResult(existingFunc, ValueType::POINTER);
+            existingFunc->eraseFromParent();
         }
         
         std::vector<Type*> paramTypes;
@@ -3973,8 +4072,17 @@ public:
                     }
                 }
             }
-            llvm::errs() << "Error: Call to undefined function '" << calleeName << "'\n";
-            return VisitResult();
+            auto afit = allFunctionNodes.find(calleeName);
+            if (afit != allFunctionNodes.end()) {
+                IRBuilder<>::InsertPoint savedIP = builder.saveIP();
+                visitFunction(afit->second);
+                if (savedIP.isSet()) builder.restoreIP(savedIP);
+                callee = module->getFunction(calleeName);
+            }
+            if (!callee) {
+                llvm::errs() << "Error: Call to undefined function '" << calleeName << "'\n";
+                return VisitResult();
+            }
         }
         
         int expectedParamCount = callee->getFunctionType()->getNumParams();

@@ -1,0 +1,261 @@
+import subprocess
+import sys
+import pytest
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from helpers import compile_vix, run_binary, compile_and_run, COMPILER, TEST_DIR
+
+
+class TestExistingRegression:
+    """Run all 212 existing regression tests through pytest."""
+
+    EXPECT = {
+        "test2.vix": (False, "capturing local variables"),
+        "test3.vix": (False, "capturing local variables"),
+        "test4.vix": (False, "type mismatch"),
+        "test7.vix": (False, "type mismatch"),
+        "test8.vix": (False, "type mismatch"),
+        "test10.vix": (True, ["3", "2"]),
+        "test13.vix": (True, ["2"]),
+        "test14.vix": (True, ["2"]),
+        "test15.vix": (True, ["3"]),
+        "test16.vix": (False, "self-recursive struct fields"),
+        "test17.vix": (False, "self-recursive struct fields"),
+        "test18.vix": (True, ["matched-err"]),
+        "test19.vix": (True, ["10", "20", "30", "3"]),
+        "test20.vix": (True, ["45"]),
+        "test21.vix": (True, ["55"]),
+        "test22.vix": (True, ["large", "medium", "small", "non-positive"]),
+        "test23.vix": (True, ["25"]),
+        "test24.vix": (True, ["1", "2", "42", "hello"]),
+        "test25.vix": (True, ["3", "5", "1", "5"]),
+        "test26.vix": (True, ["42", "hello", "43"]),
+        "test27.vix": (False, "undefined identifier"),
+        "test28.vix": (True, ["99", "test"]),
+        "test29.vix": (True, ["5"]),
+        "test30.vix": (True, ["42", "world"]),
+        "test31.vix": (True, ["42", "division by zero"]),
+        "test32.vix": (True, ["1", "2", "3"]),
+        "test33.vix": (True, ["5", "cannot divide by zero"]),
+        "test34.vix": (True, ["100", "-1"]),
+        "test35.vix": (True, ["10", "20", "30"]),
+        "test36.vix": (True, ["correct", "error matched", "0"]),
+        "test37.vix": (True, ["i32", "empty is empty"]),
+        "test38.vix": (True, ["5", "2", "3", "1", "5", "hello", "world", "1.500000"]),
+        "test39.vix": (True, ["0", "0", "0"]),
+        "test40.vix": (True, ["42", "100", "3.140000", "hello", "65", "50", "101", "4.000000"]),
+        "test41.vix": (True, ["10", "20", "test", "3", "1", "10"]),
+        "test42.vix": (True, ["7", "world", "100", "200"]),
+        "test43.vix": (True, ["30", "60", "55", "5.140000", "hello", "world", "1"]),
+        "test44.vix": (True, ["42", "-1", "alice"]),
+        "test45.vix": (True, ["10", "2"]),
+        "test46.vix": (True, ["150", "130", "390", "39", "4", "3"]),
+        "test47.vix": (True, ["ab", "bc", "ascending", "mixed", "2", "2", "0"]),
+        "test48.vix": (True, ["100", "3", "103", "21"]),
+        "test49.vix": (True, ["5", "10", "50", "99", "77", "55", "291"]),
+        "test50.vix": (True, ["255", "10", "16", "42", "100", "3.140000", "2.500000"]),
+        "test51.vix": (True, ["1", "2", "3", "4", "5", "6", "7", "8", "9"]),
+        "test52.vix": (True, ["123", "3.14", "A", "1", "0", "0"]),
+        "test53.vix": (True, ["has-value", "error"]),
+        "test54.vix": (True, ["55", "5050", "120", "3628800", "1", "0"]),
+        "test55.vix": (True, ["7", "17", "0"]),
+        "test56.vix": (True, ["5", "-1", "1", "1", "4", "5"]),
+        "test57.vix": (True, ["0", "1", "2", "3", "4", "5", "6", "7", "8"]),
+        "test58.vix": (True, ["42", "hello", "2.718000"]),
+        "test59.vix": (True, ["30", "10", "world"]),
+        "test60.vix": (True, ["10", "20", "20", "10", "20", "40"]),
+        "test61.vix": (False, "non-exhaustive match"),
+        "test62.vix": (True, ["30", "20", "42", "25", "2"]),
+        "test63.vix": (True, ["14", "20", "4", "5", "26"]),
+        "test64.vix": (True, ["30", "10", "200", "2", "0"]),
+        "test65.vix": (True, ["greater", "equal", "not-equal", "less", "gte", "lte"]),
+        "test66.vix": (True, ["both", "at-least-one"]),
+        "test67.vix": (True, ["5", "15", "5"]),
+        "test68.vix": (True, ["52", "32", "420"]),
+        "test69.vix": (True, ["200", "55", "255"]),
+        "test70.vix": (True, ["1000000", "999998", "1999998"]),
+        "test71.vix": (True, ["103", "97", "300", "33", "1"]),
+        "test72.vix": (True, ["5.140000", "6.280000"]),
+        "test73.vix": (True, ["4.000000", "3.750000", "1.666667"]),
+        "test74.vix": (True, ["same", "different"]),
+        "test75.vix": (True, ["Hello, World!", "not-empty"]),
+        "test76.vix": (True, ["line1", "line2", "tab\there", "backslash: \\", "quote: \""]),
+        "test77.vix": (True, ["medium"]),
+        "test78.vix": (True, ["5", "4", "3", "2", "1", "done"]),
+        "test79.vix": (True, ["0", "1", "2", "3", "4", "5", "6", "7", "8"]),
+        "test80.vix": (True, ["0", "1", "2", "3", "4"]),
+        "test81.vix": (True, ["55"]),
+        "test82.vix": (True, ["9"]),
+        "test83.vix": (True, ["5"]),
+        "test84.vix": (True, ["5"]),
+        "test85.vix": (True, ["0", "1", "5", "55"]),
+        "test86.vix": (True, ["1", "1", "120", "3628800"]),
+        "test87.vix": (True, ["4", "25", "1", "5"]),
+        "test88.vix": (True, ["6", "60", "0", "0"]),
+        "test89.vix": (True, ["0", "1", "25", "100", "9"]),
+        "test90.vix": (True, ["10", "20"]),
+        "test91.vix": (True, ["0"]),
+        "test92.vix": (True, ["42", "test"]),
+        "test93.vix": (True, ["3", "10", "30"]),
+        "test94.vix": (True, ["100", "num", "hello", "str"]),
+        "test95.vix": (True, ["4", "6", "3", "8"]),
+        "test96.vix": (True, ["10", "20", "30"]),
+        "test97.vix": (True, ["5", "ok"]),
+        "test98.vix": (True, ["15", "60"]),
+        "test99.vix": (True, ["3", "1", "2", "3"]),
+        "test100.vix": (True, ["10", "20", "30", "3"]),
+        "test101.vix": (True, ["4", "99"]),
+        "test102.vix": (True, ["42"]),
+        "test103.vix": (True, ["20", "20"]),
+        "test104.vix": (True, ["10", "20", "20", "10"]),
+        "test105.vix": (True, ["two"]),
+        "test106.vix": (True, ["zero", "one", "many"]),
+        "test107.vix": (True, ["3", "-1"]),
+        "test108.vix": (True, ["0", "0", "0.000000", "ok", "0"]),
+        "test109.vix": (True, ["15", "12", "48", "24", "3"]),
+        "test110.vix": (True, ["255", "0", "10", "16", "256"]),
+        "test111.vix": (True, ["10", "20"]),
+        "test112.vix": (True, ["1", "2", "3"]),
+        "test113.vix": (True, ["10", "15", "11"]),
+        "test114.vix": (True, ["10", "42"]),
+        "test115.vix": (True, ["3"]),
+        "test116.vix": (True, ["100"]),
+        "test117.vix": (True, ["10", "10", "10", "10", "0"]),
+        "test118.vix": (True, ["0", "-1", "-100", "1", "0"]),
+        "test119.vix": (True, ["1", "0", "1", "0", "1"]),
+        "test120.vix": (True, ["5", "5", "0", "100"]),
+        "test121.vix": (True, ["3", "2", "5", "7", "10", "5"]),
+        "test122.vix": (True, ["0", "0", "1", "1", "0", "1", "1", "0"]),
+        "test123.vix": (True, ["1", "2", "1024", "27", "1000"]),
+        "test124.vix": (True, ["0", "1", "55", "6765"]),
+        "test125.vix": (True, ["1", "1", "120", "3628800"]),
+        "test126.vix": (True, ["12", "21", "36", "100"]),
+        "test127.vix": (True, ["5050"]),
+        "test128.vix": (True, ["Alice", "30"]),
+        "test129.vix": (True, ["10", "20", "30", "5"]),
+        "test130.vix": (True, ["55"]),
+        "test131.vix": (True, ["11", "12", "22", "25", "34", "64", "90"]),
+        "test132.vix": (True, ["5", "4", "3", "2", "1"]),
+        "test133.vix": (True, ["3", "1", "0"]),
+        "test134.vix": (True, ["9", "100"]),
+        "test135.vix": (True, ["2", "0", "-1"]),
+        "test136.vix": (True, ["hello", "world"]),
+        "test137.vix": (True, ["equal", "not-equal"]),
+        "test138.vix": (True, ["20", "40", "60"]),
+        "test139.vix": (True, ["1", "60"]),
+        "test140.vix": (True, ["3", "3", "3", "3", "3"]),
+        "test141.vix": (True, ["0", "1", "8", "111"]),
+        "test142.vix": (True, ["0", "1", "6", "36"]),
+        "test143.vix": (True, ["5", "0", "10", "0", "10"]),
+        "test144.vix": (True, ["15", "120", "-5"]),
+        "test145.vix": (True, ["3", "1", "-3"]),
+        "test146.vix": (True, ["0", "0", "10", "20"]),
+        "test147.vix": (True, ["5"]),
+        "test148.vix": (True, ["35"]),
+        "test149.vix": (True, ["7"]),
+        "test150.vix": (True, ["1024"]),
+        "test151.vix": (True, ["0", "1", "2", "3"]),
+        "test152.vix": (True, ["red", "blue"]),
+        "test153.vix": (True, ["42", "oops"]),
+        "test154.vix": (True, ["10", "none"]),
+        "test155.vix": (True, ["55"]),
+        "test156.vix": (True, ["1", "2", "fizz", "4", "buzz", "fizz", "7", "8", "fizz", "buzz", "11", "fizz", "13", "14", "fizzbuzz"]),
+        "test157.vix": (True, ["5", "5"]),
+        "test158.vix": (True, ["five"]),
+        "test159.vix": (True, ["0", "0", "0.000000", "ok"]),
+        "test160.vix": (True, ["3", "42.000000", "0"]),
+        "test161.vix": (True, ["60", "230", "610", "900"]),
+        "test162.vix": (True, ["499500"]),
+        "test163.vix": (True, ["0", "0", "1", "4", "81"]),
+        "test164.vix": (True, ["1", "0", "1", "1"]),
+        "test165.vix": (True, ["2", "6", "4", "1", "1"]),
+        "test166.vix": (True, ["45", "55", "35"]),
+        "test167.vix": (True, ["10", "20", "30", "5"]),
+        "test168.vix": (True, ["zero", "zero"]),
+        "test169.vix": (True, ["150", "5"]),
+        "test170.vix": (True, ["30", "200", "6"]),
+        "test171.vix": (True, ["1", "6", "2", "3", "5", "29"]),
+        "test172.vix": (True, ["42", "none", "hello"]),
+        "test173.vix": (True, ["has-value", "none", "has-string"]),
+        "test174.vix": (True, ["true", "not-false", "and-false", "or-true"]),
+        "test175.vix": (True, []),
+        "test176.vix": (True, ["20", "10"]),
+        "test177.vix": (True, ["255", "10", "265", "16"]),
+        "test178.vix": (True, ["10", "20", "30", "100", "200"]),
+        "test179.vix": (True, ["10", "20", "30", "60"]),
+        "test180.vix": (True, ["1", "2", "100", "200"]),
+        "test181.vix": (True, ["100"]),
+        "test182.vix": (True, ["0", "100", "0.000000", "large"]),
+        "test183.vix": (True, ["7", "12", "12", "11"]),
+        "test184.vix": (True, ["255", "10", "265", "16"]),
+        "test185.vix": (True, ["50", "15", "6"]),
+        "test186.vix": (True, ["0", "1", "3", "4", "15"]),
+        "test187.vix": (True, ["1", "13", "3"]),
+        "test188.vix": (True, ["3", "10", "20", "30"]),
+        "test189.vix": (True, ["0", "1", "less", "not-zero"]),
+        "test190.vix": (True, ["10", "20", "30", "100", "300"]),
+        "test191.vix": (True, ["2432902008176640000", "255", "1.500000"]),
+        "test192.vix": (True, ["10", "11", "12"]),
+        "test193.vix": (True, ["12.000000", "30.000000"]),
+        "test194.vix": (True, ["active"]),
+        "test195.vix": (True, ["42", "-1"]),
+        "test196.vix": (True, ["world", "hello world", "1", "0", "1"]),
+        "test197.vix": (True, ["100", "100"]),
+        "test198.vix": (True, ["100", "100", "30", "20"]),
+        "test199.vix": (True, ["5", "1", "5", "15"]),
+        "test200.vix": (True, ["10", "20"]),
+        "test201.vix": (True, ["22", "2", "120", "1", "2"]),
+        "test202.vix": (True, ["1", "2"]),
+        "test203.vix": (True, ["4", "25", "12", "21"]),
+        "test204.vix": (True, ["2", "3", "5", "7", "11", "13", "17", "19"]),
+        "test205.vix": (True, ["42", "42"]),
+        "test206.vix": (False, "undefined identifier"),
+        "test207.vix": (False, "redefinition"),
+        "test208.vix": (True, []),
+        "test209.vix": (True, ["255", "10", "265"]),
+        "test210.vix": (True, ["42"]),
+        "test211.vix": (True, ["30"]),
+        "test212.vix": (True, ["15", "12", "48", "24", "3"]),
+    }
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "test_num",
+        list(range(1, 213)),
+        ids=[f"test{n}" for n in range(1, 213)],
+    )
+    def test_regression(self, compiler, tmp_path, test_num):
+        test_file = TEST_DIR / f"test{test_num}.vix"
+        if not test_file.exists():
+            pytest.skip(f"test{test_num}.vix not found")
+
+        exp = self.EXPECT.get(f"test{test_num}.vix")
+        bin_path = tmp_path / f"test{test_num}"
+
+        compile_res = compile_vix(compiler, test_file, bin_path)
+
+        if exp is not None and not exp[0]:
+            assert compile_res.returncode != 0, f"test{test_num}: expected compile failure"
+            if exp[1]:
+                assert exp[1] in compile_res.stderr, (
+                    f"test{test_num}: expected error containing '{exp[1]}'\n"
+                    f"stderr: {compile_res.stderr[:200]}"
+                )
+            return
+
+        assert compile_res.returncode == 0, (
+            f"test{test_num}: compilation failed\n{compile_res.stderr[:300]}"
+        )
+
+        if exp is None:
+            return
+
+        run_res = run_binary(bin_path)
+        assert run_res.returncode == 0, f"test{test_num}: runtime failed ({run_res.returncode})"
+
+        out_lines = [line.strip() for line in run_res.stdout.splitlines() if line.strip()]
+        assert out_lines == exp[1], (
+            f"test{test_num}: output mismatch\n"
+            f"  expected: {exp[1]}\n"
+            f"  actual:   {out_lines}"
+        )

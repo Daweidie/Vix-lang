@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "../../include/ast.h"
 #include "../../include/compiler.h"
@@ -266,17 +267,42 @@ struct TypeChecker {
 				}
 				return Type::make_app(ctor, std::move(args));
 			}
-			case AST_IDENTIFIER:
-					if (type_node->data.identifier.name) {
-						if (strcmp(type_node->data.identifier.name, "ptr") == 0) {
-							return Type::make_ptr(unify.fresh());
-						}
-						auto it = generic_bindings.find(type_node->data.identifier.name);
-						if (it != generic_bindings.end()) {
-							return it->second;
-						}
+		case AST_IDENTIFIER:
+				if (type_node->data.identifier.name) {
+					const char* name = type_node->data.identifier.name;
+					if (strcmp(name, "ptr") == 0) {
+						return Type::make_ptr(unify.fresh());
 					}
-					return Type::make_struct(type_node->data.identifier.name ? type_node->data.identifier.name : "<anon>");
+					if (strcmp(name, "bool") == 0) {
+						return builtin_bool;
+					}
+					if (strcmp(name, "i8") == 0) {
+						return builtin_i8;
+					}
+					if (strcmp(name, "i32") == 0) {
+						return builtin_i32;
+					}
+					if (strcmp(name, "i64") == 0) {
+						return builtin_i64;
+					}
+					if (strcmp(name, "f32") == 0) {
+						return builtin_f32;
+					}
+					if (strcmp(name, "f64") == 0) {
+						return builtin_f64;
+					}
+					if (strcmp(name, "string") == 0 || strcmp(name, "str") == 0) {
+						return builtin_string;
+					}
+					if (strcmp(name, "void") == 0) {
+						return builtin_void;
+					}
+					auto it = generic_bindings.find(name);
+					if (it != generic_bindings.end()) {
+						return it->second;
+					}
+				}
+				return Type::make_struct(type_node->data.identifier.name ? type_node->data.identifier.name : "<anon>");
 			case AST_EXPRESSION_LIST: {
 				int cnt = type_node->data.expression_list.expression_count;
 				if (cnt == 1) {
@@ -870,17 +896,21 @@ struct TypeChecker {
 						}
 					}
 				}
-				if (none_cmp) {
-					return node_types[node] = builtin_bool;
-				}
+			if (none_cmp) {
+				return node_types[node] = builtin_bool;
+			}
+			if (is_numeric(lhs) && is_numeric(rhs)) {
+				// Comparison operators allow numeric promotion (i32 vs i64, etc.)
+			} else {
 				try {
 					unify.unify(lhs, rhs);
 				} catch (const std::exception& ex) {
 					report_type_error(node, ex.what());
 				}
 			}
-			(void)ctor_name;
-			return node_types[node] = builtin_bool;
+		}
+		(void)ctor_name;
+		return node_types[node] = builtin_bool;
 		}
 
 		if (op == OP_CONCAT) {
@@ -966,38 +996,70 @@ struct TypeChecker {
 		TypePtr payload_type;
 
 		if (node->data.if_stmt.condition && node->data.if_stmt.condition->type == AST_BINOP &&
-			node->data.if_stmt.condition->data.binop.op == OP_EQ) {
+			(node->data.if_stmt.condition->data.binop.op == OP_EQ ||
+			 node->data.if_stmt.condition->data.binop.op == OP_NE)) {
+			int is_ne = (node->data.if_stmt.condition->data.binop.op == OP_NE);
 			ASTNode* lhs = node->data.if_stmt.condition->data.binop.left;
 			ASTNode* rhs = node->data.if_stmt.condition->data.binop.right;
 			ASTNode* ctor_node = nullptr;
 			ASTNode* scrutinee_node = nullptr;
+			bool is_nil_cmp = false;
 			if (lhs && lhs->type == AST_IDENTIFIER && is_builtin_ctor(lhs->data.identifier.name)) {
 				ctor_node = lhs;
 				scrutinee_node = rhs;
 			} else if (rhs && rhs->type == AST_IDENTIFIER && is_builtin_ctor(rhs->data.identifier.name)) {
 				ctor_node = rhs;
 				scrutinee_node = lhs;
+			} else if (lhs && lhs->type == AST_NIL && rhs && rhs->type == AST_IDENTIFIER) {
+				is_nil_cmp = true;
+				scrutinee_node = rhs;
+			} else if (rhs && rhs->type == AST_NIL && lhs && lhs->type == AST_IDENTIFIER) {
+				is_nil_cmp = true;
+				scrutinee_node = lhs;
 			}
-			if (ctor_node && scrutinee_node && scrutinee_node->type == AST_IDENTIFIER) {
+			if ((ctor_node || is_nil_cmp) && scrutinee_node && scrutinee_node->type == AST_IDENTIFIER) {
 				scrutinee_name = scrutinee_node->data.identifier.name ? scrutinee_node->data.identifier.name : "";
 				if (!scrutinee_name.empty()) {
 					TypePtr scrutinee_type = check_expr(scrutinee_node);
 					TypePtr resolved = unify.apply(scrutinee_type);
-					const char* ctor_name = ctor_node->data.identifier.name;
-					if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
-						resolved->data.app.ctor->kind == TypeKind::Struct) {
-						const std::string& base = resolved->data.app.ctor->data.struct_data.name;
-						if (base == "Option" && resolved->data.app.args.size() == 1) {
-							payload_type = resolved->data.app.args[0];
-						} else if (base == "Result" && resolved->data.app.args.size() == 2) {
-							if (strcmp(ctor_name, "Ok") == 0) {
+					if (is_nil_cmp) {
+						if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
+							resolved->data.app.ctor->kind == TypeKind::Struct) {
+							const std::string& base = resolved->data.app.ctor->data.struct_data.name;
+							if (base == "Option" && resolved->data.app.args.size() == 1 && is_ne) {
 								payload_type = resolved->data.app.args[0];
-							} else if (strcmp(ctor_name, "Err") == 0) {
-								payload_type = resolved->data.app.args[1];
+							} else if (base == "Result" && resolved->data.app.args.size() == 2 && is_ne) {
+								payload_type = resolved->data.app.args[0];
+							}
+						}
+						if (resolved->kind == TypeKind::Ptr && is_ne) {
+							payload_type = resolved;
+						}
+					} else {
+						const char* ctor_name = ctor_node->data.identifier.name;
+						if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
+							resolved->data.app.ctor->kind == TypeKind::Struct) {
+							const std::string& base = resolved->data.app.ctor->data.struct_data.name;
+							if (base == "Option" && resolved->data.app.args.size() == 1) {
+								if (is_ne && strcmp(ctor_name, "None") == 0) {
+									payload_type = resolved->data.app.args[0];
+								} else if (!is_ne && strcmp(ctor_name, "Some") == 0) {
+									payload_type = resolved->data.app.args[0];
+								} else if (!is_ne && strcmp(ctor_name, "None") != 0) {
+									payload_type = resolved->data.app.args[0];
+								}
+							} else if (base == "Result" && resolved->data.app.args.size() == 2) {
+								if (is_ne) {
+									payload_type = resolved->data.app.args[0];
+								} else if (strcmp(ctor_name, "Ok") == 0) {
+									payload_type = resolved->data.app.args[0];
+								} else if (strcmp(ctor_name, "Err") == 0) {
+									payload_type = resolved->data.app.args[1];
+								}
 							}
 						}
 					}
-					if (payload_type && strcmp(ctor_name, "None") != 0) {
+					if (payload_type) {
 						match_payloads[scrutinee_name] = payload_type;
 						match_payload_field_types[std::string(scrutinee_name) + ".1"] = payload_type;
 						match_payload_field_types[std::string(scrutinee_name) + ".0"] = builtin_i32;
@@ -1427,13 +1489,18 @@ struct TypeChecker {
 	}
 
 	TypePtr instantiate_fn(const TypePtr& fn_type, const std::vector<TypePtr>& type_args) {
-		TypePtr resolved = unify.apply(fn_type);
+		TypePtr resolved = fn_type;
+		if (resolved->kind != TypeKind::Fn) {
+			resolved = unify.apply(fn_type);
+		}
 		if (resolved->kind != TypeKind::Fn) {
 			return resolved;
 		}
 		if (resolved->data.fn.generic_param_ids.empty()) {
 			return resolved;
 		}
+		std::unordered_set<int> generic_id_set(resolved->data.fn.generic_param_ids.begin(),
+											   resolved->data.fn.generic_param_ids.end());
 		std::unordered_map<int, TypePtr> mapping;
 		for (size_t i = 0; i < resolved->data.fn.generic_param_ids.size() && i < type_args.size(); ++i) {
 			mapping[resolved->data.fn.generic_param_ids[i]] = type_args[i];
@@ -1442,7 +1509,16 @@ struct TypeChecker {
 			if (!t) {
 				return t;
 			}
-			TypePtr a = unify.apply(t);
+			if (t->kind == TypeKind::Var) {
+				auto it = mapping.find(t->data.var.id);
+				if (it != mapping.end()) {
+					return it->second;
+				}
+			}
+			TypePtr a = t;
+			if (generic_id_set.find(t->kind == TypeKind::Var ? t->data.var.id : -1) == generic_id_set.end()) {
+				a = unify.apply(t);
+			}
 			if (a->kind == TypeKind::Var) {
 				auto it = mapping.find(a->data.var.id);
 				if (it != mapping.end()) {
@@ -1509,7 +1585,9 @@ struct TypeChecker {
 		}
 
 		TypePtr callee = check_expr(node->data.call.func);
-		TypePtr resolved = unify.apply(callee);
+		bool has_type_args = node->data.call.type_args && node->data.call.type_args->type == AST_EXPRESSION_LIST &&
+							 node->data.call.type_args->data.expression_list.expression_count > 0;
+		TypePtr resolved = has_type_args ? callee : unify.apply(callee);
 
 		std::vector<TypePtr> arg_types;
 		size_t actual = node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST
