@@ -39,16 +39,6 @@
 extern FILE* yyin;
 extern ASTNode* root;
 const char* current_input_filename = NULL;
-
-/*
- * Locate the bundled libc/ directory relative to the executable.
- *
- * Expected layout:
- *   <prefix>/bin/vixc   (Linux/macOS)  → <prefix>/libc/
- *   <prefix>/bin/vixc.exe (Windows)    → <prefix>/libc/
- *
- * Returns a static buffer or NULL if not found.
- */
 static const char* find_bundled_libc(void) {
     static char libc_path[4096];
     char exe_dir[4096];
@@ -56,7 +46,6 @@ static const char* find_bundled_libc(void) {
 #ifdef _WIN32
     DWORD len = GetModuleFileNameA(NULL, exe_dir, sizeof(exe_dir));
     if (len == 0 || len >= sizeof(exe_dir)) return NULL;
-    /* Trim to directory */
     char *last_sep = strrchr(exe_dir, '\\');
     if (!last_sep) last_sep = strrchr(exe_dir, '/');
     if (last_sep) *last_sep = '\0';
@@ -64,15 +53,9 @@ static const char* find_bundled_libc(void) {
     ssize_t len = readlink("/proc/self/exe", exe_dir, sizeof(exe_dir) - 1);
     if (len <= 0) return NULL;
     exe_dir[len] = '\0';
-    /* Trim to directory */
     char *last_sep = strrchr(exe_dir, '/');
     if (last_sep) *last_sep = '\0';
 #endif
-
-    /*
-     * Try ../libc/ relative to exe dir (handles <prefix>/bin/vixc layout).
-     * Also try ./libc/ (handles <prefix>/vixc layout with libc/ next to it).
-     */
     static const char *const suffixes[] = {
 #ifdef _WIN32
         "\\..\\libc",
