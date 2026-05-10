@@ -222,13 +222,20 @@ jobs:
             [ -f "$dll" ] && cp "$dll" dist/bin/ 2>/dev/null || true
           done
 
-          # ── 检测 MSYS2 环境（优先 UCRT64，其次 MINGW64）──
+          # ── 检测 MSYS2 环境（优先使用当前 msystem，其次目录检测）──
           MSYS_PREFIX=""
-          if [ -d "/ucrt64" ]; then
-            MSYS_PREFIX="/ucrt64"
-          elif [ -d "/mingw64" ]; then
-            MSYS_PREFIX="/mingw64"
-          fi
+          case "${MSYSTEM:-}" in
+            UCRT64)  MSYS_PREFIX="/ucrt64" ;;
+            MINGW64) MSYS_PREFIX="/mingw64" ;;
+            CLANG64) MSYS_PREFIX="/clang64" ;;
+            *)
+              if [ -d "/mingw64" ]; then
+                MSYS_PREFIX="/mingw64"
+              elif [ -d "/ucrt64" ]; then
+                MSYS_PREFIX="/ucrt64"
+              fi
+              ;;
+          esac
 
           if [ -z "$MSYS_PREFIX" ]; then
             echo "WARNING: No MSYS2 environment found (neither /ucrt64 nor /mingw64), skipping libc extraction"
@@ -253,7 +260,7 @@ jobs:
                 fi
               done
               echo "  WARNING: $name not found, skipping"
-              return 1
+              return 0
             }
 
             # 动态库（供编译后的程序运行时使用）
