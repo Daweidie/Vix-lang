@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2024 Vix Language Authors. All rights reserved.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 %{
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
@@ -716,7 +732,6 @@ statement
         $$->data.global_decl.is_public = 1;
     }
     | compound_assignment_statement SEMICOLON { $$ = $1; }
-    | if_statement                  { $$ = $1; }
     | while_statement               { $$ = $1; }
     | for_statement               { $$ = $1; }
     | print_statement               { $$ = $1; }
@@ -845,6 +860,15 @@ type_definition
         register_generic_arity($3, GENERIC_KIND_TYPE, 0);
         register_adt_definition($3, 0, $5);
         $$ = mark_type_alias_public(build_type_alias_enum($3, $5));
+    }
+    | TYPE_KW IDENTIFIER ASSIGN STRUCT LBRACE struct_fields RBRACE {
+        register_generic_arity($2, GENERIC_KIND_STRUCT, 0);
+        $$ = create_struct_def_node_with_yyltype($2, $6, (YYLTYPE*) &@$);
+    }
+    | PUB TYPE_KW IDENTIFIER ASSIGN STRUCT LBRACE struct_fields RBRACE {
+        register_generic_arity($3, GENERIC_KIND_STRUCT, 0);
+        $$ = create_struct_def_node_with_yyltype($3, $7, (YYLTYPE*) &@$);
+        $$->data.struct_def.is_public = 1;
     }
     | TYPE_KW IDENTIFIER COLON LBRACKET generic_param_list RBRACKET ASSIGN enum_variant_list {
         register_generic_arity($2, GENERIC_KIND_TYPE, node_list_count($5));
@@ -1108,6 +1132,20 @@ pub_function_definition
         register_generic_arity($3, GENERIC_KIND_FUNCTION, 0);
         $$ = create_public_function_node($3, $5, $7, $9);
     }
+    | PUB FN IDENTIFIER LPAREN RPAREN function_return_type ASSIGN expression {
+        register_generic_arity($3, GENERIC_KIND_FUNCTION, 0);
+        ASTNode* body = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* ret = create_return_node_with_yyltype($8, (YYLTYPE*) &@$);
+        add_statement_to_program(body, ret);
+        $$ = create_public_function_node($3, NULL, $6, body);
+    }
+    | PUB FN IDENTIFIER LPAREN param_list RPAREN function_return_type ASSIGN expression {
+        register_generic_arity($3, GENERIC_KIND_FUNCTION, 0);
+        ASTNode* body = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* ret = create_return_node_with_yyltype($9, (YYLTYPE*) &@$);
+        add_statement_to_program(body, ret);
+        $$ = create_public_function_node($3, $5, $7, body);
+    }
     | PUB FN IDENTIFIER LPAREN RPAREN LBRACE statement_list RBRACE {
         ASTNode* void_type = create_type_node(AST_TYPE_VOID);
         register_generic_arity($3, GENERIC_KIND_FUNCTION, 0);
@@ -1151,6 +1189,22 @@ function_definition
     | FN IDENTIFIER LPAREN param_list RPAREN function_return_type LBRACE statement_list RBRACE {
         register_generic_arity($2, GENERIC_KIND_FUNCTION, 0);
         $$ = create_function_node($2, $4, $6, $8);
+        $$->data.function.is_public = 0;
+    }
+    | FN IDENTIFIER LPAREN RPAREN function_return_type ASSIGN expression {
+        register_generic_arity($2, GENERIC_KIND_FUNCTION, 0);
+        ASTNode* body = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* ret = create_return_node_with_yyltype($7, (YYLTYPE*) &@$);
+        add_statement_to_program(body, ret);
+        $$ = create_function_node($2, NULL, $5, body);
+        $$->data.function.is_public = 0;
+    }
+    | FN IDENTIFIER LPAREN param_list RPAREN function_return_type ASSIGN expression {
+        register_generic_arity($2, GENERIC_KIND_FUNCTION, 0);
+        ASTNode* body = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* ret = create_return_node_with_yyltype($8, (YYLTYPE*) &@$);
+        add_statement_to_program(body, ret);
+        $$ = create_function_node($2, $4, $6, body);
         $$->data.function.is_public = 0;
     }
     | FN IDENTIFIER LPAREN RPAREN LBRACE statement_list RBRACE {
@@ -1507,6 +1561,13 @@ factor_unary
     | toint_expression              { $$ = $1; }
     | tofloat_expression            { $$ = $1; }
     | input_expression              { $$ = $1; }
+    | IF LPAREN expression RPAREN block_statement if_rest {
+        if ($6) {
+            $$ = create_if_node_with_yyltype($3, $5, $6, (YYLTYPE*) &@$);
+        } else {
+            $$ = create_if_node_with_yyltype($3, $5, NULL, (YYLTYPE*) &@$);
+        }
+    }
     | PLUS factor_unary             { $$ = create_unaryop_node(OP_PLUS, $2); }
     | MINUS factor_unary            { $$ = create_unaryop_node(OP_MINUS, $2); }
     | MULTIPLY factor_unary         { $$ = create_unaryop_node(OP_DEREF, $2); }

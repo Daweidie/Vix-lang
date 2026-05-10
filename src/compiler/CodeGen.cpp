@@ -1,6 +1,18 @@
 /*
-vix0.0.1 released!
-*/
+ * Copyright (c) 2026 Vix Language Authors. All rights reserved.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 #include "../../include/codegen.h"
 #include "../../include/ast.h"
 #include "../../include/parser.h"
@@ -2946,6 +2958,7 @@ public:
             }
         }
 
+        VisitResult lastResult;
         for (int i = 0; i < node->data.program.statement_count; i++) {
             ASTNode* stmt = node->data.program.statements[i];
             if (stmt && stmt->type == AST_FUNCTION) {
@@ -2954,14 +2967,14 @@ public:
                     continue;
                 }
             }
-            visit(node->data.program.statements[i]);
+            lastResult = visit(node->data.program.statements[i]);
             BasicBlock* currentBB = builder.GetInsertBlock();
             if (currentBB && currentBB->getTerminator()) {
                 break;
             }
         }
         
-        return VisitResult();
+        return lastResult;
     }
 
     VisitResult visitBreak(ASTNode* node) {
@@ -3008,10 +3021,11 @@ public:
         
         builder.SetInsertPoint(thenBB);
         scopeManager.enterScope();
-        visit(node->data.if_stmt.then_body);
+        VisitResult thenResult = visit(node->data.if_stmt.then_body);
         scopeManager.exitScope();
-        thenBB = builder.GetInsertBlock();
-        if (!thenBB->getTerminator()) {
+        BasicBlock* thenEndBB = builder.GetInsertBlock();
+        bool thenTerminated = thenEndBB->getTerminator();
+        if (!thenTerminated) {
             builder.CreateBr(mergeBB);
         }
         
@@ -3019,17 +3033,53 @@ public:
         func->insert(func->end(), mergeBB);
         
         builder.SetInsertPoint(elseBB);
+        VisitResult elseResult;
         if (node->data.if_stmt.else_body) {
             scopeManager.enterScope();
-            visit(node->data.if_stmt.else_body);
+            elseResult = visit(node->data.if_stmt.else_body);
             scopeManager.exitScope();
         }
-        elseBB = builder.GetInsertBlock();
-        if (!elseBB->getTerminator()) {
+        BasicBlock* elseEndBB = builder.GetInsertBlock();
+        bool elseTerminated = elseEndBB->getTerminator();
+        if (!elseTerminated) {
             builder.CreateBr(mergeBB);
         }
         
         builder.SetInsertPoint(mergeBB);
+        
+        // Create phi node if both branches produce values
+        if (thenResult.value && elseResult.value && !thenTerminated && !elseTerminated) {
+            ValueType resultType = thenResult.type;
+            if (thenResult.type != elseResult.type) {
+                auto [promotedLeft, promotedRight] = typeHelper.promoteTypes(thenResult.type, elseResult.type);
+                resultType = (promotedLeft > promotedRight) ? promotedLeft : promotedRight;
+                // Cast inside each branch block before the terminator so the casted
+                // value dominates the merge block (LLVM requirement).
+                if (thenResult.type != resultType && thenResult.value && thenEndBB->getTerminator()) {
+                    thenEndBB->getTerminator()->eraseFromParent();
+                    builder.SetInsertPoint(thenEndBB);
+                    thenResult.value = typeHelper.castValue(builder, thenResult.value, thenResult.type, resultType);
+                    builder.CreateBr(mergeBB);
+                    thenEndBB = builder.GetInsertBlock();
+                }
+                if (elseResult.type != resultType && elseResult.value && elseEndBB->getTerminator()) {
+                    elseEndBB->getTerminator()->eraseFromParent();
+                    builder.SetInsertPoint(elseEndBB);
+                    elseResult.value = typeHelper.castValue(builder, elseResult.value, elseResult.type, resultType);
+                    builder.CreateBr(mergeBB);
+                    elseEndBB = builder.GetInsertBlock();
+                }
+                // Restore insert point to mergeBB
+                builder.SetInsertPoint(mergeBB);
+            }
+            if (thenResult.value && elseResult.value && thenResult.value->getType() == elseResult.value->getType()) {
+                PHINode* phi = builder.CreatePHI(thenResult.value->getType(), 2, "iftmp");
+                phi->addIncoming(thenResult.value, thenEndBB);
+                phi->addIncoming(elseResult.value, elseEndBB);
+                return VisitResult(phi, resultType);
+            }
+        }
+        
         return VisitResult();
     }
     

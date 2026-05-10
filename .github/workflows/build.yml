@@ -214,13 +214,63 @@ jobs:
         shell: msys2 {0}
         run: |
           PKG_NAME="vixc-${{ steps.version.outputs.ver }}-${{ matrix.arch }}-${{ matrix.pkgos }}"
-          mkdir -p dist
-          cp build/vixc.exe dist/vixc.exe
+          mkdir -p dist/bin dist/libc
+          cp build/vixc.exe dist/bin/vixc.exe
 
-          # 用 ldd 找出所有非 Windows 系统 DLL，复制到 dist/
-          ldd dist/vixc.exe | grep -vi '/c/WINDOWS/' | awk '{ print $3 }' | while read dll; do
-            [ -f "$dll" ] && cp "$dll" dist/
+          # ── 复制 vixc.exe 自身依赖的运行时 DLL ──
+          ldd dist/bin/vixc.exe | grep -vi '/c/WINDOWS/' | awk '{ print $3 }' | while read dll; do
+            [ -f "$dll" ] && cp "$dll" dist/bin/ 2>/dev/null || true
           done
+
+          # ── 检测 MSYS2 环境（优先 UCRT64，其次 MINGW64）──
+          MSYS_PREFIX=""
+          if [ -d "/ucrt64" ]; then
+            MSYS_PREFIX="/ucrt64"
+          elif [ -d "/mingw64" ]; then
+            MSYS_PREFIX="/mingw64"
+          fi
+
+          if [ -z "$MSYS_PREFIX" ]; then
+            echo "WARNING: No MSYS2 environment found (neither /ucrt64 nor /mingw64), skipping libc extraction"
+          else
+            echo "Using MSYS2 prefix: $MSYS_PREFIX"
+
+            # 查找 GCC 版本目录（用于 libgcc.a 等）
+            GCC_VER=""
+            for d in "$MSYS_PREFIX"/lib/gcc/x86_64-w64-mingw32/*/; do
+              [ -d "$d" ] && GCC_VER="$d"
+            done
+            echo "GCC version dir: ${GCC_VER:-<not found>}"
+
+            # 通用查找并复制函数：在 GCC_VER、lib/、bin/ 中搜索
+            copy_if_found() {
+              local name="$1"
+              for dir in "$GCC_VER" "$MSYS_PREFIX/lib" "$MSYS_PREFIX/bin"; do
+                if [ -f "$dir/$name" ]; then
+                  cp "$dir/$name" dist/libc/
+                  echo "  Copied: $name (from $dir)"
+                  return 0
+                fi
+              done
+              echo "  WARNING: $name not found, skipping"
+              return 1
+            }
+
+            # 动态库（供编译后的程序运行时使用）
+            for dll in ucrtbase.dll vcruntime140.dll vcruntime140_1.dll; do
+              copy_if_found "$dll"
+            done
+
+            # 静态库
+            for lib in libucrt.a libvcruntime.a libmingw32.a libgcc.a libgcc_eh.a libmingwex.a libmsvcrt.a libkernel32.a; do
+              copy_if_found "$lib"
+            done
+
+            # CRT 对象文件
+            for obj in crt2.o crtbegin.o crtend.o crtbeginS.o crtendS.o; do
+              copy_if_found "$obj"
+            done
+          fi
 
           cd dist
           zip -r "../${PKG_NAME}.zip" .

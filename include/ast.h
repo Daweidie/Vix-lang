@@ -144,7 +144,7 @@ typedef struct ASTNode {
         struct {
             struct ASTNode** expressions;
             int expression_count;
-            int precomputed_length;  // 预计算的数组长度，用于.length属性
+            int precomputed_length;/*length长度*/ 
         } expression_list;
         struct {
             struct ASTNode* target;
@@ -192,7 +192,7 @@ typedef struct ASTNode {
         struct {
             struct ASTNode* element_type;
         } pointer_type;
-        struct {  // 新增：固定大小列表类型
+        struct {
             struct ASTNode* element_type;
             long long size;
         } fixed_size_list_type;
@@ -259,7 +259,7 @@ typedef struct ASTNode {
             struct ASTNode* initializer;
             int is_public;
         } global_decl;
-        struct {  // 添加import节点的数据结构
+        struct {//import的数据节点
             char* module_path;
         } import;
     } data;

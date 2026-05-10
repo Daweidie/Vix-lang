@@ -18,6 +18,7 @@ WORKING_EXAMPLES = [
     "option.vix",
     "result.vix",
     "string_arr.vix",
+    "struct2.vix",
     "symtable.vix",
     "test_for_loop.vix",
     "var.vix",

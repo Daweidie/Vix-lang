@@ -1,5 +1,18 @@
-
-
+/*
+ * Copyright (c) 2026 Vix Language Authors. All rights reserved.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,9 +27,79 @@
 #include "compiler/Llc/Llc.h"
 #include "compiler/Linker/Linker.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#include <libgen.h>
+#include <sys/stat.h>
+#endif
+
 extern FILE* yyin;
 extern ASTNode* root;
 const char* current_input_filename = NULL;
+
+/*
+ * Locate the bundled libc/ directory relative to the executable.
+ *
+ * Expected layout:
+ *   <prefix>/bin/vixc   (Linux/macOS)  → <prefix>/libc/
+ *   <prefix>/bin/vixc.exe (Windows)    → <prefix>/libc/
+ *
+ * Returns a static buffer or NULL if not found.
+ */
+static const char* find_bundled_libc(void) {
+    static char libc_path[4096];
+    char exe_dir[4096];
+
+#ifdef _WIN32
+    DWORD len = GetModuleFileNameA(NULL, exe_dir, sizeof(exe_dir));
+    if (len == 0 || len >= sizeof(exe_dir)) return NULL;
+    /* Trim to directory */
+    char *last_sep = strrchr(exe_dir, '\\');
+    if (!last_sep) last_sep = strrchr(exe_dir, '/');
+    if (last_sep) *last_sep = '\0';
+#else
+    ssize_t len = readlink("/proc/self/exe", exe_dir, sizeof(exe_dir) - 1);
+    if (len <= 0) return NULL;
+    exe_dir[len] = '\0';
+    /* Trim to directory */
+    char *last_sep = strrchr(exe_dir, '/');
+    if (last_sep) *last_sep = '\0';
+#endif
+
+    /*
+     * Try ../libc/ relative to exe dir (handles <prefix>/bin/vixc layout).
+     * Also try ./libc/ (handles <prefix>/vixc layout with libc/ next to it).
+     */
+    static const char *const suffixes[] = {
+#ifdef _WIN32
+        "\\..\\libc",
+        "\\libc",
+#else
+        "/../libc",
+        "/libc",
+#endif
+        NULL
+    };
+
+    for (const char *const *s = suffixes; *s; ++s) {
+        snprintf(libc_path, sizeof(libc_path), "%s%s", exe_dir, *s);
+#ifdef _WIN32
+        DWORD attr = GetFileAttributesA(libc_path);
+        if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+            return libc_path;
+#else
+        /* Check if directory exists by trying to stat it */
+        struct stat st;
+        if (stat(libc_path, &st) == 0 && S_ISDIR(st.st_mode))
+            return libc_path;
+#endif
+    }
+
+    return NULL;
+}
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -75,7 +158,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0 || strcmp(argv[i] , "-ver") == 0){
-            printf("Vix Compiler 0.1.0_rc.1 Copyright(c) 2025-2026\n");
+            printf("Vix Compiler 0.1.1 Copyright(c) 2025-2026 LLVM:20.1.2(8)\n");
             return 0;
         }
         else if (strcmp(argv[i], "-llvm") == 0) {
@@ -441,6 +524,7 @@ int main(int argc, char **argv) {
                     .linker_script = ls,
                     .static_link = bare,
                     .entry_point = bare ? "_start" : NULL,
+                    .libc_dir = find_bundled_libc(),
                 };
                 if (!vix_link(obj_file, out_f, &link_opts, &link_err)) {
                     fprintf(stderr, "Error: Failed to link object file to executable");

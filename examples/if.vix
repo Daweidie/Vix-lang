@@ -8,3 +8,6 @@ elif (a == "20") {
 else  {
     print("a not is 10 or 20")
 }
+let x = 7
+let msg = if (x > 5) { "big" } else { "small" }
+print(msg)

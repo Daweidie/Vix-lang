@@ -2,6 +2,6 @@ import "lexer.vix"
 fn main(): i32
 {
     let src = "fn main() { return 0; }"
-    lexer_with_len(src, src.length)
+    lex(src)
     return 0
 }

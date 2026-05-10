@@ -40,15 +40,7 @@ runtime-related components, examples, and language documentation.
 
 ## Documentation
 
-- [Getting Started](Docs/en/getting-started.md)
-- [Syntax](Docs/en/syntax.md)
-- [Types](Docs/en/types.md)
-- [Functions](Docs/en/functions.md)
-- [Modules](Docs/en/modules.md)
-- [Structs](Docs/en/structs.md)
-- [Pointers](Docs/en/pointers.md)
-- [Control Flow](Docs/en/control-flow.md)
-- [Standard Library](Docs/en/stdlib.md)
+- LearnVix:[GitHub Link](https://github.com/vixlang/LearnVix)
 
 ## Getting Help
 
@@ -73,6 +65,6 @@ See [LICENSE](LICENSE) for details.
 | Project | Description | Status |
 | --- | --- | --- |
 | **Vix Compiler** | Core compiler with LLVM-focused backend implementation | In active development |
-| **VPM** | Package manager for Vix | Community contribution |
+| **XPM** | Package manager for Vix | Community contribution |
 | **Standard Library** | Common APIs and utilities | Community contribution |
 | **VS Code Extension** | Editor support for Vix | Published |

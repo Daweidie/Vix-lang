@@ -716,3 +716,173 @@ class TestBuiltinFunctions:
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == "5"
+
+
+@pytest.mark.feature
+class TestTypeStructDef:
+    def test_type_struct_basic(self, compiler, tmp_path):
+        src = '''type Point = struct { x: i32, y: i32 }
+fn main(): i32 {
+    let p = Point { x: 10, y: 20 }
+    print(p.x + p.y)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "30"
+
+    def test_type_struct_multiple(self, compiler, tmp_path):
+        src = '''type Person = struct { name: string, age: i32 }
+type Book = struct { title: string, year: i32 }
+fn main(): i32 {
+    let p = Person { name: "Alice", age: 25 }
+    let b = Book { title: "Vix", year: 2026 }
+    print(p.age)
+    print(b.year)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = run.stdout.strip().split("\n")
+        assert lines[0] == "25"
+        assert lines[1] == "2026"
+
+    def test_type_struct_field_types(self, compiler, tmp_path):
+        src = '''type Rect = struct { width: f64, height: f64 }
+fn main(): i32 {
+    let r = Rect { width: 3.0, height: 4.0 }
+    print(r.width + r.height)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert "7" in run.stdout.strip()
+
+    def test_type_struct_in_function(self, compiler, tmp_path):
+        src = '''type Pair = struct { a: i32, b: i32 }
+fn sum(p: Pair): i32 = p.a + p.b
+fn main(): i32 {
+    let p = Pair { a: 3, b: 4 }
+    print(sum(p))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "7"
+
+
+@pytest.mark.feature
+class TestFnExprBody:
+    def test_fn_expr_body_basic(self, compiler, tmp_path):
+        src = '''fn add(a: i32, b: i32): i32 = a + b
+fn main(): i32 {
+    print(add(3, 4))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "7"
+
+    def test_fn_expr_body_single_param(self, compiler, tmp_path):
+        src = '''fn double(x: i32): i32 = x * 2
+fn main(): i32 {
+    print(double(5))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "10"
+
+    def test_fn_expr_body_no_params(self, compiler, tmp_path):
+        src = '''fn get_val(): i32 = 42
+fn main(): i32 {
+    print(get_val())
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+    def test_fn_expr_body_with_struct(self, compiler, tmp_path):
+        src = '''type Point = struct { x: i32, y: i32 }
+fn add(p: Point): i32 = p.x + p.y
+fn main(): i32 {
+    let p = Point { x: 10, y: 20 }
+    print(add(p))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "30"
+
+    def test_fn_expr_body_complex(self, compiler, tmp_path):
+        src = '''fn abs(x: i32): i32 = if (x < 0) { 0 - x } else { x }
+fn main(): i32 {
+    print(abs(-5))
+    print(abs(3))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = run.stdout.strip().split("\n")
+        assert lines[0] == "5"
+        assert lines[1] == "3"
+
+
+@pytest.mark.feature
+class TestIfExpression:
+    def test_if_expr_basic(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = 5
+    let b = if (a > 3) { 15 } else { 25 }
+    print(b)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "15"
+
+    def test_if_expr_else_branch(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = 1
+    let b = if (a > 3) { 15 } else { 25 }
+    print(b)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "25"
+
+    def test_if_expr_in_let(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = 10
+    let msg = if (x > 5) { 1 } else { 0 }
+    print(msg)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "1"
+
+    def test_if_expr_as_arg(self, compiler, tmp_path):
+        src = '''fn double(x: i32): i32 = x * 2
+fn main(): i32 {
+    let a = 5
+    print(double(if (a > 3) { 10 } else { 20 }))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "20"
+
+    def test_if_expr_nested(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = 5
+    let b = 3
+    let c = if (a > 10) { 1 } elif (a > 3) { 2 } else { 3 }
+    print(c)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "2"

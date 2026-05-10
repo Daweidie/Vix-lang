@@ -7,7 +7,7 @@ from helpers import compile_vix, run_binary, compile_and_run, COMPILER, TEST_DIR
 
 
 class TestExistingRegression:
-    """Run all 212 existing regression tests through pytest."""
+    """Run all 220 existing regression tests through pytest."""
 
     EXPECT = {
         "test2.vix": (False, "capturing local variables"),
@@ -216,13 +216,21 @@ class TestExistingRegression:
         "test210.vix": (True, ["42"]),
         "test211.vix": (True, ["30"]),
         "test212.vix": (True, ["15", "12", "48", "24", "3"]),
+        "test213.vix": (True, ["big", "medium", "small", "non-positive", "non-positive"]),
+        "test214.vix": (True, ["1", "2", "4", "5", "7", "8", "10"]),
+        "test215.vix": (True, ["150", "5"]),
+        "test216.vix": (True, ["0", "1", "5", "55", "610"]),
+        "test217.vix": (True, ["1", "2", "3", "2", "4", "6", "3", "6", "9"]),
+        "test218.vix": (True, ["1", "-1", "-1", "-1", "1"]),
+        "test219.vix": (True, ["10", "20", "20", "10"]),
+        "test220.vix": (True, ["A", "B", "C", "D", "F"]),
     }
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
         "test_num",
-        list(range(1, 213)),
-        ids=[f"test{n}" for n in range(1, 213)],
+        list(range(1, 221)),
+        ids=[f"test{n}" for n in range(1, 221)],
     )
     def test_regression(self, compiler, tmp_path, test_num):
         test_file = TEST_DIR / f"test{test_num}.vix"

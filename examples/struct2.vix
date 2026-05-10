@@ -1,9 +1,9 @@
-struct  Person {
+type Person = struct {
     name: string,
     age: i32,
     height: f64
 }
-struct  Book {
+type Book = struct {
     title: string,
     author: string,
     year: i32
@@ -26,21 +26,21 @@ print("Person 2 Height: ", p2.height)
 print("Book Title: ", book1.title)
 print("Book Author: ", book1.author)
 print("Book Year: ", book1.year)
-p1.age = 26
-print("Update p1 age: ", p1.age);
-age_diff = p2.age -  p1.age;
+p1 = Person { name: p1.name, age: 26, height: p1.height }
+print("Update p1 age: ", p1.age)
+let age_diff = p2.age - p1.age;
 print("Age difference: ", age_diff);
-struct  juxing {
+type juxing = struct {
     width: f64,
     height: f64
 }
 let rect = juxing {
     width: 10.5, height: 8.2
 }
-;
-area = rect.width *  rect.height;
+
+let area = rect.width * rect.height;
 print("juxing area: ", area);
-struct  Address {
+type Address = struct {
     street: string,
     city: string,
     zip: string
@@ -48,5 +48,5 @@ struct  Address {
 let addr = Address {
     street: "123 Main St", city: "Anytown", zip: "12345"
 }
-;
+
 print("Address: ", addr.street, ", ", addr.city, ", ", addr.zip);

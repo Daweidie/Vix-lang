@@ -1,3 +1,18 @@
+/*
+ * Copyright (c) 2026 Vix Language Authors. All rights reserved.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 #include "Linker.h"
 
 #include <lld/Common/Driver.h>
@@ -192,7 +207,8 @@ void buildMachOArgs(std::vector<std::string> &args, const Triple &T,
 }
 
 void buildCoffArgs(std::vector<std::string> &args, bool bare,
-                   const char *entry, const char *script) {
+                   const char *entry, const char *script,
+                   const char *libc_dir) {
     args.push_back("/NOLOGO");
     if (bare) {
         std::string e = "/ENTRY:";
@@ -201,13 +217,18 @@ void buildCoffArgs(std::vector<std::string> &args, bool bare,
         args.push_back("/SUBSYSTEM:CONSOLE");
         addBareArgs(args, entry, script);
     } else {
+        // Prefer bundled libc if available
+        if (libc_dir && libc_dir[0]) {
+            args.push_back("/LIBPATH:" + std::string(libc_dir));
+        }
         args.push_back("msvcrt.lib");
         args.push_back("kernel32.lib");
     }
 }
 
 void buildMinGWArgs(std::vector<std::string> &args, const Triple &T,
-                    bool bare, const char *entry, const char *script) {
+                    bool bare, const char *entry, const char *script,
+                    const char *libc_dir) {
     if (bare) {
         args.push_back("--no-dynamic-linker");
         args.push_back("-e");
@@ -218,12 +239,27 @@ void buildMinGWArgs(std::vector<std::string> &args, const Triple &T,
             args.push_back(script);
         }
     } else {
-        MinGWPaths mp = probeMinGWPaths(T);
-        if (!mp.libDir.empty())
-            args.push_back("-L" + mp.libDir);
-        if (!mp.crtDir.empty()) {
-            args.push_back(mp.crtDir + "/crtbegin.o");
-            args.push_back("-L" + mp.crtDir);
+        // Prefer bundled libc if available
+        bool haveBundled = libc_dir && libc_dir[0] &&
+                           sys::fs::is_directory(libc_dir);
+        if (haveBundled) {
+            args.push_back("-L" + std::string(libc_dir));
+            // Try bundled CRT objects
+            std::string crtbegin = std::string(libc_dir) + "/crtbegin.o";
+            if (fileExists(crtbegin))
+                args.push_back(crtbegin);
+            std::string crt2 = std::string(libc_dir) + "/crt2.o";
+            if (fileExists(crt2))
+                args.push_back(crt2);
+        } else {
+            // Fall back to system MinGW paths
+            MinGWPaths mp = probeMinGWPaths(T);
+            if (!mp.libDir.empty())
+                args.push_back("-L" + mp.libDir);
+            if (!mp.crtDir.empty()) {
+                args.push_back(mp.crtDir + "/crtbegin.o");
+                args.push_back("-L" + mp.crtDir);
+            }
         }
 
         args.push_back("-lmingw32");
@@ -242,8 +278,15 @@ void buildMinGWArgs(std::vector<std::string> &args, const Triple &T,
         args.push_back("-lgcc_eh");
         args.push_back("-lmsvcrt");
 
-        if (!mp.crtDir.empty())
-            args.push_back(mp.crtDir + "/crtend.o");
+        if (haveBundled) {
+            std::string crtend = std::string(libc_dir) + "/crtend.o";
+            if (fileExists(crtend))
+                args.push_back(crtend);
+        } else {
+            MinGWPaths mp = probeMinGWPaths(T);
+            if (!mp.crtDir.empty())
+                args.push_back(mp.crtDir + "/crtend.o");
+        }
     }
 }
 
@@ -280,6 +323,7 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
     // ── Flavor-specific flags ──────────────────────────────────
     const char *entry = options ? options->entry_point : nullptr;
     const char *script = options ? options->linker_script : nullptr;
+    const char *libc_dir = options ? options->libc_dir : nullptr;
 
     switch (flavor) {
         case LinkFlavor::ELF:
@@ -289,10 +333,10 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
             buildMachOArgs(args, T, bare, entry, script);
             break;
         case LinkFlavor::COFF:
-            buildCoffArgs(args, bare, entry, script);
+            buildCoffArgs(args, bare, entry, script, libc_dir);
             break;
         case LinkFlavor::MinGW:
-            buildMinGWArgs(args, T, bare, entry, script);
+            buildMinGWArgs(args, T, bare, entry, script, libc_dir);
             break;
         case LinkFlavor::Wasm:
             if (bare)
