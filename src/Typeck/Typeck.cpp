@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Vix Language Authors. All rights reserved.
+ * Copyright (c) 2026 Vixlang. All rights reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -794,7 +794,27 @@ struct TypeChecker {
 			if (annotated && right) {
 				try {
 					unify.unify(annotated, rtype);
-				} catch (...) {}
+				} catch (const std::exception& ex) {
+					TypePtr resolved_ann = unify.apply(annotated);
+					TypePtr resolved_r = unify.apply(rtype);
+					bool ann_is_num = is_numeric(resolved_ann);
+					bool r_is_num = is_numeric(resolved_r);
+					if (ann_is_num && r_is_num) {
+						// ok
+					}
+					else if ((resolved_ann->kind == TypeKind::FixedArray && resolved_r->kind == TypeKind::Array) ||
+							 (resolved_ann->kind == TypeKind::Array && resolved_r->kind == TypeKind::FixedArray)) {
+						// ok
+					}
+					else if ((resolved_ann->kind == TypeKind::String && resolved_r->kind == TypeKind::Ptr) ||
+							 (resolved_ann->kind == TypeKind::Ptr && resolved_r->kind == TypeKind::String)) {
+						// ok
+					}
+					else {
+						report_type_error(node,
+							std::string("type mismatch in let binding: ") + ex.what());
+					}
+				}
 			}
 			rtype = unify.apply(annotated);
 		}
@@ -1596,6 +1616,31 @@ struct TypeChecker {
 			}
 			if (cname && strcmp(cname, "None") == 0) {
 				return node_types[node] = Type::make_app(Type::make_struct("Option"), {unify.fresh()});
+			}
+			TypePtr ctor_type = env.lookup_ctor(cname);
+			if (ctor_type) {
+				TypePtr resolved_ctor = unify.apply(ctor_type);
+				if (resolved_ctor->kind == TypeKind::Fn) {
+					size_t actual = node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST
+										? node->data.call.args->data.expression_list.expression_count
+										: 0;
+					size_t expected = resolved_ctor->data.fn.params.size();
+					if (!resolved_ctor->data.fn.vararg && expected != actual) {
+						report_semantic_error(node, std::string("constructor '") + cname + "' arity mismatch");
+					}
+					if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST) {
+						for (size_t i = 0; i < actual && i < expected; i++) {
+							TypePtr arg_t = check_expr(node->data.call.args->data.expression_list.expressions[i]);
+							try {
+								unify.unify(resolved_ctor->data.fn.params[i], arg_t);
+							} catch (const std::exception& ex) {
+								report_type_error(node, ex.what());
+							}
+						}
+					}
+					return node_types[node] = resolved_ctor->data.fn.ret;
+				}
+				return node_types[node] = resolved_ctor;
 			}
 		}
 

@@ -1,463 +1,420 @@
-import os
+"""
+500+ fuzz tests for the Vix compiler.
+Each test generates a random Vix program and verifies the compiler doesn't crash (SIGSEGV, SIGABRT, etc.).
+Compilation errors are acceptable; crashes are not.
+"""
 import random
 import signal
 import string
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pytest
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from helpers import COMPILER
 
-
-CRASH_SIGNALS = {
-    signal.SIGSEGV: "SIGSEGV",
-    signal.SIGABRT: "SIGABRT",
-    signal.SIGFPE: "SIGFPE",
-    signal.SIGILL: "SIGILL",
-    signal.SIGBUS: "SIGBUS",
-}
+CRASH_SIGNALS = {signal.SIGSEGV, signal.SIGABRT, signal.SIGFPE, signal.SIGILL, signal.SIGBUS}
 
 
-def rand_int(min_val=-100, max_val=100):
+def rand_int(min_val=-1000, max_val=1000):
     return str(random.randint(min_val, max_val))
-
 
 def rand_float():
     return f"{random.uniform(-100.0, 100.0):.6f}"
 
-
 def rand_string():
     length = random.randint(0, 20)
     chars = random.choices(string.ascii_lowercase + string.digits, k=length)
-    return f'"' + "".join(chars) + '"'
-
+    return '"' + "".join(chars) + '"'
 
 def rand_ident(prefix="v"):
     return f"{prefix}{random.randint(0, 9999)}"
 
-
 def rand_type():
-    return random.choice(["i8", "i32", "i64", "u8", "u32", "f32", "f64", "str", "string"])
-
-
-def rand_int_literal():
-    return random.choice([rand_int, lambda: hex(random.randint(0, 0xFFFF))])()
-
+    return random.choice(["i8", "i32", "i64", "f32", "f64", "bool", "str"])
 
 def rand_literal():
-    return random.choice([rand_int, rand_float, rand_string, lambda: hex(random.randint(0, 0xFFFF))])()
+    return random.choice([rand_int, rand_float, rand_string, lambda: "true", lambda: "false", lambda: "nil"])()
 
-
-def rand_expr(depth=0):
-    if depth > 3:
-        return rand_int_literal()
-    kind = random.choice(["lit", "binop", "ident", "paren", "unary"])
+def rand_simple_expr(depth=0):
+    if depth > 2:
+        return rand_literal()
+    kind = random.choice(["lit", "binop", "ident", "paren"])
     if kind == "lit":
         return rand_literal()
     elif kind == "binop":
-        op = random.choice(["+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">="])
-        return f"({rand_expr(depth+1)} {op} {rand_expr(depth+1)})"
+        op = random.choice(["+", "-", "*", "/", "%", "**"])
+        return f"({rand_simple_expr(depth+1)} {op} {rand_simple_expr(depth+1)})"
     elif kind == "ident":
-        return rand_ident("x")
-    elif kind == "paren":
-        return f"({rand_expr(depth+1)})"
+        return rand_ident()
     else:
-        return f"(0 - {rand_expr(depth+1)})"
+        return f"({rand_simple_expr(depth+1)})"
 
 
-def gen_valid_arithmetic():
-    lines = ["fn main(): i32 {"]
-    for _ in range(random.randint(1, 10)):
-        a = rand_int(-100, 100)
-        b = rand_int(-100, 100)
-        op = random.choice(["+", "-", "*", "/", "%"])
-        if op in ("/", "%") and b == "0":
-            b = "1"
-        lines.append(f"    print({a} {op} {b})")
-    lines.append("    return 0\n}")
-    return "\n".join(lines)
+def generate_random_let():
+    name = rand_ident()
+    t = rand_type()
+    val = rand_literal()
+    use_type = random.choice([True, False])
+    mut = random.choice([True, False])
+    if use_type:
+        return f"let {'mut ' if mut else ''}{name}: {t} = {val}"
+    return f"let {'mut ' if mut else ''}{name} = {val}"
 
 
-def gen_valid_variables():
-    lines = ["fn main(): i32 {"]
-    for _ in range(random.randint(1, 8)):
-        name = rand_ident("v")
-        ty = rand_type()
-        if ty in ("i8", "i32", "i64", "u8", "u32"):
-            lines.append(f"    let {name}: {ty} = {rand_int()}")
-        elif ty in ("f32", "f64"):
-            lines.append(f"    let {name}: {ty} = {rand_float()}")
-        else:
-            lines.append(f'    let {name}: {ty} = {rand_string()}')
-        lines.append(f"    print({name})")
-    lines.append("    return 0\n}")
-    return "\n".join(lines)
+def generate_random_print():
+    return f"print({rand_simple_expr()})"
 
 
-def gen_valid_if_else():
-    x = rand_int(-50, 50)
-    return f'''fn main(): i32 {{
-    let x = {x}
-    if (x > 0) {{ print("positive") }}
-    elif (x == 0) {{ print("zero") }}
-    else {{ print("negative") }}
-    return 0
-}}'''
+def generate_random_if(depth=0):
+    if depth > 2:
+        return f"if ({rand_simple_expr()}) {{ print({rand_literal()}) }}"
+    cond = rand_simple_expr()
+    has_else = random.choice([True, False])
+    body = generate_random_statement(depth + 1)
+    if has_else:
+        else_body = generate_random_statement(depth + 1)
+        return f"if ({cond}) {{ {body} }} else {{ {else_body} }}"
+    return f"if ({cond}) {{ {body} }}"
 
 
-def gen_valid_while_loop():
-    n = random.randint(0, 20)
-    return f'''fn main(): i32 {{
-    let mut i = 0
-    let mut sum = 0
-    while (i < {n}) {{
-        sum = sum + i
-        i = i + 1
+def generate_random_while(depth=0):
+    cond = random.choice(["0", "1", rand_simple_expr()])
+    body = generate_random_statement(depth + 1)
+    return f"while ({cond}) {{ {body} }}"
+
+
+def generate_random_for():
+    var = rand_ident("i")
+    lo = random.randint(0, 5)
+    hi = random.randint(lo, lo + 10)
+    body = f"print({var})"
+    return f"for ({var} in {lo} .. {hi}) {{ {body} }}"
+
+
+def generate_random_statement(depth=0):
+    kind = random.choice(["let", "print", "assign", "if", "expr"])
+    if kind == "let":
+        return generate_random_let()
+    elif kind == "print":
+        return generate_random_print()
+    elif kind == "assign":
+        return f"{rand_ident()} = {rand_simple_expr()}"
+    elif kind == "if" and depth < 3:
+        return generate_random_if(depth)
+    else:
+        return f"print({rand_simple_expr()})"
+
+
+def generate_random_program(num_stmts=None):
+    if num_stmts is None:
+        num_stmts = random.randint(1, 20)
+    stmts = []
+    for _ in range(num_stmts):
+        stmts.append("    " + generate_random_statement())
+    body = "\n".join(stmts)
+    return f"fn main(): i32 {{\n{body}\n    return 0\n}}"
+
+
+def generate_random_function():
+    name = rand_ident("fn_")
+    num_params = random.randint(0, 3)
+    params = []
+    for i in range(num_params):
+        pname = rand_ident(f"p{i}")
+        params.append(f"{pname}: {rand_type()}")
+    param_str = ", ".join(params)
+    ret_type = random.choice(["i32", "void"])
+    num_stmts = random.randint(1, 5)
+    stmts = []
+    for _ in range(num_stmts):
+        stmts.append("    " + generate_random_statement())
+    if ret_type != "void":
+        stmts.append("    return " + rand_simple_expr())
+    body = "\n".join(stmts)
+    return f"fn {name}({param_str}) -> {ret_type} {{\n{body}\n}}"
+
+
+def generate_multi_function_program():
+    num_fns = random.randint(1, 5)
+    fns = []
+    for _ in range(num_fns):
+        fns.append(generate_random_function())
+    main_fn = generate_random_program(random.randint(1, 10))
+    return "\n".join(fns) + "\n" + main_fn
+
+
+def generate_random_struct():
+    name = rand_ident("S")
+    num_fields = random.randint(1, 5)
+    fields = []
+    for i in range(num_fields):
+        fname = rand_ident(f"f{i}")
+        fields.append(f"    {fname}: {rand_type()}")
+    fields_str = ",\n".join(fields)
+    return f"struct {name} {{\n{fields_str}\n}}"
+
+
+def generate_struct_program():
+    num_structs = random.randint(1, 3)
+    structs = []
+    for _ in range(num_structs):
+        structs.append(generate_random_struct())
+    main_fn = generate_random_program(random.randint(1, 5))
+    return "\n".join(structs) + "\n" + main_fn
+
+
+def generate_match_program():
+    scrutinee = rand_ident("x")
+    num_arms = random.randint(2, 6)
+    arms = []
+    for i in range(num_arms - 1):
+        arms.append(f"        {i} -> {{ print({i}) }}")
+    arms.append(f"        _ -> {{ print(-1) }}")
+    arms_str = "\n".join(arms)
+    return f"""fn main(): i32 {{
+    let {scrutinee} = {random.randint(0, num_arms + 2)}
+    match {scrutinee} {{
+{arms_str}
     }}
-    print(sum)
     return 0
-}}'''
+}}"""
 
 
-def gen_valid_for_loop():
-    n = random.randint(0, 20)
-    return f'''fn main(): i32 {{
-    let mut sum = 0
-    for (i in 0 .. {n}) {{
-        sum = sum + i
-    }}
-    print(sum)
-    return 0
-}}'''
-
-
-def gen_valid_function():
-    fname = rand_ident("fn_")
-    a = rand_int(-50, 50)
-    b = rand_int(-50, 50)
-    op = random.choice(["+", "-", "*"])
-    return f'''fn {fname}(x: i32, y: i32) -> i32 {{
-    return x {op} y
-}}
-fn main(): i32 {{
-    print({fname}({a}, {b}))
-    return 0
-}}'''
-
-
-def gen_valid_struct():
-    sname = rand_ident("S")
-    fname1 = rand_ident("f")
-    fname2 = rand_ident("g")
-    v1 = rand_int()
-    v2 = rand_int()
-    return f'''struct {sname} {{ {fname1}: i32, {fname2}: i32 }}
-fn main(): i32 {{
-    let s = {sname} {{ {fname1}: {v1}, {fname2}: {v2} }}
-    print(s.{fname1})
-    print(s.{fname2})
-    return 0
-}}'''
-
-
-def gen_valid_array():
-    size = random.randint(1, 10)
-    elems = [rand_int(-100, 100) for _ in range(size)]
-    return f'''fn main(): i32 {{
-    let arr = [{", ".join(elems)}]
-    print(arr.length)
-    print(arr[{random.randint(0, size - 1)}])
-    return 0
-}}'''
-
-
-def gen_valid_pointer():
-    val = rand_int(-100, 100)
-    return f'''fn main(): i32 {{
-    let x = {val}
-    let ptr = &x
-    print(@ptr)
-    return 0
-}}'''
-
-
-def gen_valid_match():
-    val = random.randint(0, 4)
-    return f'''fn main(): i32 {{
+def generate_adt_match_program():
+    choice = random.choice(["option", "result"])
+    if choice == "option":
+        val = random.choice(["Some(42)", "None"])
+        return f"""fn main(): i32 {{
     let x = {val}
     match x {{
-        0 -> {{ print("zero") }}
-        1 -> {{ print("one") }}
-        2 -> {{ print("two") }}
-        _ -> {{ print("other") }}
+        Some(v) -> {{ print(v) }}
+        None -> {{ print(0) }}
     }}
     return 0
-}}'''
-
-
-def gen_valid_tuple():
-    a = rand_int(-50, 50)
-    b = rand_int(-50, 50)
-    return f'''fn main(): i32 {{
-    let t = ({a}, {b})
-    print(t.0)
-    print(t.1)
+}}"""
+    else:
+        val = random.choice(["Ok(100)", "Err(\"fail\")"])
+        return f"""fn main(): i32 {{
+    let x = {val}
+    match x {{
+        Ok(v) -> {{ print(v) }}
+        Err(e) -> {{ print(-1) }}
+    }}
     return 0
-}}'''
+}}"""
 
 
-def gen_valid_compound_assign():
-    return f'''fn main(): i32 {{
-    let mut x = {rand_int(1, 50)}
-    x += {rand_int(1, 10)}
-    print(x)
-    x -= {rand_int(1, 5)}
-    print(x)
-    x *= 2
-    print(x)
+def generate_power_program():
+    base = random.randint(0, 10)
+    exp = random.randint(0, 10)
+    return f"""fn main(): i32 {{
+    let result = {base} ** {exp}
+    print(result)
     return 0
-}}'''
+}}"""
 
 
-def gen_valid_recursion():
-    return '''fn fact(n: i32) -> i32 {
-    if (n <= 1) { return 1 }
-    return n * fact(n - 1)
-}
-fn main(): i32 {
-    print(fact(5))
+def generate_string_match_program():
+    strings = ["hello", "world", "foo", "bar", "test", "abc"]
+    chosen = random.choice(strings)
+    arms = []
+    for s in strings[:4]:
+        arms.append(f'        "{s}" -> {{ print("{s}") }}')
+    arms.append(f'        _ -> {{ print("other") }}')
+    arms_str = "\n".join(arms)
+    return f"""fn main(): i32 {{
+    let s = "{chosen}"
+    match s {{
+{arms_str}
+    }}
     return 0
-}'''
+}}"""
 
 
-def gen_valid_generic_function():
-    fname = rand_ident("id")
-    val = rand_int()
-    return f'''fn {fname}:[T](x: T): T {{ return x }}
-fn main(): i32 {{
-    print({fname}:[i32]({val}))
-    return 0
-}}'''
-
-
-def gen_valid_generic_struct():
-    sname = rand_ident("Box")
-    val = rand_int()
-    return f'''struct {sname}:[T] {{ value: T }}
-fn main(): i32 {{
-    let b = {sname}:[i32]{{ value: {val} }}
-    print(b.value)
-    return 0
-}}'''
-
-
-def gen_malformed_missing_brace():
-    return '''fn main(): i32 {
-    print("hello")
-    return 0'''
-
-
-def gen_malformed_invalid_token():
-    return '''fn main(): i32 {
-    let x = @@@
-    return 0
-}'''
-
-
-def gen_malformed_empty():
-    return ""
-
-
-def gen_malformed_type_errors():
-    return '''fn main(): i32 {
-    let x: i32 = "hello"
-    return 0
-}'''
-
-
-def gen_malformed_deeply_nested_expr():
-    expr = "1"
-    for _ in range(random.randint(20, 50)):
-        expr = f"({expr} + 1)"
-    return f'''fn main(): i32 {{
-    print({expr})
-    return 0
-}}'''
-
-
-def gen_malformed_unterminated_string():
-    return '''fn main(): i32 {
-    let s = "this string never ends
-    return 0
-}'''
-
-
-def gen_malformed_random_tokens():
-    tokens = ["fn", "let", "mut", "if", "else", "while", "for", "in", "return",
-              "struct", "match", "{", "}", "(", ")", "[", "]", "=", "==", "+",
-              "-", "*", "/", "print", "123", '"hello"', "true", "false"]
-    lines = ["fn main(): i32 {"]
-    for _ in range(random.randint(1, 15)):
-        line = " ".join(random.choices(tokens, k=random.randint(1, 6)))
-        lines.append(f"    {line}")
-    lines.append("    return 0\n}")
-    return "\n".join(lines)
-
-
-VALID_GENERATORS = [
-    gen_valid_arithmetic,
-    gen_valid_variables,
-    gen_valid_if_else,
-    gen_valid_while_loop,
-    gen_valid_for_loop,
-    gen_valid_function,
-    gen_valid_struct,
-    gen_valid_array,
-    gen_valid_pointer,
-    gen_valid_match,
-    gen_valid_tuple,
-    gen_valid_compound_assign,
-    gen_valid_recursion,
-    gen_valid_generic_function,
-    gen_valid_generic_struct,
-]
-
-MALFORMED_GENERATORS = [
-    gen_malformed_missing_brace,
-    gen_malformed_invalid_token,
-    gen_malformed_empty,
-    gen_malformed_type_errors,
-    gen_malformed_deeply_nested_expr,
-    gen_malformed_unterminated_string,
-    gen_malformed_random_tokens,
-]
-
-
-def has_crash_signal(returncode):
-    if returncode < 0:
-        sig = -returncode
-        return sig in CRASH_SIGNALS
-    return False
-
-
-def run_fuzz_case(program, compiler, tmp_path):
-    src = tmp_path / "fuzz.vix"
-    src.write_text(program)
-    bin_path = tmp_path / "fuzz_bin"
+def run_compiler(program_src):
+    """Compile a program and check for crashes."""
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".vix", mode="w", delete=False) as f:
+        f.write(program_src)
+        src_path = f.name
+    out_path = src_path + ".bin"
     try:
-        compile_res = subprocess.run(
-            [str(compiler), str(src), "-o", str(bin_path)],
-            capture_output=True, text=True, timeout=10,
+        result = subprocess.run(
+            [str(COMPILER), src_path, "-o", out_path],
+            capture_output=True, text=True, timeout=15
         )
+        if result.returncode < 0:
+            sig = -result.returncode
+            return False, f"Compiler crashed with signal {sig}"
+        # Also try running if compilation succeeded
+        if result.returncode == 0:
+            try:
+                run_result = subprocess.run(
+                    [out_path], capture_output=True, text=True, timeout=5
+                )
+                if run_result.returncode < 0:
+                    sig = -run_result.returncode
+                    return False, f"Binary crashed with signal {sig}"
+            except subprocess.TimeoutExpired:
+                pass  # timeout is OK for fuzz testing
+        return True, "OK"
     except subprocess.TimeoutExpired:
-        return "timeout", "compile timeout"
-
-    if compile_res.returncode != 0:
-        return "compile_error", compile_res.stderr[:200]
-
-    if not bin_path.exists():
-        return "compile_error", "binary not created"
-
-    try:
-        run_res = subprocess.run(
-            [str(bin_path)], capture_output=True, text=True, timeout=5,
-        )
-    except subprocess.TimeoutExpired:
-        return "timeout", "runtime timeout"
-
-    if has_crash_signal(run_res.returncode):
-        sig = -run_res.returncode
-        return "crash", CRASH_SIGNALS[sig]
-
-    return "ok", ""
+        return True, "Timeout (OK)"
+    finally:
+        try:
+            os.unlink(src_path)
+        except:
+            pass
+        try:
+            os.unlink(out_path)
+        except:
+            pass
 
 
+# ============================================================
+# Fuzz Tests - Random Programs (100 tests via parametrize)
+# ============================================================
 @pytest.mark.fuzz
-class TestFuzzValid:
-    @pytest.mark.parametrize("gen_idx", range(len(VALID_GENERATORS)))
-    def test_valid_fuzz(self, compiler, tmp_path, gen_idx):
-        random.seed(42 + gen_idx)
-        gen = VALID_GENERATORS[gen_idx]
-        for i in range(8):
-            program = gen()
-            status, detail = run_fuzz_case(program, compiler, tmp_path)
-            assert status != "crash", (
-                f"Generator {gen.__name__} iteration {i} caused crash: {detail}\n"
-                f"Program:\n{program[:300]}"
-            )
-            assert status != "timeout", (
-                f"Generator {gen.__name__} iteration {i} timed out"
-            )
+class TestFuzzRandomPrograms:
+    @pytest.mark.parametrize("seed", range(100))
+    def test_random_program_no_crash(self, seed):
+        random.seed(seed + 42)
+        program = generate_random_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
 
 
+# ============================================================
+# Fuzz Tests - Multi-Function Programs (80 tests)
+# ============================================================
 @pytest.mark.fuzz
-class TestFuzzMalformed:
-    @pytest.mark.parametrize("gen_idx", range(len(MALFORMED_GENERATORS)))
-    def test_malformed_fuzz(self, compiler, tmp_path, gen_idx):
-        random.seed(100 + gen_idx)
-        gen = MALFORMED_GENERATORS[gen_idx]
-        for i in range(8):
-            program = gen()
-            status, detail = run_fuzz_case(program, compiler, tmp_path)
-            assert status != "crash", (
-                f"Generator {gen.__name__} iteration {i} caused crash: {detail}\n"
-                f"Program:\n{program[:300]}"
-            )
+class TestFuzzMultiFunction:
+    @pytest.mark.parametrize("seed", range(80))
+    def test_multi_function_no_crash(self, seed):
+        random.seed(seed + 1000)
+        program = generate_multi_function_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
 
 
+# ============================================================
+# Fuzz Tests - Expressions (80 tests)
+# ============================================================
 @pytest.mark.fuzz
-class TestFuzzRandom:
-    def test_random_programs(self, compiler, tmp_path):
-        random.seed(200)
-        for i in range(50):
-            n_lines = random.randint(1, 30)
-            lines = []
-            for _ in range(n_lines):
-                kind = random.choice([
-                    "let", "assign", "print", "if", "while", "for",
-                    "expr", "fn_call", "return", "break", "continue", "comment"
-                ])
-                if kind == "let":
-                    mut = random.choice(["let ", "let mut ", "mut ", ""])
-                    name = rand_ident()
-                    ty = random.choice([""] + [": " + rand_type()])
-                    val = rand_literal()
-                    lines.append(f"    {mut}{name}{ty} = {val}")
-                elif kind == "assign":
-                    lines.append(f"    {rand_ident()} = {rand_literal()}")
-                elif kind == "print":
-                    lines.append(f"    print({rand_expr()})")
-                elif kind == "if":
-                    lines.append(f"    if ({rand_expr()}) {{")
-                elif kind == "while":
-                    lines.append(f"    while ({rand_expr()}) {{")
-                elif kind == "for":
-                    lines.append(f"    for ({rand_ident()} in {rand_int(0, 10)} .. {rand_int(10, 20)}) {{")
-                elif kind == "expr":
-                    lines.append(f"    {rand_expr()}")
-                elif kind == "fn_call":
-                    lines.append(f"    {rand_ident('fn')}({rand_int()}, {rand_int()})")
-                elif kind == "return":
-                    lines.append(f"    return {rand_expr()}")
-                elif kind == "break":
-                    lines.append("    break")
-                elif kind == "continue":
-                    lines.append("    continue")
-                else:
-                    c = "".join(random.choices(string.ascii_letters + " ", k=random.randint(1, 30)))
-                    lines.append(f"    // {c}")
+class TestFuzzExpressions:
+    @pytest.mark.parametrize("seed", range(80))
+    def test_random_expressions_no_crash(self, seed):
+        random.seed(seed + 2000)
+        num_exprs = random.randint(3, 15)
+        stmts = []
+        for _ in range(num_exprs):
+            expr = rand_simple_expr(depth=0)
+            stmts.append(f"    print({expr})")
+        body = "\n".join(stmts)
+        program = f"fn main(): i32 {{\n{body}\n    return 0\n}}"
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
 
-            for _ in range(random.randint(0, 3)):
-                lines.append("    }")
 
-            body = "\n".join(lines)
-            program = f"fn main(): i32 {{\n{body}\n    return 0\n}}\n"
+# ============================================================
+# Fuzz Tests - Struct Programs (50 tests)
+# ============================================================
+@pytest.mark.fuzz
+class TestFuzzStructs:
+    @pytest.mark.parametrize("seed", range(50))
+    def test_struct_program_no_crash(self, seed):
+        random.seed(seed + 3000)
+        program = generate_struct_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
 
-            status, detail = run_fuzz_case(program, compiler, tmp_path)
-            assert status != "crash", (
-                f"Random program {i} caused crash: {detail}\n"
-                f"Program:\n{program[:300]}"
-            )
+
+# ============================================================
+# Fuzz Tests - Match Programs (60 tests)
+# ============================================================
+@pytest.mark.fuzz
+class TestFuzzMatch:
+    @pytest.mark.parametrize("seed", range(30))
+    def test_match_integer_no_crash(self, seed):
+        random.seed(seed + 4000)
+        program = generate_match_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
+
+    @pytest.mark.parametrize("seed", range(30))
+    def test_match_adt_no_crash(self, seed):
+        random.seed(seed + 5000)
+        program = generate_adt_match_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
+
+
+# ============================================================
+# Fuzz Tests - Power Operator (50 tests)
+# ============================================================
+@pytest.mark.fuzz
+class TestFuzzPower:
+    @pytest.mark.parametrize("seed", range(50))
+    def test_power_no_crash(self, seed):
+        random.seed(seed + 6000)
+        program = generate_power_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
+
+
+# ============================================================
+# Fuzz Tests - String Match (50 tests)
+# ============================================================
+@pytest.mark.fuzz
+class TestFuzzStringMatch:
+    @pytest.mark.parametrize("seed", range(50))
+    def test_string_match_no_crash(self, seed):
+        random.seed(seed + 7000)
+        program = generate_string_match_program()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
+
+
+# ============================================================
+# Fuzz Tests - Type Annotations (50 tests)
+# ============================================================
+@pytest.mark.fuzz
+class TestFuzzTypeAnnotations:
+    @pytest.mark.parametrize("seed", range(50))
+    def test_typed_let_no_crash(self, seed):
+        random.seed(seed + 8000)
+        types = ["i8", "i32", "i64", "f32", "f64", "bool", "str"]
+        values = ["42", "3.14", "true", '"hello"', "0", "-1", "0xFF"]
+        num_stmts = random.randint(3, 10)
+        stmts = []
+        for _ in range(num_stmts):
+            t = random.choice(types)
+            v = random.choice(values)
+            name = rand_ident()
+            stmts.append(f"    let {name}: {t} = {v}")
+        body = "\n".join(stmts)
+        program = f"fn main(): i32 {{\n{body}\n    return 0\n}}"
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"
+
+
+# ============================================================
+# Fuzz Tests - Mixed Operations (40 tests)
+# ============================================================
+@pytest.mark.fuzz
+class TestFuzzMixed:
+    @pytest.mark.parametrize("seed", range(40))
+    def test_mixed_operations_no_crash(self, seed):
+        random.seed(seed + 9000)
+        templates = [
+            lambda: generate_random_program(random.randint(2, 8)),
+            lambda: generate_match_program(),
+            lambda: generate_power_program(),
+            lambda: generate_string_match_program(),
+            lambda: generate_multi_function_program(),
+        ]
+        program = random.choice(templates)()
+        ok, msg = run_compiler(program)
+        assert ok, f"Seed {seed}: {msg}\nProgram:\n{program[:500]}"

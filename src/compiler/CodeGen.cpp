@@ -1508,6 +1508,19 @@ private:
                     case OP_MUL: result = lv * rv; break;
                     case OP_DIV: result = (rv == 0) ? 0 : (lv / rv); break;
                     case OP_MOD: result = (rv == 0) ? 0 : (lv % rv); break;
+                    case OP_POW: {
+                        if (rv < 0) return nullptr;
+                        int64_t base = lv;
+                        int64_t exp = rv;
+                        int64_t acc = 1;
+                        while (exp > 0) {
+                            if (exp & 1) acc *= base;
+                            base *= base;
+                            exp >>= 1;
+                        }
+                        result = acc;
+                        break;
+                    }
                     default: return nullptr;
                 }
                 if (bits == 64) {
@@ -1963,6 +1976,33 @@ public:
         bool isCompareOp = (node->data.binop.op == OP_EQ || node->data.binop.op == OP_NE ||
                             node->data.binop.op == OP_LT || node->data.binop.op == OP_LE ||
                             node->data.binop.op == OP_GT || node->data.binop.op == OP_GE);
+        // String comparison: use strcmp instead of pointer comparison
+        if (isCompareOp && leftRes.value->getType()->isPointerTy() && rightRes.value->getType()->isPointerTy()) {
+            bool leftIsString = (leftRes.type == ValueType::STRING) ||
+                                (node->data.binop.left && node->data.binop.left->type == AST_STRING);
+            bool rightIsString = (rightRes.type == ValueType::STRING) ||
+                                 (node->data.binop.right && node->data.binop.right->type == AST_STRING);
+            if (leftIsString && rightIsString) {
+                // Declare strcmp if needed
+                Function* strcmpFn = module->getFunction("strcmp");
+                if (!strcmpFn) {
+                    Type* i8Ptr = PointerType::get(context, 0);
+                    FunctionType* strcmpTy = FunctionType::get(Type::getInt32Ty(context), {i8Ptr, i8Ptr}, false);
+                    strcmpFn = Function::Create(strcmpTy, Function::ExternalLinkage, "strcmp", module.get());
+                }
+                Value* cmpResult = builder.CreateCall(strcmpFn, {leftRes.value, rightRes.value}, "strcmp_res");
+                Value* zero = ConstantInt::get(Type::getInt32Ty(context), 0);
+                switch (node->data.binop.op) {
+                    case OP_EQ: return VisitResult(builder.CreateICmpEQ(cmpResult, zero, "streq"), ValueType::BOOL);
+                    case OP_NE: return VisitResult(builder.CreateICmpNE(cmpResult, zero, "strneq"), ValueType::BOOL);
+                    case OP_LT: return VisitResult(builder.CreateICmpSLT(cmpResult, zero, "strlt"), ValueType::BOOL);
+                    case OP_LE: return VisitResult(builder.CreateICmpSLE(cmpResult, zero, "strle"), ValueType::BOOL);
+                    case OP_GT: return VisitResult(builder.CreateICmpSGT(cmpResult, zero, "strgt"), ValueType::BOOL);
+                    case OP_GE: return VisitResult(builder.CreateICmpSGE(cmpResult, zero, "strge"), ValueType::BOOL);
+                    default: break;
+                }
+            }
+        }
         if (isCompareOp && (leftRes.value->getType()->isPointerTy() || rightRes.value->getType()->isPointerTy())) {
             Value* leftVal = leftRes.value;
             Value* rightVal = rightRes.value;
@@ -2025,7 +2065,7 @@ public:
 
         bool isArithmeticOp = (node->data.binop.op == OP_ADD || node->data.binop.op == OP_SUB ||
                                node->data.binop.op == OP_MUL || node->data.binop.op == OP_DIV ||
-                               node->data.binop.op == OP_MOD);
+                               node->data.binop.op == OP_MOD || node->data.binop.op == OP_POW);
         if (isArithmeticOp && !isFloat) {
             if (!leftVal->getType()->isIntegerTy() || !rightVal->getType()->isIntegerTy()) {
                 reportCodegenSemanticError(node, "arithmetic operators require numeric operands");
@@ -2066,6 +2106,67 @@ public:
             case OP_MOD:
                 if (isFloat) return VisitResult();
                 else return VisitResult(builder.CreateSRem(leftVal, rightVal, "modtmp"), resultType);
+            case OP_POW:
+                {
+                    if (isFloat) {
+                        // Float power: call libc pow() via declaration
+                        Type* dblTy = Type::getDoubleTy(context);
+                        Value* baseD = (resultType == ValueType::FLOAT32)
+                            ? builder.CreateFPExt(leftVal, dblTy, "pow_base") : leftVal;
+                        Value* expD = (resultType == ValueType::FLOAT32)
+                            ? builder.CreateFPExt(rightVal, dblTy, "pow_exp") : rightVal;
+                        Function* powFn = module->getFunction("pow");
+                        if (!powFn) {
+                            FunctionType* powTy = FunctionType::get(dblTy, {dblTy, dblTy}, false);
+                            powFn = Function::Create(powTy, Function::ExternalLinkage, "pow", module.get());
+                        }
+                        Value* powResult = builder.CreateCall(powFn, {baseD, expD}, "powtmp");
+                        if (resultType == ValueType::FLOAT32) {
+                            return VisitResult(builder.CreateFPTrunc(powResult, Type::getFloatTy(context), "pow_f32"), resultType);
+                        }
+                        return VisitResult(powResult, resultType);
+                    } else {
+                        // Integer power: loop-based implementation
+                        Function* curFn = builder.GetInsertBlock()->getParent();
+                        Type* valTy = leftVal->getType();
+                        Value* resultAlloca = builder.CreateAlloca(valTy, nullptr, "pow_result");
+                        Value* baseAlloca = builder.CreateAlloca(valTy, nullptr, "pow_base");
+                        Value* expAlloca = builder.CreateAlloca(valTy, nullptr, "pow_exp");
+                        Value* one = ConstantInt::get(valTy, 1);
+                        Value* zero = ConstantInt::get(valTy, 0);
+                        builder.CreateStore(one, resultAlloca);
+                        builder.CreateStore(leftVal, baseAlloca);
+                        builder.CreateStore(rightVal, expAlloca);
+
+                        BasicBlock* condBB = BasicBlock::Create(context, "pow_cond", curFn);
+                        BasicBlock* bodyBB = BasicBlock::Create(context, "pow_body", curFn);
+                        BasicBlock* afterBB = BasicBlock::Create(context, "pow_after", curFn);
+
+                        builder.CreateBr(condBB);
+                        builder.SetInsertPoint(condBB);
+                        Value* curExp = builder.CreateLoad(valTy, expAlloca, "cur_exp");
+                        Value* cond = builder.CreateICmpSGT(curExp, zero, "pow_cmp");
+                        builder.CreateCondBr(cond, bodyBB, afterBB);
+
+                        builder.SetInsertPoint(bodyBB);
+                        Value* curBase = builder.CreateLoad(valTy, baseAlloca, "cur_base");
+                        Value* curResult = builder.CreateLoad(valTy, resultAlloca, "cur_res");
+                        Value* bit = builder.CreateAnd(curExp, one, "pow_bit");
+                        Value* needMul = builder.CreateICmpNE(bit, zero, "pow_needmul");
+                        Value* newResult = builder.CreateSelect(needMul,
+                            builder.CreateMul(curResult, curBase, "pow_mul"), curResult, "pow_sel");
+                        builder.CreateStore(newResult, resultAlloca);
+                        Value* newBase = builder.CreateMul(curBase, curBase, "pow_sq");
+                        builder.CreateStore(newBase, baseAlloca);
+                        Value* newExp = builder.CreateAShr(curExp, one, "pow_shr");
+                        builder.CreateStore(newExp, expAlloca);
+                        builder.CreateBr(condBB);
+
+                        builder.SetInsertPoint(afterBB);
+                        Value* finalResult = builder.CreateLoad(valTy, resultAlloca, "pow_final");
+                        return VisitResult(finalResult, resultType);
+                    }
+                }
             case OP_EQ:
                 if (isFloat) return VisitResult(builder.CreateFCmpOEQ(leftVal, rightVal, "eqtmp"), ValueType::BOOL);
                 else return VisitResult(builder.CreateICmpEQ(leftVal, rightVal, "eqtmp"), ValueType::BOOL);

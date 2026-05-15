@@ -156,7 +156,7 @@ term =
     ;
 
 factor = power ;
-power = factor_unary [ "^" factor ] ;
+power = factor_unary [ "**" factor ] ;
 
 factor_unary =
       identifier "(" [ expression_list ] ")"

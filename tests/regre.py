@@ -178,7 +178,7 @@ class TestExistingRegression:
         "test172.vix": (True, ["42", "none", "hello"]),
         "test173.vix": (True, ["has-value", "none", "has-string"]),
         "test174.vix": (True, ["true", "not-false", "and-false", "or-true"]),
-        "test175.vix": (True, []),
+        "test175.vix": (True, ["1024", "27", "1", "5", "1"]),
         "test176.vix": (True, ["20", "10"]),
         "test177.vix": (True, ["255", "10", "265", "16"]),
         "test178.vix": (True, ["10", "20", "30", "100", "200"]),

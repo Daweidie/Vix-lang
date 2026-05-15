@@ -285,3 +285,71 @@ vixc provides rich error diagnostics with:
 - Source context with caret pointing to the error
 - Help suggestions for fixing the error
 - ANSI color output on terminal devices
+
+## Testing
+
+### Running Tests
+
+```bash
+# Activate the Python virtual environment
+source .venv/bin/activate
+
+# Run all tests
+python -m pytest tests/test_features.py tests/test_fuzz.py tests/test_stress.py -v
+
+# Run specific test suites
+python -m pytest tests/test_features.py -v    # 500+ feature tests
+python -m pytest tests/test_fuzz.py -v        # 500+ fuzz tests
+python -m pytest tests/test_stress.py -v      # 100+ stress tests
+
+# Run existing regression tests
+python -m pytest tests/regre.py -v
+
+# Run the full test runner
+python tests/run.py
+```
+
+### Test Organization
+
+| File | Category | Description |
+|------|----------|-------------|
+| `test_features.py` | `@pytest.mark.feature` | 500+ feature tests covering all language features |
+| `test_fuzz.py` | `@pytest.mark.fuzz` | 500+ fuzz tests generating random valid programs |
+| `test_stress.py` | `@pytest.mark.stress` | 100+ stress tests for edge cases and large programs |
+| `feat.py` | `@pytest.mark.feature` | Additional feature tests |
+| `fuzz.py` | `@pytest.mark.fuzz` | Additional fuzz tests |
+| `stress.py` | `@pytest.mark.stress` | Additional stress tests |
+| `errors.py` | `@pytest.mark.error` | Error handling and diagnostics tests |
+| `examp.py` | `@pytest.mark.integration` | Example file compilation tests |
+| `regre.py` | regression | 220+ regression tests against known-good outputs |
+
+## Changelog
+
+### v0.1.2 (2026-05-15)
+
+#### New Features
+- **Power operator (`**`):** Full implementation of integer and floating-point exponentiation. Integer power uses an efficient loop-based algorithm; float power delegates to libc `pow()`. Constant expressions are folded at compile time.
+- **String pattern matching:** `match` expressions now correctly compare strings using `strcmp()` instead of pointer equality. Patterns like `match s { "hello" -> ... }` work as expected.
+- **Type annotation enforcement:** `let x: T = value` now properly validates that the initializer's type matches the declared type. Numeric types (i8, i32, i64, f32, f64) are allowed to promote. Non-numeric type mismatches produce clear error messages.
+- **ADT constructor type inference:** User-defined ADT constructors with payloads are now properly type-checked. The `check_call` function resolves registered constructors via `env.lookup_ctor()` before falling back to regular function lookup.
+
+#### Bug Fixes
+- Fixed `OP_POW` missing from `visitBinOp()` in CodeGen.cpp — power expressions now generate correct LLVM IR
+- Fixed `OP_POW` missing from `evaluateConstExpr()` — constant power expressions are now folded
+- Fixed string comparison in `visitBinOp()` — string equality (`==`, `!=`, `<`, `>`, `<=`, `>=`) now uses `strcmp()` instead of pointer comparison
+- Fixed `check_assign()` in Typeck.cpp silently swallowing type mismatch errors via empty `catch (...) {}`
+- Improved ADT constructor resolution in `check_call()` with dedicated `env.lookup_ctor()` path
+
+#### Test Suite
+- Added 500+ feature tests (`tests/test_features.py`) covering arithmetic, variables, control flow, functions, strings, match, types, structs, arrays, pointers, ADTs, generics
+- Added 500+ fuzz tests (`tests/test_fuzz.py`) generating random valid programs to verify crash-freedom
+- Added 100+ stress tests (`tests/test_stress.py`) for deep nesting, large programs, loop stress, expression complexity
+
+#### Examples
+- Added `examples/match_strings.vix` — string pattern matching demo
+- Added `examples/power.vix` — power operator demo
+- Added `examples/adt_pattern.vix` — ADT pattern matching with Option/Result
+
+#### Documentation
+- Updated `Docs/COMPILER.md` with testing section and changelog
+- Updated `Docs/syntax.ebnf` with power operator in expression grammar
