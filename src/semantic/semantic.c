@@ -508,6 +508,16 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                             snprintf(buf, sizeof(buf), "Variable '%s' must be declared with 'let' before assignment", node->data.assign.left->data.identifier.name);
                             report_semantic_error_with_location(buf, filename, line);
                             errors_found++;
+                        } else if (!existing->is_mutable_pointer && existing->type == SYMBOL_VARIABLE) {
+                            const char* filename = current_input_filename ? current_input_filename : "unknown";
+                            int line = (node->data.assign.left->location.first_line > 0) ? node->data.assign.left->location.first_line : 1;
+                            char buf[256];
+                            snprintf(buf, sizeof(buf),
+                                "cannot assign to immutable variable '%s'\n"
+                                "  Fix: declare with 'let mut' to make it mutable",
+                                node->data.assign.left->data.identifier.name);
+                            report_semantic_error_with_location(buf, filename, line);
+                            errors_found++;
                         } else if (node->data.assign.right) {
                             add_var_init_mapping(node->data.assign.left->data.identifier.name, node->data.assign.right);
                         }

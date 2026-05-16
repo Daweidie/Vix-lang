@@ -1,7 +1,7 @@
-fn reverse_array(arr: [i32], size: i32)
+fn reverse_array(mut arr: [i32], size: i32)
 {
-	let left = 0
-	let right = size - 1
+	let mut left = 0
+	let mut right = size - 1
 	while (left < right) {
 		let temp = arr[left]
 		arr[left] = arr[right]

@@ -9,7 +9,7 @@ fn is_prime(n: i32) -> i32
 	if (n % 2 == 0) {
 		return 0
 	}
-	let i = 3
+	let mut i = 3
 	while (i * i <= n) {
 		if (n % i == 0) {
 			return 0

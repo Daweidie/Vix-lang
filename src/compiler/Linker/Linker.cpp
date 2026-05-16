@@ -29,6 +29,7 @@ LLD_HAS_DRIVER(wasm)
 #include <llvm/TargetParser/Triple.h>
 
 #include <string>
+#include <set>
 #include <vector>
 
 using namespace llvm;
@@ -119,6 +120,96 @@ std::string findMacOSSDK() {
     return {};
 }
 
+static bool findLibInDirs(const std::string &libName,
+                          const std::vector<std::string> &dirs,
+                          std::string &foundPath) {
+    std::string candidates[] = {
+        "lib" + libName + ".a",
+        "lib" + libName + ".dll.a",
+        libName + ".lib",
+        libName + ".a",
+    };
+    for (auto &dir : dirs) {
+        for (auto &cand : candidates) {
+            std::string path = dir + "/" + cand;
+            if (fileExists(path)) {
+                foundPath = path;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+static std::vector<std::string> probeWindowsSDKPaths() {
+    std::vector<std::string> paths;
+#ifdef _WIN32
+    static const char *const sdkRoots[] = {
+        "C:/Program Files (x86)/Windows Kits/10/Lib",
+        "C:/Program Files/Windows Kits/10/Lib",
+        NULL
+    };
+    for (auto *root : sdkRoots) {
+        if (!sys::fs::is_directory(root)) continue;
+        std::string bestVer;
+        std::error_code ec;
+        for (sys::fs::directory_iterator it(root, ec), end; it != end;
+             it.increment(ec)) {
+            StringRef name = sys::path::filename(it->path());
+            if (name > bestVer) bestVer = name.str();
+        }
+        if (bestVer.empty()) continue;
+        std::string base = std::string(root) + "/" + bestVer;
+        static const char *const subdirs[] = {
+            "/ucrt/x64", "/um/x64",
+            "/ucrt/x86", "/um/x86",
+            "/ucrt/arm64", "/um/arm64",
+            NULL
+        };
+        for (auto *sub : subdirs) {
+            std::string p = base + sub;
+            if (sys::fs::is_directory(p))
+                paths.push_back(p);
+        }
+    }
+    static const char *const vsRoots[] = {
+        "C:/Program Files/Microsoft Visual Studio",
+        "C:/Program Files (x86)/Microsoft Visual Studio",
+        NULL
+    };
+    static const char *const standaloneTools[] = {
+        "C:/BuildTools/VC/Tools/MSVC",
+        "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC",
+        "C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC",
+        "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/VC/Tools/MSVC",
+        "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC",
+        NULL
+    };
+    for (auto *toolsDir : standaloneTools) {
+        if (!sys::fs::is_directory(toolsDir)) continue;
+        std::string bestVer;
+        std::error_code ec;
+        for (sys::fs::directory_iterator it(toolsDir, ec), end; it != end;
+             it.increment(ec)) {
+            StringRef name = sys::path::filename(it->path());
+            if (name > bestVer) bestVer = name.str();
+        }
+        if (bestVer.empty()) continue;
+        std::string libBase = std::string(toolsDir) + "/" + bestVer + "/lib/x64";
+        if (sys::fs::is_directory(libBase))
+            paths.push_back(libBase);
+        std::string libBaseArm = std::string(toolsDir) + "/" + bestVer + "/lib/arm64";
+        if (sys::fs::is_directory(libBaseArm))
+            paths.push_back(libBaseArm);
+        std::string libBaseX86 = std::string(toolsDir) + "/" + bestVer + "/lib/x86";
+        if (sys::fs::is_directory(libBaseX86))
+            paths.push_back(libBaseX86);
+    }
+#endif
+    return paths;
+}
+
 // ── MinGW installation discovery ────────────────────────────────
 struct MinGWPaths {
     std::string libDir;    // e.g. /usr/x86_64-w64-mingw32/lib
@@ -129,7 +220,7 @@ MinGWPaths probeMinGWPaths(const Triple &T) {
     MinGWPaths mp;
     std::string triple = T.getTriple(); // e.g. x86_64-w64-mingw32
 
-    // Standard MinGW sysroot locations.
+    // Standard MinGW sysroot locations (Linux cross-compile).
     std::string sysroot = "/usr/" + triple;
     if (sys::fs::is_directory(sysroot + "/lib")) {
         mp.libDir = sysroot + "/lib";
@@ -155,6 +246,55 @@ MinGWPaths probeMinGWPaths(const Triple &T) {
                 mp.crtDir = cand;
         }
     }
+#ifdef _WIN32
+    if (mp.libDir.empty()) {
+        static const char *const winCandidates[] = {
+            "C:/mingw64/lib",
+            "C:/mingw32/lib",
+            "C:/msys64/mingw64/lib",
+            "C:/msys64/mingw32/lib",
+            "C:/msys64/ucrt64/lib",
+            "C:/mingw64/x86_64-w64-mingw32/lib",
+            "C:/mingw32/i686-w64-mingw32/lib",
+            NULL
+        };
+        for (const char *const *c = winCandidates; *c; ++c) {
+            if (sys::fs::is_directory(*c)) {
+                mp.libDir = *c;
+                break;
+            }
+        }
+    }
+    if (mp.crtDir.empty()) {
+        static const char *const winCrtCandidates[] = {
+            "C:/mingw64/lib/gcc/x86_64-w64-mingw32",
+            "C:/mingw32/lib/gcc/i686-w64-mingw32",
+            "C:/msys64/mingw64/lib/gcc/x86_64-w64-mingw32",
+            "C:/msys64/ucrt64/lib/gcc/x86_64-w64-mingw32",
+            NULL
+        };
+        for (const char *const *c = winCrtCandidates; *c; ++c) {
+            if (sys::fs::is_directory(*c)) {
+                std::string bestVer;
+                std::error_code ec;
+                for (sys::fs::directory_iterator it(*c, ec), end; it != end;
+                     it.increment(ec)) {
+                    StringRef name = sys::path::filename(it->path());
+                    if (name > bestVer)
+                        bestVer = name.str();
+                }
+                if (!bestVer.empty()) {
+                    std::string cand = std::string(*c) + "/" + bestVer;
+                    if (sys::fs::is_directory(cand + "-posix"))
+                        cand += "-posix";
+                    if (fileExists(cand + "/crtbegin.o"))
+                        mp.crtDir = cand;
+                }
+                if (!mp.crtDir.empty()) break;
+            }
+        }
+    }
+#endif
 
     return mp;
 }
@@ -242,8 +382,32 @@ void buildMinGWArgs(std::vector<std::string> &args, const Triple &T,
         // Prefer bundled libc if available
         bool haveBundled = libc_dir && libc_dir[0] &&
                            sys::fs::is_directory(libc_dir);
+        MinGWPaths mp = probeMinGWPaths(T);
+
+        // Collect all searchable library directories
+        std::vector<std::string> libSearchDirs;
+        if (haveBundled)
+            libSearchDirs.push_back(libc_dir);
+        if (!mp.libDir.empty())
+            libSearchDirs.push_back(mp.libDir);
+        if (!mp.crtDir.empty())
+            libSearchDirs.push_back(mp.crtDir);
+
+        // On Windows, also add Windows SDK and MSVC paths
+        auto sdkPaths = probeWindowsSDKPaths();
+        for (auto &p : sdkPaths)
+            libSearchDirs.push_back(p);
+
+        // Add all search directories as -L flags
+        std::set<std::string> addedPaths;
+        auto addSearchPath = [&](const std::string &dir) {
+            if (!dir.empty() && addedPaths.insert(dir).second)
+                args.push_back("-L" + dir);
+        };
+        for (auto &d : libSearchDirs)
+            addSearchPath(d);
+
         if (haveBundled) {
-            args.push_back("-L" + std::string(libc_dir));
             // Try bundled CRT objects
             std::string crtbegin = std::string(libc_dir) + "/crtbegin.o";
             if (fileExists(crtbegin))
@@ -252,39 +416,47 @@ void buildMinGWArgs(std::vector<std::string> &args, const Triple &T,
             if (fileExists(crt2))
                 args.push_back(crt2);
         } else {
-            // Fall back to system MinGW paths
-            MinGWPaths mp = probeMinGWPaths(T);
-            if (!mp.libDir.empty())
-                args.push_back("-L" + mp.libDir);
-            if (!mp.crtDir.empty()) {
+            if (!mp.crtDir.empty() && fileExists(mp.crtDir + "/crtbegin.o"))
                 args.push_back(mp.crtDir + "/crtbegin.o");
-                args.push_back("-L" + mp.crtDir);
+        }
+
+        // Always-required MinGW core libraries
+        args.push_back("-lmingw32");
+        args.push_back("-lgcc");
+        args.push_back("-lgcc_eh");
+
+        // Conditionally add libraries that may or may not be present
+        static const char *const optionalLibs[] = {
+            "moldname", "mingwex", "msvcrt", "kernel32",
+            "pthread", "advapi32", "shell32", "user32",
+            "ucrt", "mingw32",
+        };
+        for (auto *lib : optionalLibs) {
+            std::string foundPath;
+            if (findLibInDirs(lib, libSearchDirs, foundPath)) {
+                args.push_back(std::string("-l") + lib);
             }
         }
 
-        args.push_back("-lmingw32");
+        // Second pass of gcc libs (required by MinGW convention)
         args.push_back("-lgcc");
         args.push_back("-lgcc_eh");
-        args.push_back("-lmoldname");
-        args.push_back("-lmingwex");
-        args.push_back("-lmsvcrt");
-        args.push_back("-lkernel32");
-        args.push_back("-lpthread");
-        args.push_back("-ladvapi32");
-        args.push_back("-lshell32");
-        args.push_back("-luser32");
-        args.push_back("-lmingw32");
-        args.push_back("-lgcc");
-        args.push_back("-lgcc_eh");
-        args.push_back("-lmsvcrt");
+
+        // Ensure msvcrt is linked (critical for MinGW)
+        {
+            std::string foundPath;
+            if (!findLibInDirs("msvcrt", libSearchDirs, foundPath)) {
+                // Fallback: still request it, lld may find it via default paths
+                args.push_back("-lmsvcrt");
+            }
+        }
 
         if (haveBundled) {
             std::string crtend = std::string(libc_dir) + "/crtend.o";
             if (fileExists(crtend))
                 args.push_back(crtend);
         } else {
-            MinGWPaths mp = probeMinGWPaths(T);
-            if (!mp.crtDir.empty())
+            if (!mp.crtDir.empty() && fileExists(mp.crtDir + "/crtend.o"))
                 args.push_back(mp.crtDir + "/crtend.o");
         }
     }

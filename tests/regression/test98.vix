@@ -1,6 +1,6 @@
 fn sum_arr(arr: [i32]) -> i32
 {
-	let s = 0
+	let mut s = 0
 	for (i in 0 .. arr.length) {
 		s = s + arr[i]
 	}

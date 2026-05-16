@@ -22,7 +22,7 @@ fn main(): i32
     print(y)
 
     let names = ["alice", "bob", "charlie"]
-    let first = "none"
+    let mut first = "none"
     if (names.length > 0)
     {
         first = names[0]

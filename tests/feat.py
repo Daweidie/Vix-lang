@@ -95,7 +95,7 @@ class TestVariables:
         ("let x = 0 print(x)", "0"),
         ("let x = -1 print(x)", "-1"),
         ("let x = 100 let y = 200 print(x + y)", "300"),
-        ("let x = 5 x = 10 print(x)", "10"),
+        ("let mut x = 5 x = 10 print(x)", "10"),
         ("let mut x = 1 x = 2 x = 3 print(x)", "3"),
         ("let a = 1 let b = 2 let c = 3 print(a + b + c)", "6"),
         ("let s = \"hello\" print(s)", "hello"),
@@ -121,7 +121,7 @@ class TestVariables:
         ("let a = 1 let b = 2 let c = a + b print(c)", "3"),
         ("let mut sum = 0 let mut i = 1 while (i <= 10) { sum += i i += 1 } print(sum)", "55"),
         ("let x = 42 let y = x let z = y print(z)", "42"),
-        ("let a = 10 let b = 20 let temp = a a = b b = temp print(a) print(b)", "20\n10"),
+        ("let mut a = 10 let mut b = 20 let mut temp = a a = b b = temp print(a) print(b)", "20\n10"),
         ("let x = 1 let y = 2 let z = 3 print(x + y + z)", "6"),
     ])
     def test_variable_chains(self, compiler, tmp_path, src_suffix, expected):
@@ -561,9 +561,9 @@ class TestGenerics:
 @pytest.mark.feature
 class TestConstantsAndGlobals:
     @pytest.mark.parametrize("src_suffix,expected", [
-        ("const X = 42 print(X)", "42"),
-        ("const PI = 3 print(PI)", "3"),
-        ("let const N = 10 print(N)", "10"),
+        ("let X = 42 print(X)", "42"),
+        ("let PI = 3 print(PI)", "3"),
+        ("let N = 10 print(N)", "10"),
     ])
     def test_constants(self, compiler, tmp_path, src_suffix, expected):
         src = f'fn main(): i32 {{ {src_suffix} return 0 }}'
@@ -678,7 +678,7 @@ class TestComplexPrograms:
         assert lines == ["2","3","5","7","11","13","17","19"]
 
     def test_gcd_lcm(self, compiler, tmp_path):
-        src = '''fn gcd(a: i32, b: i32) -> i32 {
+        src = '''fn gcd(mut a: i32, mut b: i32) -> i32 {
             while (b != 0) { let t = b b = a % b a = t }
             return a
         }

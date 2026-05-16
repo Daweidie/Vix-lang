@@ -1,7 +1,11 @@
 let a = ["zig", "rust", "vix"]
 let n = 3
-let i = 0
-while (i <  n) {
-    print(i + 1, ".", a[i])
-    i += 1
+
+fn main(): i32 {
+    let mut i = 0
+    while (i <  n) {
+        print(i + 1, ".", a[i])
+        i += 1
+    }
+    return 0
 }

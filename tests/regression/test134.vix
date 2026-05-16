@@ -1,6 +1,6 @@
 fn find_max(arr: [i32], size: i32) -> i32
 {
-	let max_val = arr[0]
+	let mut max_val = arr[0]
 	for (i in 1 .. size) {
 		if (arr[i] > max_val) {
 			max_val = arr[i]

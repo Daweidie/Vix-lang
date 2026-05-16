@@ -853,6 +853,8 @@ struct TypeChecker {
 				ValInfo* val = env.lookup_value(name);
 				if (!val) {
 					report_semantic_error(node, std::string("assignment to undeclared variable: ") + name);
+				} else if (!val->is_mutable) {
+					report_semantic_error(node, std::string("cannot assign to immutable variable '") + name + "'\n  Fix: declare with 'let mut' to make it mutable");
 				} else {
 					try {
 						unify.unify(val->type, rtype);
@@ -1813,7 +1815,7 @@ struct TypeChecker {
 					param->data.assign.left->type == AST_IDENTIFIER) {
 					TypePtr ptype = type_from_ast(param->data.assign.right);
 					env.declare_value(param->data.assign.left->data.identifier.name, ptype,
-									  param->data.assign.left->mutability == MUTABILITY_MUTABLE, false);
+									  param->mutability == MUTABILITY_MUTABLE, false);
 				} else if (param->type == AST_IDENTIFIER) {
 					env.declare_value(param->data.identifier.name, unify.fresh(),
 									  param->mutability == MUTABILITY_MUTABLE, false);

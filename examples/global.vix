@@ -1,6 +1,11 @@
-global  counter = 42
-global  message: str = "Hello World"
-global  pi: f64 = 3.14159
-print(counter)
-print(message)
-print(pi)
+// 模块级变量（自动持久化，不需要关键字）
+let counter = 42
+let message: str = "Hello World"
+let pi: f64 = 3.14159
+
+fn main(): i32 {
+    print(counter)
+    print(message)
+    print(pi)
+    return 0
+}

@@ -1,7 +1,7 @@
 fn sum_range(start: i32, end: i32): i32
 {
-	let s = 0
-	let i = start
+	let mut s = 0
+	let mut i = start
 	while (i <= end)
 	{
 		s += i

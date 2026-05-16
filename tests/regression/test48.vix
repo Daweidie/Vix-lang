@@ -1,5 +1,5 @@
-global counter: i32 = 100
-global scale: i32 = 3
+let counter: i32 = 100
+let scale: i32 = 3
 
 fn double(x: i32): i32
 {

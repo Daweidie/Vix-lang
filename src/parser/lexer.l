@@ -144,7 +144,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "return"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return RETURN; }
 "fn"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FN; }
 "extern"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return EXTERN; }
-"const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONST; }
+"const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); /* const removed from user syntax */ }
 "let"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return LET; }
 "mut"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MUT; }
 "->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
@@ -167,7 +167,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "continue"          { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONTINUE; }
 "for"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FOR; }
 "in"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IN; }
-"global"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return GLOBAL; }
+"global"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); /* global removed from user syntax */ }
 "struct"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return STRUCT; }
 "and"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return AND; }
 "or"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return OR; }

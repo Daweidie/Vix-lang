@@ -1,6 +1,6 @@
 fn main(): i32
 {
-	let i = 0
+	let mut i = 0
 	while (i < 100) {
 		if (i == 5) {
 			break

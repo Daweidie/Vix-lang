@@ -6,9 +6,9 @@ struct Point
 
 fn manhattan(p: Point): i32
 {
-	let ax = p.x
+	let mut ax = p.x
 	if (ax < 0) { ax = 0 - ax }
-	let ay = p.y
+	let mut ay = p.y
 	if (ay < 0) { ay = 0 - ay }
 	return ax + ay
 }

@@ -21,7 +21,7 @@ fn main(): i32
     print(s2)
 
     let flag = 1
-    let n = 0
+    let mut n = 0
     if (flag == 1)
     {
         n = 1

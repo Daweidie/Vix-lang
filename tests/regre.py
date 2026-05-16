@@ -185,7 +185,7 @@ class TestExistingRegression:
         "test179.vix": (True, ["10", "20", "30", "60"]),
         "test180.vix": (True, ["1", "2", "100", "200"]),
         "test181.vix": (True, ["100"]),
-        "test182.vix": (True, ["0", "100", "0.000000", "large"]),
+        "test182.vix": (True, ["hello", "100", "78.500000", "large"]),
         "test183.vix": (True, ["7", "12", "12", "11"]),
         "test184.vix": (True, ["255", "10", "265", "16"]),
         "test185.vix": (True, ["50", "15", "6"]),

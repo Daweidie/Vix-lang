@@ -1,6 +1,6 @@
 fn count_occurrences(arr: [i32], size: i32, target: i32) -> i32
 {
-	let count = 0
+	let mut count = 0
 	for (i in 0 .. size) {
 		if (arr[i] == target) {
 			count = count + 1

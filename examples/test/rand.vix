@@ -2,7 +2,7 @@ extern "C"
 {
     fn time() -> i64
 }
-global seed = time
+let mut seed = time
 fn rand(mini:i32,max:i32) ->i32
 {
     seed = (seed * 9301 + 49297) % 233280

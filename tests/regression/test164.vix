@@ -1,7 +1,7 @@
 fn is_palindrome(n: i32) -> i32
 {
-	let reversed = 0
-	let temp = n
+	let mut reversed = 0
+	let mut temp = n
 	while (temp > 0) {
 		reversed = reversed * 10 + temp % 10
 		temp = temp / 10

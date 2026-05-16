@@ -1,4 +1,4 @@
-const MAX = 100
+let MAX = 100
 
 fn main(): i32
 {

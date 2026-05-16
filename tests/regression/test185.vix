@@ -1,6 +1,6 @@
 fn main(): i32
 {
-	let x = 10
+	let mut x = 10
 	let mut y = 0
 	while (x > 0) {
 		if (x == 5) {

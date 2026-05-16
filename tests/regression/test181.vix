@@ -1,4 +1,4 @@
-global counter: i32 = 100
+let counter: i32 = 100
 
 fn main(): i32
 {

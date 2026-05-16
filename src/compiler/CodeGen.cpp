@@ -983,12 +983,7 @@ private:
         
         Function* mainFunc = module->getFunction("main");
         if (!mainFunc) {
-            if (!mainFunctionCreated) {
-                createDefaultMain();
-                mainFunc = module->getFunction("main");
-            } else {
-                return false;
-            }
+            return false;
         }
         
         if (mainFunc) {
@@ -1620,7 +1615,9 @@ public:
         bool hasMain = module->getFunction("main") != nullptr;
         
         if (!hasMain && !mainFunctionCreated && !sourceAttrs.noMain) {
-            createDefaultMain();
+            report_semantic_error_with_location(
+                "No 'fn main()' defined. Vix v0.2.0 requires an explicit main function.",
+                current_input_filename ? current_input_filename : "unknown", 1);
         }
         Function* mainFunc = module->getFunction("main");
         if (mainFunc) {
@@ -1751,17 +1748,25 @@ public:
     }
     
     VisitResult visitString(ASTNode* node) {
-        if (!node) {
-            Value* value = safeCreateGlobalString("", "empty_str_const");
-            return VisitResult(value, ValueType::STRING);
+        const char* str = node ? node->data.string.value : NULL;
+        if (!str) str = "";
+
+        // At module level (no active insert block), create global string directly
+        if (!builder.GetInsertBlock()) {
+            Constant* strConst = ConstantDataArray::getString(context, str, true);
+            GlobalVariable* gv = new GlobalVariable(
+                *module, strConst->getType(), true,
+                GlobalValue::PrivateLinkage, strConst, ".str");
+            // Create a pointer to the first element (i8*)
+            std::vector<Constant*> indices = {
+                ConstantInt::get(Type::getInt64Ty(context), 0),
+                ConstantInt::get(Type::getInt64Ty(context), 0)
+            };
+            Constant* ptr = ConstantExpr::getGetElementPtr(
+                strConst->getType(), strConst, indices, true);
+            return VisitResult(ptr, ValueType::STRING);
         }
-        
-        const char* str = node->data.string.value;
-        if (!str) {
-            Value* value = safeCreateGlobalString("", "null_str_const");
-            return VisitResult(value, ValueType::STRING);
-        }
-        
+
         Value* value = safeCreateGlobalString(str, "str_lit");
         return VisitResult(value, ValueType::STRING);
     }
@@ -2579,30 +2584,54 @@ public:
             GlobalVariable* gvar = findGlobalVariable(name);
             if (gvar) {
                 Function* func = getCurrentFunction();
-                if (!func) {
-                    func = module->getFunction("main");
-                    if (!func) {
-                        createDefaultMain();
-                        func = module->getFunction("main");
-                    }
+                if (func) {
+                    Type* globalType = gvar->getValueType();
+                    ValueType gvt = typeHelper.getValueTypeFromType(globalType);
+                    Value* castedVal = typeHelper.castValue(builder, rightVal.value, rightVal.type, gvt);
+                    builder.CreateStore(castedVal, gvar);
+                    return VisitResult(castedVal, gvt);
                 }
-
-                Type* globalType = gvar->getValueType();
-                ValueType gvt = typeHelper.getValueTypeFromType(globalType);
-                Value* castedVal = typeHelper.castValue(builder, rightVal.value, rightVal.type, gvt);
-                builder.CreateStore(castedVal, gvar);
-                return VisitResult(castedVal, gvt);
             }
             
             Function* func = getCurrentFunction();
             if (!func) {
-                func = module->getFunction("main");
-                if (!func) {
-                    createDefaultMain();
-                    func = module->getFunction("main");
+                // Module-level declaration: create a GlobalVariable
+                Type* globalType = rightVal.value->getType();
+                if (isStringAssign) {
+                    globalType = PointerType::get(context, 0);
                 }
+                Constant* initVal = nullptr;
+                if (isStringAssign && rightVal.value->getType()->isArrayTy()) {
+                    // String literal: create a global array and use GEP to get i8*
+                    GlobalVariable* strGV = new GlobalVariable(
+                        *module, rightVal.value->getType(), true,
+                        GlobalValue::PrivateLinkage,
+                        cast<Constant>(rightVal.value), name + ".strdata");
+                    std::vector<Constant*> indices = {
+                        ConstantInt::get(Type::getInt64Ty(context), 0),
+                        ConstantInt::get(Type::getInt64Ty(context), 0)
+                    };
+                    initVal = ConstantExpr::getGetElementPtr(
+                        rightVal.value->getType(), strGV, indices, true);
+                } else if (isa<Constant>(rightVal.value)) {
+                    initVal = cast<Constant>(rightVal.value);
+                    if (initVal->getType() != globalType) {
+                        if (initVal->getType()->isPointerTy() && globalType->isPointerTy()) {
+                            // Both are pointers (opaque ptrs in LLVM 20) - no cast needed
+                        } else {
+                            initVal = ConstantExpr::getBitCast(initVal, globalType);
+                        }
+                    }
+                }
+                if (!initVal) {
+                    initVal = Constant::getNullValue(globalType);
+                }
+                bool isConst = (node->data.assign.left->mutability != MUTABILITY_MUTABLE);
+                GlobalVariable* gv = new GlobalVariable(
+                    *module, globalType, isConst,
+                    GlobalValue::ExternalLinkage, initVal, name);
+                return VisitResult(gv, rightVal.type);
             }
-            if (!func) return VisitResult();
             
             BasicBlock* entryBB = &func->getEntryBlock();
             BasicBlock* savedBB = builder.GetInsertBlock();

@@ -1,6 +1,6 @@
-const PI: f64 = 3.14
-const GREETING = "hello"
-const MAX = 100
+let PI: f64 = 3.14
+let GREETING = "hello"
+let MAX = 100
 
 fn main(): i32
 {

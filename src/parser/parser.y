@@ -1,19 +1,3 @@
-/*
- * Copyright (c) 2024 Vix Language Authors. All rights reserved.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *     http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 %{
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
@@ -587,7 +571,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %token STRUCT COLON
 %token TYPE_KW MATCH PIPE
 %token QUESTION
-%token CONST LET MUT GLOBAL
+%token LET MUT
 %token IMPORT PUB
 %token <num_int> NUMBER_INT CHAR_LITERAL
 %token <num_float> NUMBER_FLOAT
@@ -705,32 +689,6 @@ statement
     }
     | IMPORT STRING SEMICOLON { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | IMPORT STRING { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
-    | CONST IDENTIFIER ASSIGN expression SEMICOLON {
-        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $4, (YYLTYPE*) &@$);
-    }
-    | CONST IDENTIFIER COLON type ASSIGN expression SEMICOLON {
-        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $6, (YYLTYPE*) &@$);
-    }
-    | LET CONST IDENTIFIER ASSIGN expression SEMICOLON {
-        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $5, (YYLTYPE*) &@$);
-    }
-    | LET CONST IDENTIFIER COLON type ASSIGN expression SEMICOLON {
-        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $7, (YYLTYPE*) &@$);
-    }
-    | GLOBAL identifier ASSIGN expression SEMICOLON { $$ = create_global_node_with_yyltype($2, NULL, $4, (YYLTYPE*) &@$); }
-    | GLOBAL identifier COLON type ASSIGN expression SEMICOLON { $$ = create_global_node_with_yyltype($2, $4, $6, (YYLTYPE*) &@$); }
-    | PUB GLOBAL identifier ASSIGN expression SEMICOLON {
-        $$ = create_global_node_with_yyltype($3, NULL, $5, (YYLTYPE*) &@$);
-        $$->data.global_decl.is_public = 1;
-    }
-    | PUB GLOBAL identifier COLON type ASSIGN expression SEMICOLON {
-        $$ = create_global_node_with_yyltype($3, $5, $7, (YYLTYPE*) &@$);
-        $$->data.global_decl.is_public = 1;
-    }
     | compound_assignment_statement SEMICOLON { $$ = $1; }
     | while_statement               { $$ = $1; }
     | for_statement               { $$ = $1; }
@@ -809,33 +767,6 @@ statement
     | RETURN                       { $$ = create_return_node_with_yyltype(NULL, (YYLTYPE*) &@$); }
     | expression SEMICOLON         { $$ = $1; }
     | expression                   { $$ = $1; }
-    | CONST IDENTIFIER ASSIGN expression {
-        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $4, (YYLTYPE*) &@$);
-    }
-    | CONST IDENTIFIER COLON type ASSIGN expression {
-        ASTNode* id = create_identifier_node_with_yyltype($2, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $6, (YYLTYPE*) &@$);
-    }
-    | LET CONST IDENTIFIER ASSIGN expression {
-        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $5, (YYLTYPE*) &@$);
-    }
-    | LET CONST IDENTIFIER COLON type ASSIGN expression {
-        ASTNode* id = create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$);
-        $$ = create_const_node_with_yyltype(id, $7, (YYLTYPE*) &@$);
-    }
-    | GLOBAL identifier ASSIGN expression { $$ = create_global_node_with_yyltype($2, NULL, $4, (YYLTYPE*) &@$); }
-    | GLOBAL identifier COLON type ASSIGN expression { $$ = create_global_node_with_yyltype($2, $4, $6, (YYLTYPE*) &@$); }
-    | PUB GLOBAL identifier ASSIGN expression {
-        $$ = create_global_node_with_yyltype($3, NULL, $5, (YYLTYPE*) &@$);
-        $$->data.global_decl.is_public = 1;
-    }
-    | PUB GLOBAL identifier COLON type ASSIGN expression {
-        $$ = create_global_node_with_yyltype($3, $5, $7, (YYLTYPE*) &@$);
-        $$->data.global_decl.is_public = 1;
-    }
-    | identifier COLON expression { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     | MUT identifier ASSIGN expression { 
         $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$); 
         $2->mutability = MUTABILITY_MUTABLE;
