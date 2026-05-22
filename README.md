@@ -24,7 +24,13 @@ runtime-related components, examples, and language documentation.
 ## Why Vix?
 
 - **Performance:** Vix compiles to native code with an LLVM-based backend and is designed for low-overhead execution.
-
+```vix
+fn main(): i32
+{
+  print("Hello,world!")
+  return 0
+}
+```
 - **Reliability:** Static typing and compile-time checks catch common errors earlier.
 
 - **Simplicity:** The language keeps syntax concise while still supporting practical features like functions, modules, structs, pointers, generics, and control flow.
@@ -41,6 +47,7 @@ runtime-related components, examples, and language documentation.
 ## Documentation
 
 - LearnVix:[GitHub Link](https://github.com/vixlang/LearnVix)
+- VixDocs:[GitHub Link](https://github.com/vixlang/LearnVix)
 
 ## Getting Help
 
