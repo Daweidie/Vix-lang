@@ -630,7 +630,6 @@ public:
                 return git->second;
             }
             if (typeName == "ptr") return PointerType::get(context, 0);
-            if (typeName == "str") return PointerType::get(context, 0);
             if (typeName == "i8" || typeName == "u8" || typeName == "char") return Type::getInt8Ty(context);
             if (typeName == "i32") return Type::getInt32Ty(context);
             if (typeName == "i64") return Type::getInt64Ty(context);
@@ -667,7 +666,6 @@ public:
                 if (!node->data.identifier.name) return ValueType::INT32;
                 std::string typeName(node->data.identifier.name);
                 if (typeName == "ptr") return ValueType::POINTER;
-                if (typeName == "str") return ValueType::STRING;
                 if (typeName == "i8" || typeName == "u8" || typeName == "char") return ValueType::INT8;
                 if (typeName == "i32") return ValueType::INT32;
                 if (typeName == "i64") return ValueType::INT64;

@@ -1,6 +1,5 @@
-// 模块级变量（自动持久化，不需要关键字）
 let counter = 42
-let message: str = "Hello World"
+let message: string = "Hello World"
 let pi: f64 = 3.14159
 
 fn main(): i32 {

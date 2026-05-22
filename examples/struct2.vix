@@ -8,9 +8,18 @@ type Book = struct {
     author: string,
     year: i32
 }
+type juxing = struct {
+    width: f64,
+    height: f64
+}
+type Address = struct {
+    street: string,
+    city: string,
+    zip: string
+}
 
 fn main(): i32 {
-    let p1 = Person {
+    let mut p1 = Person {
         name: "Alice", age: 25, height: 5.7
     }
     let p2 = Person {
@@ -30,27 +39,16 @@ fn main(): i32 {
     print("Book Year: ", book1.year)
     p1 = Person { name: p1.name, age: 26, height: p1.height }
     print("Update p1 age: ", p1.age)
+    let age_diff = p2.age - p1.age
+    print("Age difference: ", age_diff)
+    let rect = juxing {
+        width: 10.5, height: 8.2
+    }
+    let area = rect.width * rect.height
+    print("juxing area: ", area)
+    let addr = Address {
+        street: "123 Main St", city: "Anytown", zip: "12345"
+    }
+    print("Address: ", addr.street, ", ", addr.city, ", ", addr.zip)
     return 0
 }
-let age_diff = p2.age - p1.age;
-print("Age difference: ", age_diff);
-type juxing = struct {
-    width: f64,
-    height: f64
-}
-let rect = juxing {
-    width: 10.5, height: 8.2
-}
-
-let area = rect.width * rect.height;
-print("juxing area: ", area);
-type Address = struct {
-    street: string,
-    city: string,
-    zip: string
-}
-let addr = Address {
-    street: "123 Main St", city: "Anytown", zip: "12345"
-}
-
-print("Address: ", addr.street, ", ", addr.city, ", ", addr.zip);

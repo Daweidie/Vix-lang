@@ -156,7 +156,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "u8"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I8; }
 "f32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F32; }
 "f64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F64; }
-"str"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_STR; }
+"usize"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
 "void"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_VOID; }
 "nil"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return NIL; }
 "if"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IF; }

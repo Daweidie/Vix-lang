@@ -1,7 +1,8 @@
-fn foo(a: f32, b: f32) ->  f64 //f32/f632/i64/string/bool
+fn foo(a: f32, b: f32) -> f32
 {
-    return  a +  b
+    return a + b
 }
-fn main() ->  i32 {
+fn main() -> i32 {
     print(foo(3.14, 3.14))
+    return 0
 }

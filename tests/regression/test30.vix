@@ -6,7 +6,7 @@ fn identity:[T](x: T): T
 fn main(): i32
 {
     let a = identity:[i32](42)
-    let b = identity:[str]("world")
+    let b = identity:[string]("world")
     print(a)
     print(b)
     return 0

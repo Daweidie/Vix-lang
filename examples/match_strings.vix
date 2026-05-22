@@ -1,4 +1,4 @@
-fn classify_fruit(name: str) -> i32
+fn classify_fruit(name: string) -> i32
 {
     match name
     {

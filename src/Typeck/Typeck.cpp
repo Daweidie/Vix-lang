@@ -306,7 +306,7 @@ struct TypeChecker {
 					if (strcmp(name, "f64") == 0) {
 						return builtin_f64;
 					}
-					if (strcmp(name, "string") == 0 || strcmp(name, "str") == 0) {
+					if (strcmp(name, "string") == 0) {
 						return builtin_string;
 					}
 					if (strcmp(name, "void") == 0) {
@@ -446,6 +446,15 @@ struct TypeChecker {
 			if (stmt && stmt->type == AST_FUNCTION) {
 				register_function(stmt);
 			}
+			// Also pre-declare functions from extern blocks (nested PROGRAM nodes).
+			if (stmt && stmt->type == AST_PROGRAM) {
+				for (int j = 0; j < stmt->data.program.statement_count; j++) {
+					ASTNode* inner = stmt->data.program.statements[j];
+					if (inner && inner->type == AST_FUNCTION) {
+						register_function(inner);
+					}
+				}
+			}
 		}
 
 		// Predeclare structs.
@@ -464,7 +473,26 @@ struct TypeChecker {
 
 		TypePtr last = builtin_void;
 		for (int i = 0; i < node->data.program.statement_count; i++) {
-			last = check_expr(node->data.program.statements[i]);
+			ASTNode* stmt = node->data.program.statements[i];
+			// Flatten extern blocks: process their inner statements without a new scope
+			// so that extern function declarations are visible in the outer scope.
+			if (stmt && stmt->type == AST_PROGRAM) {
+				bool all_extern = true;
+				for (int j = 0; j < stmt->data.program.statement_count; j++) {
+					ASTNode* inner = stmt->data.program.statements[j];
+					if (!inner || inner->type != AST_FUNCTION || !inner->data.function.is_extern) {
+						all_extern = false;
+						break;
+					}
+				}
+				if (all_extern && stmt->data.program.statement_count > 0) {
+					for (int j = 0; j < stmt->data.program.statement_count; j++) {
+						last = check_expr(stmt->data.program.statements[j]);
+					}
+					continue;
+				}
+			}
+			last = check_expr(stmt);
 		}
 		return last;
 	}
@@ -872,7 +900,7 @@ struct TypeChecker {
 			}
 		}
 
-		return node_types[node] = rtype;
+		return node_types[node] = builtin_void;
 	}
 
 	TypePtr check_binop(ASTNode* node) {

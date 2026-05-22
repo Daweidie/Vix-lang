@@ -6,7 +6,7 @@ struct Inner
 struct Outer
 {
     inner: Inner,
-    name: str
+    name: string
 }
 
 fn main(): i32

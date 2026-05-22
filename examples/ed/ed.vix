@@ -1,1 +1,5 @@
-//some ed
+fn main(): i32
+{
+    print("Hello, Vix!")
+    return 0
+}

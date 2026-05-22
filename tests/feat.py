@@ -278,8 +278,8 @@ class TestStrings:
         assert run.stdout == expected or run.stdout.strip() == expected.strip()
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn greet(name: str) { print("hello") } fn main(): i32 { greet("world") return 0 }', "hello"),
-        ('fn first(s: str) { print(s) } fn main(): i32 { first("abc") return 0 }', "abc"),
+        ('fn greet(name: string) { print("hello") } fn main(): i32 { greet("world") return 0 }', "hello"),
+        ('fn first(s: string) { print(s) } fn main(): i32 { first("abc") return 0 }', "abc"),
     ])
     def test_string_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -382,10 +382,10 @@ class TestTypeSystem:
 
     @pytest.mark.parametrize("src,should_fail", [
         ('fn main(): i32 { let x: i32 = "hello" return 0 }', True),
-        ('fn main(): i32 { let x: str = 42 return 0 }', True),
+        ('fn main(): i32 { let x: string = 42 return 0 }', True),
         ('fn main(): i32 { let x: f64 = "hello" return 0 }', True),
         ('fn main(): i32 { let x: i32 = 42 return 0 }', False),
-        ('fn main(): i32 { let x: str = "hello" return 0 }', False),
+        ('fn main(): i32 { let x: string = "hello" return 0 }', False),
     ])
     def test_type_checking_enforcement(self, compiler, tmp_path, src, should_fail):
         res, _ = compile_and_run(compiler, src, tmp_path)
@@ -458,7 +458,7 @@ class TestStructs:
     @pytest.mark.parametrize("src,expected", [
         ('struct Point { x: i32, y: i32 } fn main(): i32 { let p = Point { x: 3, y: 4 } print(p.x) print(p.y) return 0 }', "3\n4"),
         ('struct Rect { w: i32, h: i32 } fn main(): i32 { let r = Rect { w: 10, h: 20 } print(r.w * r.h) return 0 }', "200"),
-        ('struct Person { name: str, age: i32 } fn main(): i32 { let p = Person { name: "Alice", age: 30 } print(p.name) print(p.age) return 0 }', "Alice\n30"),
+        ('struct Person { name: string, age: i32 } fn main(): i32 { let p = Person { name: "Alice", age: 30 } print(p.name) print(p.age) return 0 }', "Alice\n30"),
     ])
     def test_struct_basics(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -547,7 +547,7 @@ class TestADTs:
 class TestGenerics:
     @pytest.mark.parametrize("src,expected", [
         ('struct Wrapper:[T] { value: T } fn main(): i32 { let w = Wrapper:[i32] { value: 42 } print(w.value) return 0 }', "42"),
-        ('struct Pair:[A, B] { first: A, second: B } fn main(): i32 { let p = Pair:[i32, str] { first: 1, second: "hello" } print(p.first) return 0 }', "1"),
+        ('struct Pair:[A, B] { first: A, second: B } fn main(): i32 { let p = Pair:[i32, string] { first: 1, second: "hello" } print(p.first) return 0 }', "1"),
     ])
     def test_generic_structs(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)

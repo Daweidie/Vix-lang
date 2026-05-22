@@ -1,36 +1,29 @@
-fn lexer(s:string) -> i32 {
-    for (i in 0 .. s.length)
-    {
+fn lexer(s: string) -> i32 {
+    for (i in 0 .. s.length) {
         let c = s[i]
-        if (c == ' ')
-        {
+        if (c == ' ') {
             continue
         }
-        else if (c >= '0' && c <= '9')
-        {
-            print("Number: " + c)
+        elif (c >= '0' and c <= '9') {
+            print("Number")
         }
-        else if (c == '+' || c == '-' || c == '*' || c == '/')
-        {
-            print("Operator: " + c)
+        elif (c == '+' or c == '-' or c == '*' or c == '/') {
+            print("Operator")
         }
-        else if (c == '=')
-        {
-            print("Equals: " + c)
+        elif (c == '=') {
+            print("Equals")
         }
-        else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
-        {
-            print("Identifier: " + c)
+        elif ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z')) {
+            print("Identifier")
         }
-        else
-        {
-            print("Unknown: " + c)
+        else {
+            print("Unknown")
         }
     }
     return 0
 }
 fn main() -> i32 {
-    let s = "1 + 1 + 2 = 4"
+    let s = "1+1+2=4"
     lexer(s)
     return 0
 }
