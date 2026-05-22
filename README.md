@@ -65,6 +65,6 @@ See [LICENSE](LICENSE) for details.
 | Project | Description | Status |
 | --- | --- | --- |
 | **Vix Compiler** | Core compiler with LLVM-focused backend implementation | In active development |
-| **XPM** | Package manager for Vix | Community contribution |
+| **Very** | Package manager for Vix | Community contribution [Very](https://github.com/vixlang/Very)|
 | **Standard Library** | Common APIs and utilities | Community contribution |
-| **VS Code Extension** | Editor support for Vix | Published |
+| **VS Code Extension** | Editor support for Vix | Published [Link](https://github.com/vixlang/ext-VixLangAnalyzer) |
