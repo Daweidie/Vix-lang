@@ -1023,3 +1023,316 @@ class TestNotInContext:
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == "ok"
+
+
+# ============================================================
+# 24. ADT Constructor Stability (no type annotation needed)
+# ============================================================
+@pytest.mark.feature
+class TestADTConstructorStability:
+    def test_ok_without_annotation(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = Ok(100)
+    match x {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(-1) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "100"
+
+    def test_err_without_annotation(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = Err("fail")
+    match x {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "fail"
+
+    def test_some_without_annotation(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = Some(42)
+    match x {
+        Some(v) -> { print(v) }
+        None -> { print(0) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+    def test_none_without_annotation(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = None
+    match x {
+        Some(v) -> { print(v) }
+        None -> { print(0) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "0"
+
+    def test_ok_with_annotation(self, compiler, tmp_path):
+        src = '''type Result:[T, E] = Ok(T) | Err(E)
+fn main(): i32 {
+    let x = Ok(42) : Result[i32, string]
+    match x {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+    def test_err_with_annotation(self, compiler, tmp_path):
+        src = '''type Result:[T, E] = Ok(T) | Err(E)
+fn main(): i32 {
+    let x = Err("oops") : Result[i32, string]
+    match x {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "oops"
+
+    def test_adt_in_function_return(self, compiler, tmp_path):
+        src = '''fn safe_div(a: i32, b: i32) {
+    if (b == 0) {
+        let r = Err("division by zero")
+        match r {
+            Ok(v) -> { print(v) }
+            Err(e) -> { print(e) }
+        }
+    } else {
+        let r = Ok(a / b)
+        match r {
+            Ok(v) -> { print(v) }
+            Err(e) -> { print(e) }
+        }
+    }
+}
+fn main(): i32 {
+    safe_div(10, 2)
+    safe_div(10, 0)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = [l.strip() for l in run.stdout.strip().splitlines() if l.strip()]
+        assert lines == ["5", "division by zero"]
+
+    def test_multiple_adt_matches(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = Some(1)
+    let b = Some(2)
+    let c = None
+    match a { Some(v) -> { print(v) } None -> { print(0) } }
+    match b { Some(v) -> { print(v) } None -> { print(0) } }
+    match c { Some(v) -> { print(v) } None -> { print(0) } }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = [l.strip() for l in run.stdout.strip().splitlines() if l.strip()]
+        assert lines == ["1", "2", "0"]
+
+
+# ============================================================
+# 25. Compiler Robustness Tests
+# ============================================================
+@pytest.mark.feature
+class TestCompilerRobustness:
+    def test_nested_match(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = 1
+    let y = 2
+    match x {
+        0 -> { print(0) }
+        1 -> {
+            match y {
+                0 -> { print(10) }
+                1 -> { print(11) }
+                2 -> { print(12) }
+                _ -> { print(19) }
+            }
+        }
+        _ -> { print(99) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "12"
+
+    def test_deeply_nested_if(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    if (1) {
+        if (1) {
+            if (1) {
+                if (1) {
+                    if (1) {
+                        print("deep")
+                    }
+                }
+            }
+        }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "deep"
+
+    def test_many_local_variables(self, compiler, tmp_path):
+        lines = ['fn main(): i32 {']
+        for i in range(50):
+            lines.append(f'    let v{i} = {i}')
+        total = " + ".join(f"v{i}" for i in range(50))
+        lines.append(f'    print({total})')
+        lines.append('    return 0\n}')
+        src = '\n'.join(lines)
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = sum(range(50))
+        assert run.stdout.strip() == str(expected)
+
+    def test_recursive_function(self, compiler, tmp_path):
+        src = '''fn fib(n: i32) -> i32 {
+    if (n <= 1) { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+fn main(): i32 {
+    print(fib(10))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "55"
+
+    def test_struct_with_match(self, compiler, tmp_path):
+        src = '''struct Point { x: i32, y: i32 }
+fn classify(p: Point) {
+    if (p.x > p.y) { print("x-greater") }
+    elif (p.x < p.y) { print("y-greater") }
+    else { print("equal") }
+}
+fn main(): i32 {
+    classify(Point { x: 5, y: 3 })
+    classify(Point { x: 2, y: 7 })
+    classify(Point { x: 4, y: 4 })
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = [l.strip() for l in run.stdout.strip().splitlines() if l.strip()]
+        assert lines == ["x-greater", "y-greater", "equal"]
+
+    def test_for_loop_with_break(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let mut sum = 0
+    for (i in 0 .. 100) {
+        if (i == 10) { break }
+        sum += i
+    }
+    print(sum)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "45"
+
+    def test_while_with_continue(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let mut i = 0
+    let mut sum = 0
+    while (i < 10) {
+        i += 1
+        if (i % 2 == 0) { continue }
+        sum += i
+    }
+    print(sum)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "25"
+
+    def test_string_operations(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = "hello"
+    let b = "world"
+    if (a != b) { print("different") }
+    if (a == "hello") { print("match") }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = [l.strip() for l in run.stdout.strip().splitlines() if l.strip()]
+        assert lines == ["different", "match"]
+
+    def test_pointer_operations(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let mut x = 10
+    let mut p = &x
+    @p = 20
+    print(x)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "20"
+
+    def test_compound_assignment(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let mut x = 0
+    x += 10
+    x -= 3
+    x *= 2
+    print(x)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "14"
+
+    def test_power_operator(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    print(2 ** 10)
+    print(3 ** 3)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = [l.strip() for l in run.stdout.strip().splitlines() if l.strip()]
+        assert lines == ["1024", "27"]
+
+    def test_fizzbuzz(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    for (i in 1 .. 16) {
+        if (i % 15 == 0) { print("FizzBuzz") }
+        elif (i % 3 == 0) { print("Fizz") }
+        elif (i % 5 == 0) { print("Buzz") }
+        else { print(i) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = [l.strip() for l in run.stdout.strip().splitlines() if l.strip()]
+        expected = ["1","2","Fizz","4","Buzz","Fizz","7","8","Fizz","Buzz","11","Fizz","13","14","FizzBuzz"]
+        assert lines == expected

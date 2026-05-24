@@ -103,10 +103,9 @@ class TestLargePrograms:
 
     @pytest.mark.parametrize("count", [5, 10, 20, 30])
     def test_many_constants(self, compiler, tmp_path, count):
-        lines = []
+        lines = ['fn main(): i32 {']
         for i in range(count):
-            lines.append(f'const C{i} = {i * 10}')
-        lines.append('fn main(): i32 {')
+            lines.append(f'    let C{i} = {i * 10}')
         total = " + ".join(f"C{i}" for i in range(count))
         lines.append(f'    print({total})')
         lines.append('    return 0\n}')
