@@ -140,7 +140,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0 || strcmp(argv[i] , "-ver") == 0){
-            printf("Vix Compiler 0.2.0 Copyright(c) 2025-2026 LLVM:20.1.2(8)\n");
+            printf("Vix Compiler 0.2.2 Copyright(c) 2025-2026 LLVM : 20.1.2(8)\n");
             return 0;
         }
         else if (strcmp(argv[i], "-llvm") == 0) {
@@ -471,9 +471,12 @@ int main(int argc, char **argv) {
                 return 0;
             }
             if (out_f && save_c) {
-                const char* ls = "linker.ld";
-                if (bare && !vix_file_readable(ls) && vix_file_readable("src/linker.ld")) {
-                    ls = "src/linker.ld";
+                const char* ls = NULL;
+                if (bare) {
+                    ls = "linker.ld";
+                    if (!vix_file_readable(ls) && vix_file_readable("src/linker.ld")) {
+                        ls = "src/linker.ld";
+                    }
                 }
 
                 char obj_file[2048];

@@ -1,44 +1,44 @@
-extern "C" {
-    fn socket(domain: i32, type: i32, protocol: i32) -> i32
-    fn bind(sockfd: i32, addr: ptr, addrlen: i32) -> i32
-    fn listen(sockfd: i32, backlog: i32) -> i32
-    fn accept(sockfd: i32, addr: ptr, addrlen: ptr) -> i32
-    fn send(sockfd: i32, buf: ptr, len: i32, flags: i32) -> i32
-    fn close(fd: i32) -> i32
-    fn printf(fmt: ptr, ...) -> i32
-    fn htons(port: i32) -> i32
-    fn perror(msg: ptr) ->void
-}
-pub fn socket(domain: i32, type: i32, protocol: i32) -> i32
+extern "C"
 {
-    return socket(domain, type, protocol);
+    fn socket(domain: i32, type_: i32, protocol: i32) : i32
+    fn connect(sockfd: i32, addr: ptr, addrlen: usize) : i32
+    fn send(sockfd: i32, buf: ptr, len: usize, flags: i32) : isize
+    fn recv(sockfd: i32, buf: ptr, len: usize, flags: i32) : isize
+    fn bind(sockfd: i32, addr: ptr, addrlen: usize) : i32
+    fn listen(sockfd: i32, backlog: i32) : i32
 }
-pub fn listen(sockfd: i32, backlog: i32) -> i32
+pub type sockaddr_in = struct
 {
-    return listen(sockfd, backlog);
+    sin_family: u16,
+    sin_port: u16,
+    sin_addr: u32,
+    sin_zero: [u8 * 8]
 }
-pub fn bind(sockfd: i32, addr: ptr, addrlen: i32) -> i32
+pub type Socket = struct 
 {
-    return bind(sockfd, addr, addrlen);
+    fd: i32
 }
-pub fn connect(sockfd: i32, addr: ptr, addrlen: i32) -> i32
+pub type Result:[T, E] = Ok(T) | Err(E) 
+/*socket*/
+pub fn new_tcp() : Result[Socket, string]
 {
-    return connect(sockfd, addr, addrlen);
+    let fd = socket(2, 1, 0)
+    if (fd < 0)
+    {
+        return Err("Failed to create socket")
+    }
+    Ok(Socket{fd: fd})
 }
-pub fn accept(sockfd: i32, addr: ptr, addrlen: ptr) -> i32
+pub fn connect_tcp(sock: Socket, address: sockaddr_in): Result[(), string]
 {
-    return accept(sockfd, addr, addrlen);
+    let res = connect(sock.fd, &address, 16)
+    if (res < 0)
+    {
+        return Err("Failed to connect")
+    }
+    Ok(())
 }
-pub fn send(sockfd: i32, buf: ptr, len: i32, flags: i32) -> i32
+fn main(): i32
 {
-    return send(sockfd, buf, len, flags);
+    return 0
 }
-pub fn recv(sockfd: i32, buf: ptr, len: i32, flags: i32) -> i32
-{
-    return recv(sockfd, buf, len, flags);
-}
-pub fn close(fd: i32) -> i32
-{
-    return close(fd);
-}
-

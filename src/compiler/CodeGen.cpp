@@ -1468,6 +1468,13 @@ private:
                 Constant* rhs = evaluateConstExpr(node->data.unaryop.expr, outType);
                 if (!rhs) return nullptr;
                 if (node->data.unaryop.op == OP_PLUS) return rhs;
+                if (node->data.unaryop.op == OP_NOT) {
+                    if (auto* ci = dyn_cast<ConstantInt>(rhs)) {
+                        bool val = ci->getZExtValue() != 0;
+                        return ConstantInt::get(Type::getInt1Ty(context), val ? 0 : 1);
+                    }
+                    return nullptr;
+                }
                 if (node->data.unaryop.op == OP_MINUS) {
                     if (auto* ci = dyn_cast<ConstantInt>(rhs)) {
                         int64_t value = ci->getSExtValue();
@@ -1712,8 +1719,6 @@ public:
             case AST_RETURN:       return visitReturn(node);
             case AST_PRINT:        return visitPrint(node);
             case AST_INPUT:        return visitInput(node);
-            case AST_TOINT:        return visitToInt(node);
-            case AST_TOFLOAT:      return visitToFloat(node);
             case AST_CONST:        return visitConst(node);
             case AST_STRUCT_DEF:   return visitStructDef(node);
             case AST_STRUCT_LITERAL: return visitStructLiteral(node);
@@ -1792,8 +1797,25 @@ public:
         
         std::string name(node->data.identifier.name);
         if (name == "None") {
-            Value* nil = ConstantPointerNull::get(PointerType::get(context, 0));
-            return VisitResult(nil, ValueType::POINTER);
+            // Create tagged struct for None (tag=1, payload=null) on heap
+            Type* i32Ty = Type::getInt32Ty(context);
+            Type* i8PtrTy = PointerType::get(context, 0);
+            StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+
+            Function* reallocFn = getOrCreateReallocFunction();
+            uint64_t structSize = 16; // i32(4) + padding + ptr(8)
+            Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
+            Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+            Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+
+            Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+            builder.CreateStore(ConstantInt::get(i32Ty, 1), tagPtr);
+
+            Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+            builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+
+            pointerElementHints[adtPtr] = adtStructTy;
+            return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
         }
         if (name == "Some" || name == "Ok" || name == "Err") {
             return VisitResult(getBuiltinUnionCtorTagValue(name), ValueType::INT32);
@@ -1872,6 +1894,12 @@ public:
             if (elemType) {
                 pointerElementHints[val] = elemType;
             }
+        }
+        // Propagate pointerElementHints from the alloca to the loaded value
+        // This ensures ADT struct types (Option/Result/Custom) are tracked through variables
+        auto allocHintIt = pointerElementHints.find(alloc);
+        if (allocHintIt != pointerElementHints.end() && allocHintIt->second) {
+            pointerElementHints[val] = allocHintIt->second;
         }
         return VisitResult(val, type);
     }
@@ -2349,6 +2377,17 @@ public:
                     return VisitResult(builder.CreateNeg(operand.value, "negtmp"), operand.type);
             case OP_PLUS:
                 return operand;
+            case OP_NOT: {
+                Value* boolVal = operand.value;
+                if (!boolVal->getType()->isIntegerTy(1)) {
+                    boolVal = builder.CreateICmpNE(
+                        boolVal,
+                        ConstantInt::get(boolVal->getType(), 0),
+                        "not_cmp");
+                }
+                Value* result = builder.CreateNot(boolVal, "nottmp");
+                return VisitResult(result, ValueType::BOOL);
+            }
             case OP_DEREF: {
                 Value* ptrVal = operand.value;
                 if (!ptrVal->getType()->isPointerTy()) {
@@ -2638,7 +2677,26 @@ public:
             if (isStringAssign) {
                 varType = PointerType::get(context, 0);
             } else {
-                varType = rightVal.value->getType();
+                // Use inferred type from type checker if available, to get correct
+                // type for ADT payloads (which are stored as ptr but should be i32, etc.)
+                Type* inferredLLVM = nullptr;
+                if (node->data.assign.left && node->data.assign.left->inferred_type) {
+                    inferredLLVM = getLLVMTypeFromTypeInfo(node->data.assign.left->inferred_type);
+                }
+                if (!inferredLLVM && node->data.assign.right && node->data.assign.right->inferred_type) {
+                    inferredLLVM = getLLVMTypeFromTypeInfo(node->data.assign.right->inferred_type);
+                }
+                if (inferredLLVM && inferredLLVM != rightVal.value->getType()) {
+                    // Convert the value to the inferred type (e.g., ptr -> i32 for ADT payloads)
+                    if (inferredLLVM->isIntegerTy() && rightVal.value->getType()->isPointerTy()) {
+                        rightVal.value = builder.CreatePtrToInt(rightVal.value, Type::getInt64Ty(context), "adt_payload_ptrtoint");
+                        rightVal.value = builder.CreateIntCast(rightVal.value, inferredLLVM, true, "adt_payload_intcast");
+                        rightVal.type = typeHelper.getValueTypeFromType(inferredLLVM);
+                    }
+                    varType = inferredLLVM;
+                } else {
+                    varType = rightVal.value->getType();
+                }
             }
             
             IRBuilder<> tempBuilder(entryBB, entryBB->begin());
@@ -2694,6 +2752,10 @@ public:
                 node->data.assign.right->type != AST_EXPRESSION_LIST) {
                 typeHelper.registerArrayType(name, hintIt->second, -1);
                 typeHelper.registerVariableArraySize(name, -1);
+                // Propagate the hint to the variable's alloca for ADT struct types
+                if (alloc) {
+                    pointerElementHints[alloc] = hintIt->second;
+                }
             }
 
             if (inferredPointerElementType) {
@@ -3048,8 +3110,11 @@ public:
         std::string structName = structType->getName().str();
         int idx = typeHelper.getFieldIndex(structName, fieldName);
         if (idx < 0) {
-            llvm::errs() << "Error: Struct '" << structName 
-                        << "' has no member named '" << fieldName << "'\n";
+            std::string msg = "Struct '" + structName + "' has no member named '" + fieldName + "'";
+            const char* filename = node && node->source_file ? node->source_file :
+                                   (current_input_filename ? current_input_filename : "unknown");
+            int line = node && node->location.first_line > 0 ? node->location.first_line : 1;
+            report_semantic_error_with_location(msg.c_str(), filename, line);
             return VisitResult();
         }
         
@@ -4110,7 +4175,24 @@ public:
                     llvm::errs() << "Error: None() does not accept arguments\n";
                     return VisitResult();
                 }
-                return VisitResult(ConstantPointerNull::get(PointerType::get(context, 0)), ValueType::POINTER);
+                Type* i32Ty = Type::getInt32Ty(context);
+                Type* i8PtrTy = PointerType::get(context, 0);
+                StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+
+                Function* reallocFn = getOrCreateReallocFunction();
+                uint64_t structSize = 16;
+                Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
+                Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+
+                Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+                builder.CreateStore(ConstantInt::get(i32Ty, 1), tagPtr);
+
+                Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+                builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+
+                pointerElementHints[adtPtr] = adtStructTy;
+                return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
             }
 
             if (isRegisteredUnionCtorName(calleeName) && !isBuiltinUnionCtorName(calleeName)) {
@@ -4125,22 +4207,16 @@ public:
                     Type* i8PtrTy = PointerType::get(context, 0);
                     StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
 
-                    Function* func = getCurrentFunction();
-                    if (!func) {
-                        func = module->getFunction("main");
-                        if (!func) { createDefaultMain(); func = module->getFunction("main"); }
-                    }
-                    if (!func) return VisitResult();
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    uint64_t structSize = 16;
+                    Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
+                    Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                    Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
 
-                    BasicBlock* savedBB = builder.GetInsertBlock();
-                    IRBuilder<> tempBuilder(&func->getEntryBlock(), func->getEntryBlock().begin());
-                    AllocaInst* adtAlloca = tempBuilder.CreateAlloca(adtStructTy, nullptr, "adt");
-                    if (savedBB) builder.SetInsertPoint(savedBB);
-
-                    Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtAlloca, 0, "tag_ptr");
+                    Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
                     builder.CreateStore(ConstantInt::get(i32Ty, tagValue), tagPtr);
 
-                    Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtAlloca, 1, "payload_ptr");
+                    Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
                     Value* payload = argRes.value;
                     if (!payload->getType()->isPointerTy()) {
                         payload = builder.CreateIntToPtr(
@@ -4151,7 +4227,8 @@ public:
                     }
                     builder.CreateStore(payload, payloadPtr);
 
-                    return VisitResult(adtAlloca, ValueType::POINTER, adtStructTy);
+                    pointerElementHints[adtPtr] = adtStructTy;
+                    return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
                 }
                 if (argCount != 0) {
                     llvm::errs() << "Error: " << calleeName << "() does not accept arguments\n";
@@ -4168,28 +4245,22 @@ public:
             VisitResult argRes = visit(node->data.call.args->data.expression_list.expressions[0]);
             if (!argRes.value) return VisitResult();
 
-            if (calleeName == "Ok" || calleeName == "Err") {
+            if (calleeName == "Ok" || calleeName == "Err" || calleeName == "Some") {
                 int32_t tagValue = (calleeName == "Err") ? 1 : 0;
                 Type* i32Ty = Type::getInt32Ty(context);
                 Type* i8PtrTy = PointerType::get(context, 0);
                 StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
 
-                Function* func = getCurrentFunction();
-                if (!func) {
-                    func = module->getFunction("main");
-                    if (!func) { createDefaultMain(); func = module->getFunction("main"); }
-                }
-                if (!func) return VisitResult();
+                Function* reallocFn = getOrCreateReallocFunction();
+                uint64_t structSize = 16;
+                Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
+                Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
 
-                BasicBlock* savedBB = builder.GetInsertBlock();
-                IRBuilder<> tempBuilder(&func->getEntryBlock(), func->getEntryBlock().begin());
-                AllocaInst* adtAlloca = tempBuilder.CreateAlloca(adtStructTy, nullptr, "adt");
-                if (savedBB) builder.SetInsertPoint(savedBB);
-
-                Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtAlloca, 0, "tag_ptr");
+                Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
                 builder.CreateStore(ConstantInt::get(i32Ty, tagValue), tagPtr);
 
-                Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtAlloca, 1, "payload_ptr");
+                Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
                 Value* payload = argRes.value;
                 if (!payload->getType()->isPointerTy()) {
                     payload = builder.CreateIntToPtr(
@@ -4200,7 +4271,8 @@ public:
                 }
                 builder.CreateStore(payload, payloadPtr);
 
-                return VisitResult(adtAlloca, ValueType::POINTER, adtStructTy);
+                pointerElementHints[adtPtr] = adtStructTy;
+                return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
             }
 
             return argRes;
@@ -5001,8 +5073,11 @@ public:
         std::string structName = structType->getName().str();
         int idx = typeHelper.getFieldIndex(structName, fieldName);
         if (idx < 0) {
-            llvm::errs() << "Error: Struct '" << structName 
-                        << "' has no member named '" << fieldName << "'\n";
+            std::string msg = "Struct '" + structName + "' has no member named '" + fieldName + "'";
+            const char* filename = node && node->source_file ? node->source_file :
+                                   (current_input_filename ? current_input_filename : "unknown");
+            int line = node && node->location.first_line > 0 ? node->location.first_line : 1;
+            report_semantic_error_with_location(msg.c_str(), filename, line);
             return VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
         }
         
@@ -5223,22 +5298,6 @@ public:
     VisitResult visitInput(ASTNode* node) {
         (void)node;
         return VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
-    }
-    
-    VisitResult visitToInt(ASTNode* node) {
-        if (!node->data.toint.expr) return VisitResult();
-        VisitResult expr = visit(node->data.toint.expr);
-        if (!expr.value) return VisitResult();
-        Value* val = typeHelper.castValue(builder, expr.value, expr.type, ValueType::INT32);
-        return VisitResult(val, ValueType::INT32);
-    }
-    
-    VisitResult visitToFloat(ASTNode* node) {
-        if (!node->data.tofloat.expr) return VisitResult();
-        VisitResult expr = visit(node->data.tofloat.expr);
-        if (!expr.value) return VisitResult();
-        Value* val = typeHelper.castValue(builder, expr.value, expr.type, ValueType::FLOAT64);
-        return VisitResult(val, ValueType::FLOAT64);
     }
 
     VisitResult visitArrayLiteral(ASTNode* node) {

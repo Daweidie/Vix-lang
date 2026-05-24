@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <functional>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -343,6 +344,48 @@ struct TypeChecker {
 		return t->kind == TypeKind::I8 || t->kind == TypeKind::I32 || t->kind == TypeKind::I64 ||
 			   t->kind == TypeKind::F32 || t->kind == TypeKind::F64;
 	}
+	TypePtr freshen_type(const TypePtr& t) {
+		if (!t) return t;
+		TypePtr a = unify.apply(t);
+		if (a->kind == TypeKind::Var) {
+			return unify.fresh();
+		}
+		switch (a->kind) {
+			case TypeKind::Ptr:
+				return Type::make_ptr(freshen_type(a->data.ptr.pointee));
+			case TypeKind::Array:
+				return Type::make_array(freshen_type(a->data.array.element));
+			case TypeKind::FixedArray:
+				return Type::make_fixed_array(freshen_type(a->data.fixed_array.element),
+											  a->data.fixed_array.size);
+			case TypeKind::App: {
+				std::vector<TypePtr> args;
+				args.reserve(a->data.app.args.size());
+				for (const auto& arg : a->data.app.args) {
+					args.push_back(freshen_type(arg));
+				}
+				return Type::make_app(freshen_type(a->data.app.ctor), std::move(args));
+			}
+			case TypeKind::Fn: {
+				std::vector<TypePtr> params;
+				params.reserve(a->data.fn.params.size());
+				for (const auto& p : a->data.fn.params) {
+					params.push_back(freshen_type(p));
+				}
+				return Type::make_fn(std::move(params), freshen_type(a->data.fn.ret));
+			}
+			case TypeKind::Tuple: {
+				std::vector<TypePtr> elems;
+				elems.reserve(a->data.tuple.elements.size());
+				for (const auto& e : a->data.tuple.elements) {
+					elems.push_back(freshen_type(e));
+				}
+				return Type::make_tuple(std::move(elems));
+			}
+			default:
+				return a;
+		}
+	}
 
 	int numeric_rank(const TypePtr& type) {
 		TypePtr t = unify.apply(type);
@@ -600,6 +643,37 @@ struct TypeChecker {
 				return;
 			}
 		}
+		// Check for mutual recursion: collect all non-pointer struct field names
+		// and check if any of them reference back to this struct
+		{
+			std::set<std::string> visited;
+			std::function<bool(const std::string&, const std::string&)> has_cycle;
+			has_cycle = [&](const std::string& current, const std::string& target) -> bool {
+				if (current == target) return true;
+				if (visited.count(current)) return false;
+				visited.insert(current);
+				const StructInfo* si = env.lookup_struct(current);
+				if (!si) return false;
+				for (const auto& sf : si->fields) {
+					TypePtr ft = unify.apply(sf.type);
+					if (ft->kind == TypeKind::Struct) {
+						if (has_cycle(ft->data.struct_data.name, target)) return true;
+					}
+				}
+				return false;
+			};
+			for (const auto& f : info.fields) {
+				TypePtr ft = unify.apply(f.type);
+				if (ft->kind == TypeKind::Struct) {
+					visited.clear();
+					if (has_cycle(ft->data.struct_data.name, info.name)) {
+						report_semantic_error(node, "self-recursive struct fields must use pointer type");
+						generic_bindings = std::move(saved_generics);
+						return;
+					}
+				}
+			}
+		}
 		compute_struct_layout(info, env);
 		env.register_struct(std::move(info));
 		generic_bindings = std::move(saved_generics);
@@ -687,7 +761,7 @@ struct TypeChecker {
 			case AST_IDENTIFIER: {
 				const char* name = node->data.identifier.name ? node->data.identifier.name : "";
 				if (TypePtr ctor = env.lookup_ctor(name)) {
-					result = ctor;
+					result = freshen_type(ctor);
 					break;
 				}
 				if (const ValInfo* val = env.lookup_value(name)) {
@@ -838,6 +912,9 @@ struct TypeChecker {
 							 (resolved_ann->kind == TypeKind::Ptr && resolved_r->kind == TypeKind::String)) {
 						// ok
 					}
+					else if (resolved_ann->kind == TypeKind::FixedArray && resolved_r->kind == TypeKind::Ptr) {
+						// nil can coerce to fixed array (all zeros)
+					}
 					else {
 						report_type_error(node,
 							std::string("type mismatch in let binding: ") + ex.what());
@@ -893,6 +970,19 @@ struct TypeChecker {
 			}
 		} else if (left) {
 			TypePtr ltype = check_expr(left);
+			if (left->type == AST_UNARYOP && left->data.unaryop.op == OP_DEREF) {
+				ASTNode* ptr_expr = left->data.unaryop.expr;
+				if (ptr_expr && ptr_expr->type == AST_IDENTIFIER && ptr_expr->data.identifier.name) {
+					const char* ptr_name = ptr_expr->data.identifier.name;
+					ValInfo* ptr_val = env.lookup_value(ptr_name);
+					if (ptr_val && !ptr_val->is_mutable) {
+						report_semantic_error(node,
+							std::string("cannot assign through pointer '") + ptr_name +
+							"' because the pointer variable is immutable\n"
+							"  Fix: declare with 'let mut' to make the pointer mutable");
+					}
+				}
+			}
 			try {
 				unify.unify(ltype, rtype);
 			} catch (const std::exception& ex) {
@@ -1036,7 +1126,15 @@ struct TypeChecker {
 					}
 					return node_types[node] = pointee;
 				}
-				report_type_error(node, "cannot dereference non-pointer");
+				if (resolved->kind == TypeKind::I32 || resolved->kind == TypeKind::I64 ||
+					resolved->kind == TypeKind::I8 || resolved->kind == TypeKind::F32 ||
+					resolved->kind == TypeKind::F64 || resolved->kind == TypeKind::Bool ||
+					resolved->kind == TypeKind::String) {
+					report_type_error(node,
+						"cannot dereference non-pointer type (use '@' only on pointer types)");
+				} else {
+					report_type_error(node, "cannot dereference non-pointer");
+				}
 				return node_types[node] = unify.fresh();
 			}
 			case OP_MINUS:
@@ -1048,6 +1146,9 @@ struct TypeChecker {
 					}
 				}
 				return node_types[node] = inner;
+			case OP_NOT:
+				ensure_bool(node, inner);
+				return node_types[node] = builtin_bool;
 		}
 		return node_types[node] = inner;
 	}
@@ -1121,6 +1222,58 @@ struct TypeChecker {
 								} else if (strcmp(ctor_name, "Err") == 0) {
 									payload_type = resolved->data.app.args[1];
 								}
+							}
+						}
+					}
+					if (payload_type) {
+						match_payloads[scrutinee_name] = payload_type;
+						match_payload_field_types[std::string(scrutinee_name) + ".1"] = payload_type;
+						match_payload_field_types[std::string(scrutinee_name) + ".0"] = builtin_i32;
+						pushed_match_binding = true;
+					}
+				}
+			}
+		}
+
+		// Detect desugared match pattern: x.0 == CtorName (from match desugaring)
+		if (!pushed_match_binding && node->data.if_stmt.condition &&
+			node->data.if_stmt.condition->type == AST_BINOP &&
+			node->data.if_stmt.condition->data.binop.op == OP_EQ) {
+			ASTNode* lhs = node->data.if_stmt.condition->data.binop.left;
+			ASTNode* rhs = node->data.if_stmt.condition->data.binop.right;
+			// Pattern: x.0 == CtorName
+			ASTNode* member_node = nullptr;
+			const char* ctor_name = nullptr;
+			if (lhs && lhs->type == AST_MEMBER_ACCESS && rhs && rhs->type == AST_IDENTIFIER &&
+				rhs->data.identifier.name && is_builtin_ctor(rhs->data.identifier.name)) {
+				member_node = lhs;
+				ctor_name = rhs->data.identifier.name;
+			} else if (rhs && rhs->type == AST_MEMBER_ACCESS && lhs && lhs->type == AST_IDENTIFIER &&
+				lhs->data.identifier.name && is_builtin_ctor(lhs->data.identifier.name)) {
+				member_node = rhs;
+				ctor_name = lhs->data.identifier.name;
+			}
+			if (member_node && ctor_name && member_node->data.member_access.field &&
+				member_node->data.member_access.field->type == AST_IDENTIFIER &&
+				member_node->data.member_access.field->data.identifier.name &&
+				strcmp(member_node->data.member_access.field->data.identifier.name, "0") == 0) {
+				ASTNode* obj = member_node->data.member_access.object;
+				if (obj && obj->type == AST_IDENTIFIER && obj->data.identifier.name) {
+					scrutinee_name = obj->data.identifier.name;
+					TypePtr scrutinee_type = check_expr(obj);
+					TypePtr resolved = unify.apply(scrutinee_type);
+					if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
+						resolved->data.app.ctor->kind == TypeKind::Struct) {
+						const std::string& base = resolved->data.app.ctor->data.struct_data.name;
+						if (base == "Result" && resolved->data.app.args.size() == 2) {
+							if (strcmp(ctor_name, "Ok") == 0) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Err") == 0) {
+								payload_type = resolved->data.app.args[1];
+							}
+						} else if (base == "Option" && resolved->data.app.args.size() == 1) {
+							if (strcmp(ctor_name, "Some") == 0) {
+								payload_type = resolved->data.app.args[0];
 							}
 						}
 					}
@@ -1278,6 +1431,15 @@ struct TypeChecker {
 					return node_types[node] = builtin_i32;
 				}
 				if (idx == 1 && !resolved->data.app.args.empty()) {
+					// Check match_payload_field_types first (set by check_if for desugared match)
+					ASTNode* objectNode = node->data.member_access.object;
+					if (objectNode && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+						std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
+						auto it = match_payload_field_types.find(key);
+						if (it != match_payload_field_types.end()) {
+							return node_types[node] = it->second;
+						}
+					}
 					if (base == "Option" && resolved->data.app.args.size() >= 1) {
 						return node_types[node] = resolved->data.app.args[0];
 					}
@@ -1285,12 +1447,14 @@ struct TypeChecker {
 						return node_types[node] = resolved->data.app.args[0];
 					}
 				}
-				ASTNode* objectNode = node->data.member_access.object;
-				if (objectNode && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
-					std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
-					auto it = match_payload_field_types.find(key);
-					if (it != match_payload_field_types.end()) {
-						return node_types[node] = it->second;
+				{
+					ASTNode* objectNode = node->data.member_access.object;
+					if (objectNode && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+						std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
+						auto it = match_payload_field_types.find(key);
+						if (it != match_payload_field_types.end()) {
+							return node_types[node] = it->second;
+						}
 					}
 				}
 				return node_types[node] = unify.fresh();
@@ -1520,6 +1684,8 @@ struct TypeChecker {
 								for (const auto& te : ra->data.tuple.elements) {
 									coerce_tuple_to_array(elem, te);
 								}
+							} else if (re && re->kind == TypeKind::FixedArray && ra && ra->kind == TypeKind::Ptr) {
+								
 							} else {
 								unify.unify(expected, actual);
 							}
@@ -1649,6 +1815,7 @@ struct TypeChecker {
 			}
 			TypePtr ctor_type = env.lookup_ctor(cname);
 			if (ctor_type) {
+				ctor_type = freshen_type(ctor_type);
 				TypePtr resolved_ctor = unify.apply(ctor_type);
 				if (resolved_ctor->kind == TypeKind::Fn) {
 					size_t actual = node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST
@@ -1710,6 +1877,10 @@ struct TypeChecker {
 				TypePtr param_type = unify.apply(fn_type->data.fn.params[i]);
 				TypePtr arg_type = unify.apply(arg_types[i]);
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::String) {
+					continue;
+				}
+				if (is_numeric(param_type) && is_numeric(arg_type)) {
+					// Allow numeric promotion (e.g., i32 -> i64/usize)
 					continue;
 				}
 				try {

@@ -10,12 +10,18 @@ class TestExistingRegression:
     """Run all 220 existing regression tests through pytest."""
 
     EXPECT = {
+        "test1.vix": (True, ["123", "xyz"]),
         "test2.vix": (False, "capturing local variables"),
         "test3.vix": (False, "capturing local variables"),
         "test4.vix": (False, "type mismatch"),
+        "test5.vix": (True,""),
+        "test6.vix": (True,"3.50000"),
         "test7.vix": (False, "type mismatch"),
         "test8.vix": (False, "type mismatch"),
+        "test9.vix": (True,"123","xyz"),
         "test10.vix": (True, ["3", "2"]),
+        "test11.vix": (False, "self-recursive struct fields"),
+        "test12.vix": (False, "undefined struct field"),
         "test13.vix": (True, ["2"]),
         "test14.vix": (True, ["2"]),
         "test15.vix": (True, ["3"]),

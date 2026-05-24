@@ -121,6 +121,7 @@ typedef enum {
     OP_PLUS      // +
     , OP_ADDRESS  // & 取地址
     , OP_DEREF    // @ 解引用
+    , OP_NOT 
 } UnaryOpType;
 typedef enum {
     MUTABILITY_IMMUTABLE = 0,  // 不可变

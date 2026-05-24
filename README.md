@@ -8,7 +8,7 @@
       width="50%">
   </picture>
 
-[Website][Vix] | [Getting Started][Getting Started] | [Learn][Learn] | [Documentation][Documentation] | [Contributing][Contributing] | [中文文档][Chinese README]
+[Website][Vix] | [Getting Started][Getting Started] | [Learn][Learn] | [Documentation][Documentation] | [Contributing][Contributing] 
 </div>
 
 This is the main source repository for [Vix]. It contains the compiler,
@@ -24,6 +24,10 @@ runtime-related components, examples, and language documentation.
 ## Why Vix?
 
 - **Performance:** Vix compiles to native code with an LLVM-based backend and is designed for low-overhead execution.
+
+- **Reliability:** Static typing and compile-time checks catch common errors earlier.
+
+- **Simplicity:** The language keeps syntax concise while still supporting practical features like functions, modules, structs, pointers, generics, and control flow.
 ```vix
 fn main(): i32
 {
@@ -31,10 +35,6 @@ fn main(): i32
   return 0
 }
 ```
-- **Reliability:** Static typing and compile-time checks catch common errors earlier.
-
-- **Simplicity:** The language keeps syntax concise while still supporting practical features like functions, modules, structs, pointers, generics, and control flow.
-
 ## Repository Layout
 
 - `src/`: Compiler source code and build scripts.

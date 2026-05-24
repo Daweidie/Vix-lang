@@ -6,7 +6,7 @@ fn id:[T](x: T): T
 fn main(): i32
 {
     print(id:[i32](123))
-    print(id:[str]("xyz"))
-    print(id("abc"))
+    print(id:[string]("xyz"))
+    //print(id("abc")) generics should not be inferred
     return 0
 }

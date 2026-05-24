@@ -477,14 +477,19 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
 
             if (is_builtin_union_ctor_name(ctor_name)) {
                 if (strcmp(ctor_name, "None") == 0) {
-                    cond = create_binop_node(OP_EQ, cond_left, create_nil_node());
+                    ASTNode* tag_access = create_member_access_node(
+                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                    cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(1));
                 } else if (strcmp(ctor_name, "Some") == 0) {
-                    cond = create_binop_node(OP_NE, cond_left, create_nil_node());
+                    ASTNode* tag_access = create_member_access_node(
+                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                    cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(0));
                 }
             }
 
             int is_adt_ctor = is_builtin_union_ctor_name(ctor_name) &&
-                             (strcmp(ctor_name, "Ok") == 0 || strcmp(ctor_name, "Err") == 0);
+                             (strcmp(ctor_name, "Ok") == 0 || strcmp(ctor_name, "Err") == 0 ||
+                              strcmp(ctor_name, "Some") == 0);
 
             if (pattern->data.call.args && pattern->data.call.args->type == AST_EXPRESSION_LIST &&
                 pattern->data.call.args->data.expression_list.expression_count == 1) {
@@ -530,19 +535,31 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
         } else {
             ASTNode* cond_left = clone_match_scrutinee(scrutinee);//克隆 scrutinee 以构建条件表达式，确保不修改原始 scrutinee
             ASTNode* cond_right = clone_match_scrutinee(pattern);//克隆模式以构建条件表达式，确保不修改原始模式
-            if (!cond_right && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name) {
-                cond_right = create_identifier_node(pattern->data.identifier.name);//如果模式是一个标识符但无法克隆，直接创建一个新的标识符节点
-                if (is_builtin_union_ctor_name(pattern->data.identifier.name) &&
-                    strcmp(pattern->data.identifier.name, "None") == 0) {
-                    cond_right = create_nil_node();
+
+            // Check for builtin ctor names (None/Some) BEFORE falling through
+            if (pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
+                is_builtin_union_ctor_name(pattern->data.identifier.name)) {
+                const char* pname = pattern->data.identifier.name;
+                if (strcmp(pname, "None") == 0) {
+                    ASTNode* tag_access = create_member_access_node(
+                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                    cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(1));
+                } else if (strcmp(pname, "Some") == 0) {
+                    ASTNode* tag_access = create_member_access_node(
+                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                    cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(0));
                 }
             }
 
-            if (!cond_left || !cond_right) {
-                continue;
+            if (!cond) {
+                if (!cond_right && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name) {
+                    cond_right = create_identifier_node(pattern->data.identifier.name);
+                }
+                if (!cond_left || !cond_right) {
+                    continue;
+                }
+                cond = create_binop_node(OP_EQ, cond_left, cond_right);//构建条件表达式：scrutinee == pattern
             }
-
-            cond = create_binop_node(OP_EQ, cond_left, cond_right);//构建条件表达式：scrutinee == pattern
         }
 
         if (!cond) continue;
@@ -575,9 +592,9 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %token IMPORT PUB
 %token <num_int> NUMBER_INT CHAR_LITERAL
 %token <num_float> NUMBER_FLOAT
-%token PRINT INPUT TOINT TOFLOAT TYPE_I32 TYPE_I64 TYPE_I8 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID NIL EXTERN DOTDOTDOT
+%token PRINT INPUT TYPE_I32 TYPE_I64 TYPE_I8 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID NIL EXTERN DOTDOTDOT
 %token AND OR
-%token AT AMPERSAND
+%token AT AMPERSAND BANG
 %token IF ELSE ELIF WHILE FOR BREAK CONTINUE IN
 %token ASSIGN PLUS_ASSIGN MINUS_ASSIGN MULTIPLY_ASSIGN DIVIDE_ASSIGN MODULO_ASSIGN
 %token PLUS MINUS MULTIPLY DIVIDE MODULO POWER
@@ -599,7 +616,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %type <node> print_statement assignment_statement compound_assignment_statement
 %type <node> if_statement while_statement for_statement
 %type <node> expression logical_expression comparison_expression additive_expression term factor power factor_unary
-%type <node> literal identifier toint_expression tofloat_expression input_expression
+%type <node> literal identifier input_expression
 %type <node> block_statement if_rest expression_list
 %type <node> lvalue
 %type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern
@@ -615,14 +632,6 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 
 program
     : statement_list { root = $$ = $1; }
-    ;
-
-toint_expression
-    : TOINT LPAREN expression RPAREN { $$ = create_toint_node_with_yyltype($3, (YYLTYPE*) &@$); }
-    ;
-
-tofloat_expression
-    : TOFLOAT LPAREN expression RPAREN { $$ = create_tofloat_node_with_yyltype($3, (YYLTYPE*) &@$); }
     ;
 
 statement_list
@@ -646,6 +655,7 @@ statement
     | LET identifier ASSIGN expression COLON type SEMICOLON {
         $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $6;
     }
     | LET MUT identifier ASSIGN expression SEMICOLON {
         $$ = create_assign_node_with_yyltype($3, $5, (YYLTYPE*) &@$);
@@ -701,6 +711,7 @@ statement
     | LET identifier ASSIGN expression COLON type {
         $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
         $$->data.assign.is_declaration = 1;
+        $$->data.assign.declared_type = $6;
     }
     | LET MUT identifier ASSIGN expression {
         $$ = create_assign_node_with_yyltype($3, $5, (YYLTYPE*) &@$);
@@ -741,20 +752,48 @@ statement
     | extern_block                 { $$ = $1; }
     | STRUCT IDENTIFIER LBRACE struct_fields RBRACE {
         register_generic_arity($2, GENERIC_KIND_STRUCT, 0);
+        {
+            int line = @2.first_line > 0 ? @2.first_line : yylineno;
+            int col = @2.first_column > 0 ? @2.first_column : 1;
+            set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+            report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
+                "deprecated syntax: use 'type NAME = struct {...}' instead of 'struct NAME {...}'");
+        }
         $$ = create_struct_def_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
     }
     | STRUCT IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LBRACE struct_fields RBRACE {
         register_generic_arity($2, GENERIC_KIND_STRUCT, node_list_count($5));
+        {
+            int line = @2.first_line > 0 ? @2.first_line : yylineno;
+            int col = @2.first_column > 0 ? @2.first_column : 1;
+            set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+            report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
+                "deprecated syntax: use 'type NAME[T] = struct {...}' instead of 'struct NAME[T] {...}'");
+        }
         $$ = create_struct_def_node_with_yyltype($2, $8, (YYLTYPE*) &@$);
         $$->data.struct_def.generic_params = $5;
     }
     | PUB STRUCT IDENTIFIER LBRACE struct_fields RBRACE {
         register_generic_arity($3, GENERIC_KIND_STRUCT, 0);
+        {
+            int line = @3.first_line > 0 ? @3.first_line : yylineno;
+            int col = @3.first_column > 0 ? @3.first_column : 1;
+            set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+            report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
+                "deprecated syntax: use 'pub type NAME = struct {...}' instead of 'pub struct NAME {...}'");
+        }
         $$ = create_struct_def_node_with_yyltype($3, $5, (YYLTYPE*) &@$);
         $$->data.struct_def.is_public = 1;
     }
     | PUB STRUCT IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LBRACE struct_fields RBRACE {
         register_generic_arity($3, GENERIC_KIND_STRUCT, node_list_count($6));
+        {
+            int line = @3.first_line > 0 ? @3.first_line : yylineno;
+            int col = @3.first_column > 0 ? @3.first_column : 1;
+            set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+            report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
+                "deprecated syntax: use 'pub type NAME[T] = struct {...}' instead of 'pub struct NAME[T] {...}'");
+        }
         $$ = create_struct_def_node_with_yyltype($3, $9, (YYLTYPE*) &@$);
         $$->data.struct_def.generic_params = $6;
         $$->data.struct_def.is_public = 1;
@@ -810,6 +849,17 @@ type_definition
         register_generic_arity($3, GENERIC_KIND_TYPE, node_list_count($6));
         register_adt_definition($3, node_list_count($6), $9);
         $$ = mark_type_alias_public(build_type_alias_enum($3, $9));
+    }
+    | TYPE_KW IDENTIFIER COLON LBRACKET generic_param_list RBRACKET ASSIGN STRUCT LBRACE struct_fields RBRACE {
+        register_generic_arity($2, GENERIC_KIND_STRUCT, node_list_count($5));
+        $$ = create_struct_def_node_with_yyltype($2, $10, (YYLTYPE*) &@$);
+        $$->data.struct_def.generic_params = $5;
+    }
+    | PUB TYPE_KW IDENTIFIER COLON LBRACKET generic_param_list RBRACKET ASSIGN STRUCT LBRACE struct_fields RBRACE {
+        register_generic_arity($3, GENERIC_KIND_STRUCT, node_list_count($6));
+        $$ = create_struct_def_node_with_yyltype($3, $11, (YYLTYPE*) &@$);
+        $$->data.struct_def.generic_params = $6;
+        $$->data.struct_def.is_public = 1;
     }
     ;
 
@@ -977,6 +1027,7 @@ type
             }
     | FN LPAREN RPAREN COLON type { $$ = create_type_node(AST_TYPE_POINTER); }
     | FN LPAREN type_list RPAREN COLON type { $$ = create_type_node(AST_TYPE_POINTER); }
+    | LPAREN RPAREN { $$ = create_type_node(AST_TYPE_VOID); }
     | LPAREN type_list RPAREN {
         if ($2 && $2->type == AST_EXPRESSION_LIST && $2->data.expression_list.expression_count > 1) {
             $$ = $2;
@@ -1050,7 +1101,14 @@ param_list
     ;
 
 function_return_type
-    : ARROW type { $$ = $2; }
+    : ARROW type {
+        int line = @1.first_line > 0 ? @1.first_line : yylineno;
+        int col = @1.first_column > 0 ? @1.first_column : 1;
+        set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+        report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
+            "deprecated syntax: use ': type' instead of '-> type' for function return types");
+        $$ = $2;
+    }
     | COLON type { $$ = $2; }
     ;
 
@@ -1489,8 +1547,6 @@ factor_unary
         $$ = fn;
     }
     | literal                       { $$ = $1; }
-    | toint_expression              { $$ = $1; }
-    | tofloat_expression            { $$ = $1; }
     | input_expression              { $$ = $1; }
     | IF LPAREN expression RPAREN block_statement if_rest {
         if ($6) {
@@ -1504,7 +1560,9 @@ factor_unary
     | MULTIPLY factor_unary         { $$ = create_unaryop_node(OP_DEREF, $2); }
     | AMPERSAND factor_unary        { $$ = create_unaryop_node(OP_ADDRESS, $2); }
     | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
+    | BANG factor_unary             { $$ = create_unaryop_node(OP_NOT, $2); }
     | LPAREN expression RPAREN      { $$ = $2; }
+    | LPAREN RPAREN                 { $$ = create_nil_node_with_yyltype((YYLTYPE*) &@$); }
     | LPAREN expression COMMA expression_list RPAREN {
         ASTNode* tuple = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
         add_expression_to_list(tuple, $2);

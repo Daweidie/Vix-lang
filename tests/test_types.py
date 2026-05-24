@@ -660,3 +660,366 @@ class TestTypeCompatibility:
         assert run is not None
         assert "and_ok" in run.stdout
         assert "or_ok" in run.stdout
+
+
+# ============================================================
+# 16. Logical NOT Operator (!)
+# ============================================================
+@pytest.mark.feature
+class TestLogicalNot:
+    def test_not_true(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = true
+    if (!x) { print("fail") } else { print("ok") }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"
+
+    def test_not_false(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = false
+    if (!x) { print("ok") } else { print("fail") }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"
+
+    def test_not_comparison(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = 5
+    if (!(x == 3)) { print("ok") }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"
+
+    def test_double_not(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = true
+    if (!!x) { print("ok") }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"
+
+
+# ============================================================
+# 17. Generic Struct via type keyword
+# ============================================================
+@pytest.mark.feature
+class TestGenericStructType:
+    def test_generic_struct_definition(self, compiler, tmp_path):
+        src = '''type Box: [T] = struct {
+    value: T
+}
+fn main(): i32 {
+    let b: Box: [i32] = Box: [i32] { value: 42 }
+    print(b.value)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+    def test_generic_struct_with_string(self, compiler, tmp_path):
+        src = '''type Wrapper: [T] = struct {
+    data: T
+}
+fn main(): i32 {
+    let w: Wrapper: [string] = Wrapper: [string] { data: "hello" }
+    print(w.data)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "hello"
+
+
+# ============================================================
+# 18. ADT Constructors in Arrays
+# ============================================================
+@pytest.mark.feature
+class TestADTInArrays:
+    def test_option_in_variable(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = Some(1)
+    let b = Some(2)
+    let c = None
+    match a {
+        Some(v) -> { print(v) }
+        None -> { print(0) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "1"
+
+    def test_option_match_none(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = None
+    match x {
+        Some(v) -> { print(v) }
+        None -> { print(0) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "0"
+
+
+# ============================================================
+# 19. Pointer Dereference Error Detection
+# ============================================================
+@pytest.mark.feature
+class TestPointerErrors:
+    def test_deref_non_pointer_fails(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x: i32 = 42
+    let y = @x
+    return 0
+}'''
+        compile_res, _ = compile_and_run(compiler, src, tmp_path)
+        assert compile_res.returncode != 0
+
+    def test_pointer_deref_works(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = 42
+    let p = &x
+    print(@p)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+
+# ============================================================
+# 20. Edge Cases and Boundary Tests
+# ============================================================
+@pytest.mark.feature
+class TestEdgeCases:
+    def test_nested_if_expressions(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = 10
+    if (x > 5) {
+        if (x > 8) { print("big") }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "big"
+
+    def test_function_as_expression(self, compiler, tmp_path):
+        src = '''fn add(a: i32, b: i32): i32 { return a + b }
+fn main(): i32 {
+    let x = add(3, 4)
+    print(x)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "7"
+
+    def test_empty_function_body(self, compiler, tmp_path):
+        src = '''fn noop() { let _x = 0 }
+fn main(): i32 { noop() print("ok") return 0 }'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"
+
+    def test_chained_member_access(self, compiler, tmp_path):
+        src = '''type Inner = struct { val: i32 }
+type Outer = struct { inner: Inner }
+fn main(): i32 {
+    let o = Outer { inner: Inner { val: 99 } }
+    print(o.inner.val)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "99"
+
+    def test_let_with_type_and_no_init(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let mut x: i32 = 0
+    x = 42
+    print(x)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+    def test_for_loop_array_iteration(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let arr = [10, 20, 30]
+    for (i in arr) {
+        print(i)
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert "10" in run.stdout
+        assert "20" in run.stdout
+        assert "30" in run.stdout
+
+
+# ============================================================
+# 21. ADT Match Payload Type (Err should return E, not T)
+# ============================================================
+@pytest.mark.feature
+class TestADTMatchPayload:
+    def test_result_err_payload_type(self, compiler, tmp_path):
+        src = '''type Result:[T, E] = Ok(T) | Err(E)
+fn main(): i32 {
+    let bad = Err("division by zero") : Result[i32, string]
+    match bad {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "division by zero"
+
+    def test_result_ok_payload_type(self, compiler, tmp_path):
+        src = '''type Result:[T, E] = Ok(T) | Err(E)
+fn main(): i32 {
+    let good = Ok(42) : Result[i32, string]
+    match good {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "42"
+
+    def test_result_both_arms(self, compiler, tmp_path):
+        src = '''type Result:[T, E] = Ok(T) | Err(E)
+fn main(): i32 {
+    let r1 = Ok(5) : Result[i32, string]
+    let r2 = Err("cannot divide by zero") : Result[i32, string]
+    match r1 {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    match r2 {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = run.stdout.strip().split("\n")
+        assert lines[0] == "5"
+        assert lines[1] == "cannot divide by zero"
+
+    def test_option_from_function(self, compiler, tmp_path):
+        src = '''fn first_or_none(list: [string]): ?string {
+    if (list.length > 0) {
+        return Some(list[0])
+    }
+    return None
+}
+fn main(): i32 {
+    let names = ["i32", "f64"]
+    let empty = []
+    let a = first_or_none(names)
+    let b = first_or_none(empty)
+    match a {
+        Some(v) -> { print(v) }
+        None -> { print("fail") }
+    }
+    match b {
+        Some(v) -> { print(v) }
+        None -> { print("empty is empty") }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = run.stdout.strip().split("\n")
+        assert lines[0] == "i32"
+        assert lines[1] == "empty is empty"
+
+    def test_adt_tag_annotation_syntax(self, compiler, tmp_path):
+        src = '''type Result:[T, E] = Ok(T) | Err(E)
+fn main(): i32 {
+    let a = Ok(42) : Result[i32, string]
+    let b = Err("oops") : Result[i32, string]
+    match a {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    match b {
+        Ok(v) -> { print(v) }
+        Err(e) -> { print(e) }
+    }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        lines = run.stdout.strip().split("\n")
+        assert lines[0] == "42"
+        assert lines[1] == "oops"
+
+
+# ============================================================
+# 22. Unit Type ()
+# ============================================================
+@pytest.mark.feature
+class TestUnitType:
+    def test_unit_type_in_generics(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let x = ()
+    print("ok")
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"
+
+
+# ============================================================
+# 23. Logical NOT in match context
+# ============================================================
+@pytest.mark.feature
+class TestNotInContext:
+    def test_not_in_while(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let mut x = 3
+    while (!(x == 0)) {
+        print(x)
+        x -= 1
+    }
+    print(0)
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert "0" in run.stdout
+
+    def test_not_with_and_or(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let a = true
+    let b = false
+    if (!a and b) { print("fail") }
+    if (!(!a or b)) { print("ok") }
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "ok"

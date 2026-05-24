@@ -1,28 +1,28 @@
+#[no_main]
 extern "C"
 {
-    fn malloc(size: i32) -> ptr
-    fn free(ptr: ptr) ->void
-    fn memcpy(dest: ptr, src: ptr, n: i32) -> ptr
-    fn memset(s: ptr, c: i32, n: i32) -> ptr
-    fn memcmp(s1: ptr, s2: ptr, n: i32) -> i32
+    fn memset(ptr: ptr, value: i32, num: usize) : ptr
+    fn memcpy(dest: ptr, src: ptr, num: usize) : ptr
+    fn memmove(dest: ptr, src: ptr, num: usize) : ptr
+    fn memcmp(ptr1: ptr, ptr2: ptr, num: usize) : i32
 }
-pub fn memcpy(dest: ptr, src: ptr, n: i32) -> ptr
+pub fn set(ptr: ptr, value: i32, num: usize) : ptr
 {
-    return memcpy(dest, src, n)
+    return memset(ptr, value, num)
 }
-pub fn memset(s: ptr, c: i32, n: i32) -> ptr
+pub fn copy(dest: ptr, src: ptr, num: usize) : ptr
 {
-    return memset(s, c, n)
+    return memcpy(dest, src, num)
 }
-pub fn memcmp(s1: ptr, s2: ptr, n: i32) -> i32
+pub fn move(dest: ptr, src: ptr, num: usize) : ptr
 {
-    return memcmp(s1, s2, n)
+    return memmove(dest, src, num)
 }
-pub fn malloc(size: i32) -> ptr
+pub fn compare(ptr1: ptr, ptr2: ptr, num: usize) : i32
 {
-    return malloc(size)
+    return memcmp(ptr1, ptr2, num)
 }
-pub fn free(ptr: ptr)
+pub fn zero(ptr: ptr, num: usize) : ptr
 {
-    free(ptr)
+    return memset(ptr, 0, num)
 }

@@ -138,17 +138,9 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 
 "print"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return PRINT; }
 "input"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return INPUT; }
-"toint"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TOINT; }
-"tofloat"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TOFLOAT; }
 "string"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_STR; }
 "return"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return RETURN; }
 "fn"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FN; }
-"extern"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return EXTERN; }
-"const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); /* const removed from user syntax */ }
-"let"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return LET; }
-"mut"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MUT; }
-"->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
-"i32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
 "u32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
 "i64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
 "u64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
@@ -157,6 +149,12 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "f32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F32; }
 "f64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F64; }
 "usize"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
+"extern"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return EXTERN; }
+"const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); /* const removed from user syntax */ }
+"let"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return LET; }
+"mut"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MUT; }
+"->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
+"i32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
 "void"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_VOID; }
 "nil"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return NIL; }
 "if"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IF; }
@@ -192,6 +190,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "**"                { UPDATE_COLUMN(); return POWER; }
 "=="                { UPDATE_COLUMN(); return EQ; }
 "!="                { UPDATE_COLUMN(); return NE; }
+"!"                 { UPDATE_COLUMN(); return BANG; }
 "<"                 { UPDATE_COLUMN(); return LT; }
 "<="                { UPDATE_COLUMN(); return LE; }
 ">"                 { UPDATE_COLUMN(); return GT; }
