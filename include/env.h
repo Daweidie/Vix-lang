@@ -132,8 +132,8 @@ public:
 	}
 
 	bool register_ctor(const std::string& ctor_name, TypePtr ctor_type) {
-		auto [it, inserted] = constructors_.emplace(ctor_name, std::move(ctor_type));
-		return inserted;
+		constructors_[ctor_name] = std::move(ctor_type);
+		return true;
 	}
 
 	TypePtr lookup_ctor(const std::string& ctor_name) const {

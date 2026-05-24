@@ -1813,6 +1813,26 @@ struct TypeChecker {
 			if (cname && strcmp(cname, "None") == 0) {
 				return node_types[node] = Type::make_app(Type::make_struct("Option"), {unify.fresh()});
 			}
+			if (cname && strcmp(cname, "Ok") == 0) {
+				TypePtr arg_t = unify.fresh();
+				if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST &&
+					node->data.call.args->data.expression_list.expression_count == 1) {
+					arg_t = check_expr(node->data.call.args->data.expression_list.expressions[0]);
+				} else {
+					report_semantic_error(node, "Ok(...) expects one argument");
+				}
+				return node_types[node] = Type::make_app(Type::make_struct("Result"), {arg_t, unify.fresh()});
+			}
+			if (cname && strcmp(cname, "Err") == 0) {
+				TypePtr arg_t = unify.fresh();
+				if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST &&
+					node->data.call.args->data.expression_list.expression_count == 1) {
+					arg_t = check_expr(node->data.call.args->data.expression_list.expressions[0]);
+				} else {
+					report_semantic_error(node, "Err(...) expects one argument");
+				}
+				return node_types[node] = Type::make_app(Type::make_struct("Result"), {unify.fresh(), arg_t});
+			}
 			TypePtr ctor_type = env.lookup_ctor(cname);
 			if (ctor_type) {
 				ctor_type = freshen_type(ctor_type);
