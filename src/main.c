@@ -31,6 +31,7 @@
 #include <windows.h>
 #else
 #include <unistd.h>
+#include <time.h>
 #include <limits.h>
 #include <libgen.h>
 #include <sys/stat.h>
@@ -38,6 +39,9 @@
 
 extern FILE* yyin;
 extern ASTNode* root;
+static void print_timing_table(struct timespec t_start, struct timespec t_file,
+                                struct timespec t_parse, struct timespec t_sema,
+                                struct timespec t_codegen);
 const char* current_input_filename = NULL;
 static const char* find_bundled_libc(void) {
     static char libc_path[4096];
@@ -96,6 +100,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "  -ast                   Print AST to stdout\n");
         fprintf(stderr, "  -opt=lN                Set optimization level (N = 0..3)\n");
         fprintf(stderr, "  --target=<triple>      Set codegen/link target triple\n");
+        fprintf(stderr, "  --check                Syntax & type check only\n");
+        fprintf(stderr, "  --time                 Show phase timing breakdown\n");
         fprintf(stderr, "  --debug                Enable debug output\n");
         fprintf(stderr, "  -v, --version          Display compiler version information\n");
         fprintf(stderr, "  -h, --help             Display this help message\n");
@@ -119,6 +125,8 @@ int main(int argc, char **argv) {
     char* target = NULL;
     int no_std = 0;
     int no_main = 0;
+    int check_only = 0;
+    int show_time = 0;
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--target=", 9) == 0) {
             target = argv[i] + 9;
@@ -167,10 +175,14 @@ int main(int argc, char **argv) {
             } else {
                 out_llvm = 1;
             }
-        }else if (strcmp(argv[i], "-ast") == 0) {
+        } else if (strcmp(argv[i], "-ast") == 0 || strcmp(argv[i], "--ast") == 0) {
             out_ast = 1;
         } else if (strcmp(argv[i], "--debug") == 0) {
             dbg = 1;
+        } else if (strcmp(argv[i], "--check") == 0) {
+            check_only = 1;
+        } else if (strcmp(argv[i], "--time") == 0) {
+            show_time = 1;
         } else if (strncmp(argv[i], "-opt=l", 6) == 0) {
             int lvl = argv[i][6] - '0';
             if (lvl < 0 || lvl > 3 || argv[i][7] != '\0') {
@@ -190,6 +202,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  -ast                   Print AST to stdout\n");
             fprintf(stderr, "  -opt=lN                Set optimization level (N = 0..3)\n");
             fprintf(stderr, "  --target=<triple>      Set codegen/link target triple\n");
+            fprintf(stderr, "  --check                Syntax & type check only\n");
+            fprintf(stderr, "  --time                 Show phase timing breakdown\n");
             fprintf(stderr, "  --debug                Enable debug output\n");
             fprintf(stderr, "  -v, --version          Display compiler version information\n");
             fprintf(stderr, "  -h, --help             Display this help message\n");
@@ -198,6 +212,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return 1;
         } else {
+            in_f = argv[i];
             is_vic = strlen(argv[i]) > 4 && strcmp(argv[i] + strlen(argv[i]) - 4, ".vic") == 0;
         }
     }
@@ -253,6 +268,9 @@ int main(int argc, char **argv) {
         }
         rewind(input_file);
     }
+
+    struct timespec t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts;
+    if (show_time) clock_gettime(CLOCK_MONOTONIC, &t_start);
 
     const char* eff_t = target;
     if (!eff_t && (no_std || no_main)) {
@@ -317,11 +335,15 @@ int main(int argc, char **argv) {
     load_source_file(in_f);
     set_location_with_column(in_f, 1, 1);
     yyin = input_file;
-    
+
+    if (show_time) clock_gettime(CLOCK_MONOTONIC, &t_file_ts);
+
     int result = yyparse();
     if (result == 0 && root) {
         inline_imports(root);
     }
+
+    if (show_time) clock_gettime(CLOCK_MONOTONIC, &t_parse_ts);
     
     if (result == 0) {
         int errs = check_undefined_symbols(root);
@@ -359,7 +381,19 @@ int main(int argc, char **argv) {
             fclose(input_file);
             return 1;
         }
-        
+
+        if (show_time) clock_gettime(CLOCK_MONOTONIC, &t_sema_ts);
+        if (show_time) t_codegen_ts = t_sema_ts; /* default = sema time if no codegen */
+
+        if (check_only) {
+            print_error_summary();
+            if (show_time) print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts);
+            if (root) free_ast(root);
+            cleanup_error_handler();
+            fclose(input_file);
+            return get_error_count() > 0 ? 1 : 0;
+        }
+
         if (gen_llvm) {
             char llvm_filename[2048];
             if (!llvm_f) {
@@ -387,6 +421,8 @@ int main(int argc, char **argv) {
             
             llvm_emit_from_ast(root, llvm_file);
             fclose(llvm_file);
+
+            if (show_time) clock_gettime(CLOCK_MONOTONIC, &t_codegen_ts);
 
             if (get_error_count() > 0) {
                 fprintf(stderr, "Compilation failed with %d error(s)\n", get_error_count());
@@ -431,6 +467,7 @@ int main(int argc, char **argv) {
                         free_ast(root);
                     }
                     fclose(input_file);
+                    if (show_time) print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts);
                     return 0;
                 }
             }
@@ -468,6 +505,7 @@ int main(int argc, char **argv) {
                     free_ast(root);
                 }
                 fclose(input_file);
+                if (show_time) print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts);
                 return 0;
             }
             if (out_f && save_c) {
@@ -531,6 +569,7 @@ int main(int argc, char **argv) {
                 free_ast(root);
             }
             fclose(input_file);
+            if (show_time) print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts);
             return 0;
         }
 
@@ -540,6 +579,7 @@ int main(int argc, char **argv) {
             printf("===================================================\n");
             if (root) free_ast(root);
             fclose(input_file);
+            if (show_time) print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts);
             return 0;
         }
 
@@ -549,6 +589,7 @@ int main(int argc, char **argv) {
             printf("===================================================\n");
             if (root) free_ast(root);
             fclose(input_file);
+            if (show_time) print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts, t_codegen_ts);
             return 0;
         }
     } else {
@@ -564,4 +605,26 @@ int main(int argc, char **argv) {
     cleanup_error_handler();
     fclose(input_file);
     return result;
+}
+
+static void print_timing_table(struct timespec t_start, struct timespec t_file,
+                                struct timespec t_parse, struct timespec t_sema,
+                                struct timespec t_codegen) {
+    double ms_file  = (t_file.tv_sec  - t_start.tv_sec) * 1000.0 +
+                      (t_file.tv_nsec - t_start.tv_nsec) / 1e6;
+    double ms_parse = (t_parse.tv_sec - t_file.tv_sec) * 1000.0 +
+                      (t_parse.tv_nsec - t_file.tv_nsec) / 1e6;
+    double ms_sema  = (t_sema.tv_sec  - t_parse.tv_sec) * 1000.0 +
+                      (t_sema.tv_nsec - t_parse.tv_nsec) / 1e6;
+    double ms_codegen = (t_codegen.tv_sec - t_sema.tv_sec) * 1000.0 +
+                        (t_codegen.tv_nsec - t_sema.tv_nsec) / 1e6;
+    double ms_total = ms_file + ms_parse + ms_sema + ms_codegen;
+
+    fprintf(stderr, "\033[36m── Phase Timings ──────────────────────────────\033[0m\n");
+    fprintf(stderr, "  File I/O    %9.2f ms  %5.1f%%\n", ms_file,  ms_file  / ms_total * 100);
+    fprintf(stderr, "  Parse       %9.2f ms  %5.1f%%\n", ms_parse, ms_parse / ms_total * 100);
+    fprintf(stderr, "  Semantic    %9.2f ms  %5.1f%%\n", ms_sema,  ms_sema  / ms_total * 100);
+    fprintf(stderr, "  Codegen     %9.2f ms  %5.1f%%\n", ms_codegen, ms_codegen / ms_total * 100);
+    fprintf(stderr, "\033[36m  ────────────────────────────────────────────\033[0m\n");
+    fprintf(stderr, "  Total       %9.2f ms\n", ms_total);
 }
