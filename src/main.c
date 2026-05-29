@@ -87,6 +87,23 @@ static const char* find_bundled_libc(void) {
 
     return NULL;
 }
+#ifdef _WIN32
+#include <windows.h>
+struct timespec {
+    time_t tv_sec;
+    long tv_nsec;
+};
+
+static int clock_gettime(int unused, struct timespec *ts) {
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    ts->tv_sec = counter.QuadPart / freq.QuadPart;
+    ts->tv_nsec = (counter.QuadPart % freq.QuadPart) * 1000000000 / freq.QuadPart;
+    return 0;
+}
+#define CLOCK_MONOTONIC 1
+#endif
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "OVERVIEW: Vix Compiler\n\n");
