@@ -820,6 +820,7 @@ private:
     std::set<std::string> compiledFunctions;
     std::map<std::string, Type*> activeGenericTypeBindings;
     std::map<const Value*, Type*> pointerElementHints;
+    std::map<std::string, StructType*> paramStructTypes;
     std::map<std::string, int> memberArrayLengthHints;
     std::map<std::string, int> memberNestedArrayLengthHints;
     std::vector<BasicBlock*> loopBreakTargets;
@@ -2421,8 +2422,25 @@ public:
                     }
                 }
 
-                PointerType* ptrTy = dyn_cast<PointerType>(ptrVal->getType());
-                Type* elemType = getPointerElementTypeSafely(ptrTy, varName);
+                Type* elemType = nullptr;
+                auto hintIt = pointerElementHints.find(operand.value);
+                if (hintIt != pointerElementHints.end() && hintIt->second) {
+                    elemType = hintIt->second;
+                }
+                if (!elemType) {
+                    AllocaInst* derefAlloc = varName.empty() ? nullptr : scopeManager.findVariable(varName);
+                    if (!derefAlloc && !varName.empty()) derefAlloc = findVariableInMain(varName);
+                    if (derefAlloc) {
+                        auto allocHintIt = pointerElementHints.find(derefAlloc);
+                        if (allocHintIt != pointerElementHints.end() && allocHintIt->second) {
+                            elemType = allocHintIt->second;
+                        }
+                    }
+                }
+                if (!elemType) {
+                    PointerType* ptrTy = dyn_cast<PointerType>(ptrVal->getType());
+                    elemType = getPointerElementTypeSafely(ptrTy, varName);
+                }
                 if (!elemType) {
                     elemType = Type::getInt32Ty(context);
                 }
@@ -2430,6 +2448,10 @@ public:
                 Type* expectPtrType = PointerType::get(context, 0);
                 if (ptrVal->getType() != expectPtrType) {
                     ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "deref_ptrcast");
+                }
+
+                if (elemType->isStructTy()) {
+                    return VisitResult(ptrVal, ValueType::POINTER, cast<StructType>(elemType));
                 }
 
                 Value* loaded = builder.CreateLoad(elemType, ptrVal, "deref_load");
@@ -2478,8 +2500,25 @@ public:
                 }
             }
 
-            Type* elemType = getPointerElementTypeSafely(
-                dyn_cast<PointerType>(ptrRes.value->getType()), ptrVarName);
+            Type* elemType = nullptr;
+            auto ptrHintIt = pointerElementHints.find(ptrRes.value);
+            if (ptrHintIt != pointerElementHints.end() && ptrHintIt->second) {
+                elemType = ptrHintIt->second;
+            }
+            if (!elemType && !ptrVarName.empty()) {
+                AllocaInst* ptrAlloc = scopeManager.findVariable(ptrVarName);
+                if (!ptrAlloc) ptrAlloc = findVariableInMain(ptrVarName);
+                if (ptrAlloc) {
+                    auto allocHintIt = pointerElementHints.find(ptrAlloc);
+                    if (allocHintIt != pointerElementHints.end() && allocHintIt->second) {
+                        elemType = allocHintIt->second;
+                    }
+                }
+            }
+            if (!elemType) {
+                elemType = getPointerElementTypeSafely(
+                    dyn_cast<PointerType>(ptrRes.value->getType()), ptrVarName);
+            }
             if (!elemType) {
                 elemType = Type::getInt32Ty(context);
             }
@@ -2488,7 +2527,28 @@ public:
             Type* expectPtrType = PointerType::get(context, 0);
             if (ptrVal->getType() != expectPtrType) {
                 ptrVal = builder.CreateBitCast(ptrVal, expectPtrType, "deref_store_ptrcast");
-            }//处理赋值右侧的值
+            }
+
+            if (elemType->isStructTy()) {
+                VisitResult rightVal = visit(node->data.assign.right);
+                if (!rightVal.value) return VisitResult();
+
+                Value* structVal = nullptr;
+                if (rightVal.value->getType() == elemType) {
+                    structVal = rightVal.value;
+                } else if (rightVal.value->getType()->isPointerTy()) {
+                    Value* srcPtr = rightVal.value;
+                    if (srcPtr->getType() != expectPtrType) {
+                        srcPtr = builder.CreateBitCast(srcPtr, expectPtrType, "deref_struct_src_cast");
+                    }
+                    structVal = builder.CreateLoad(elemType, srcPtr, "deref_struct_val");
+                }
+
+                if (structVal) {
+                    builder.CreateStore(structVal, ptrVal);
+                }
+                return VisitResult(ptrVal, ValueType::POINTER, cast<StructType>(elemType));
+            }
 
             VisitResult rightVal = visit(node->data.assign.right);
             if (!rightVal.value) return VisitResult();
@@ -2783,6 +2843,85 @@ public:
         return VisitResult(val, varType);
     }
     
+    VisitResult computeIndexPtr(ASTNode* node) {
+        if (!node || node->type != AST_INDEX) return VisitResult();
+        ASTNode* target = node->data.index.target;
+        ASTNode* indexNode = node->data.index.index;
+
+        VisitResult idxRes = visit(indexNode);
+        if (!idxRes.value) return VisitResult();
+        Value* idxVal = idxRes.value;
+        if (!idxVal->getType()->isIntegerTy(32)) {
+            idxVal = builder.CreateIntCast(idxVal, Type::getInt32Ty(context), true, "idxcast");
+        }
+
+        AllocaInst* baseAlloc = nullptr;
+        std::string varName;
+        if (target->type == AST_IDENTIFIER) {
+            varName = std::string(target->data.identifier.name);
+            baseAlloc = scopeManager.findVariable(varName);
+            if (!baseAlloc) baseAlloc = findVariableInMain(varName);
+        }
+
+        if (baseAlloc) {
+            Type* allocatedType = getActualType(baseAlloc);
+            if (allocatedType && allocatedType->isArrayTy()) {
+                ArrayType* at = cast<ArrayType>(allocatedType);
+                Type* elemType = at->getElementType();
+                Value* gep = builder.CreateInBoundsGEP(allocatedType, baseAlloc,
+                    {ConstantInt::get(Type::getInt32Ty(context), 0), idxVal}, "lval_arr_gep");
+                VisitResult res(gep, typeHelper.getValueTypeFromType(elemType));
+                if (elemType->isPointerTy()) {
+                    pointerElementHints[gep] = Type::getInt32Ty(context);
+                }
+                return res;
+            }
+            if (allocatedType && allocatedType->isPointerTy()) {
+                Value* arrayPtr = builder.CreateLoad(allocatedType, baseAlloc, "lval_array_ptr");
+                Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(allocatedType), varName);
+                Value* gep = builder.CreateInBoundsGEP(elemType, arrayPtr, idxVal, "lval_ptr_gep");
+                VisitResult res(gep, typeHelper.getValueTypeFromType(elemType));
+                if (elemType->isPointerTy()) {
+                    pointerElementHints[gep] = Type::getInt32Ty(context);
+                }
+                return res;
+            }
+        }
+
+        if (target->type == AST_INDEX) {
+            VisitResult innerPtr = computeIndexPtr(target);
+            if (innerPtr.value && innerPtr.value->getType()->isPointerTy()) {
+                Type* elemType = nullptr;
+                auto hintIt = pointerElementHints.find(innerPtr.value);
+                if (hintIt != pointerElementHints.end() && hintIt->second) {
+                    elemType = hintIt->second;
+                }
+                if (!elemType) {
+                    elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(innerPtr.value->getType()), "");
+                }
+                if (!elemType) elemType = Type::getInt32Ty(context);
+                Value* gep = builder.CreateInBoundsGEP(elemType, innerPtr.value, idxVal, "lval_chain_gep");
+                Type* innerElem = elemType->isArrayTy() ? cast<ArrayType>(elemType)->getElementType() : elemType;
+                VisitResult res(gep, typeHelper.getValueTypeFromType(innerElem));
+                if (innerElem->isPointerTy()) {
+                    pointerElementHints[gep] = Type::getInt32Ty(context);
+                }
+                return res;
+            }
+        }
+
+        VisitResult targRes = visit(target);
+        if (!targRes.value || !targRes.value->getType()->isPointerTy()) return VisitResult();
+        Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targRes.value->getType()), varName);
+        if (!elemType) return VisitResult();
+        Value* gep = builder.CreateInBoundsGEP(elemType, targRes.value, idxVal, "lval_generic_gep");
+        VisitResult res(gep, typeHelper.getValueTypeFromType(elemType));
+        if (elemType->isPointerTy()) {
+            pointerElementHints[gep] = Type::getInt32Ty(context);
+        }
+        return res;
+    }
+
     VisitResult visitIndexAssign(ASTNode* node) {
         ASTNode* indexNode = node->data.assign.left;
         ASTNode* target = indexNode->data.index.target;
@@ -2861,6 +3000,33 @@ public:
                 if (!casted->getType()->isIntegerTy(8)) {
                     casted = builder.CreateIntCast(casted, Type::getInt8Ty(context), true, "mmio_i8");
                 }
+                builder.CreateStore(casted, gep);
+                return VisitResult(casted, vt);
+            }
+        }
+
+        if (target->type == AST_INDEX) {
+            VisitResult targRes = computeIndexPtr(target);
+            if (targRes.value && targRes.value->getType()->isPointerTy()) {
+                Type* elemType = nullptr;
+                auto hintIt = pointerElementHints.find(targRes.value);
+                if (hintIt != pointerElementHints.end() && hintIt->second) {
+                    elemType = hintIt->second;
+                }
+                if (!elemType) {
+                    elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targRes.value->getType()), "");
+                }
+                if (!elemType) elemType = Type::getInt32Ty(context);
+
+                Value* gep = builder.CreateInBoundsGEP(elemType, targRes.value, idxVal, "chain_arr_index_ptr");
+                VisitResult rightVal = visit(node->data.assign.right);
+                if (!rightVal.value) return VisitResult();
+                Type* storeElemType = elemType;
+                if (storeElemType->isArrayTy()) {
+                    storeElemType = cast<ArrayType>(storeElemType)->getElementType();
+                }
+                ValueType vt = typeHelper.getValueTypeFromType(storeElemType);
+                Value* casted = typeHelper.castValue(builder, rightVal.value, rightVal.type, vt);
                 builder.CreateStore(casted, gep);
                 return VisitResult(casted, vt);
             }
@@ -3111,6 +3277,30 @@ public:
             }
         }
         
+        if (!structType || !basePtr) {
+            // Try pointerElementHints for struct pointer params
+            if (objectRes.value->getType()->isPointerTy()) {
+                auto hintIt = pointerElementHints.find(objectRes.value);
+                if (hintIt != pointerElementHints.end() && hintIt->second && hintIt->second->isStructTy()) {
+                    structType = cast<StructType>(hintIt->second);
+                    basePtr = objectRes.value;
+                }
+            }
+            if (!structType && objectRes.value->getType()->isPointerTy()) {
+                // Try loading pointer from alloca and checking hints
+                if (AllocaInst* alloc = dyn_cast<AllocaInst>(objectRes.value)) {
+                    Type* allocatedType = getActualType(alloc);
+                    if (allocatedType->isPointerTy()) {
+                        auto hintIt = pointerElementHints.find(alloc);
+                        if (hintIt != pointerElementHints.end() && hintIt->second && hintIt->second->isStructTy()) {
+                            structType = cast<StructType>(hintIt->second);
+                            basePtr = builder.CreateLoad(allocatedType, alloc, "struct_ptr_ld");
+                        }
+                    }
+                }
+            }
+        }
+
         if (!structType || !basePtr) {
             llvm::errs() << "Error: Cannot assign to member '" << fieldName 
                         << "' of non-struct type\n";
@@ -3663,6 +3853,7 @@ public:
         std::vector<std::string> paramNames;
         std::vector<ValueType> paramValueTypes;
         functionArrayParamPositions[funcName].clear();
+        paramStructTypes.clear();
         
         if (node->data.function.params) {
             if (node->data.function.params->type == AST_EXPRESSION_LIST) {
@@ -3696,6 +3887,7 @@ public:
                                 } else if (StructType* structTy = typeHelper.getStructType(typeName)) {
                                     paramType = ValueType::POINTER;
                                     paramTypes.push_back(PointerType::get(context, 0));
+                                    paramStructTypes[paramName] = structTy;
                                 } else if (typeName == "ptr") {
                                     if (funcName == "main" && paramName == "argv") {
                                         paramType = ValueType::POINTER;
@@ -3851,6 +4043,13 @@ public:
                 scopeManager.defineVariable(paramNames[userIdx], alloc);
                 if (userIdx < paramValueTypes.size() && paramValueTypes[userIdx] == ValueType::STRING) {
                     typeHelper.registerStringVariable(paramNames[userIdx]);
+                }
+                // Track struct types for pointer parameters
+                if (paramAllocType->isPointerTy() && userIdx < paramNames.size()) {
+                    auto stIt = paramStructTypes.find(paramNames[userIdx]);
+                    if (stIt != paramStructTypes.end() && stIt->second) {
+                        pointerElementHints[alloc] = stIt->second;
+                    }
                 }
                 userIdx++;
             }
@@ -5070,6 +5269,26 @@ public:
                     basePtr = objectRes.value;
                 } else {
                     basePtr = builder.CreateBitCast(objectRes.value, expectedPtrType, "struct_ptr_cast");
+                }
+            }
+        }
+        
+        if (!structType && objectRes.value->getType()->isPointerTy()) {
+            auto hintIt = pointerElementHints.find(objectRes.value);
+            if (hintIt != pointerElementHints.end() && hintIt->second && hintIt->second->isStructTy()) {
+                structType = cast<StructType>(hintIt->second);
+                basePtr = objectRes.value;
+            }
+        }
+        if (!structType && objectRes.value->getType()->isPointerTy()) {
+            if (AllocaInst* alloc = dyn_cast<AllocaInst>(objectRes.value)) {
+                Type* allocatedType = getActualType(alloc);
+                if (allocatedType->isPointerTy()) {
+                    auto hintIt = pointerElementHints.find(alloc);
+                    if (hintIt != pointerElementHints.end() && hintIt->second && hintIt->second->isStructTy()) {
+                        structType = cast<StructType>(hintIt->second);
+                        basePtr = builder.CreateLoad(allocatedType, alloc, "struct_ptr_ld");
+                    }
                 }
             }
         }

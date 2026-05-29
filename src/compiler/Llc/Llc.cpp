@@ -113,7 +113,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 
 	std::string tripleStr = triple;
 	if (tripleStr.empty()) {
-	#ifdef WIN32
+	#ifdef _WIN32
 		tripleStr = module->getTargetTriple().str();
 	#else
 		tripleStr = module->getTargetTriple();
@@ -124,7 +124,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	}
 
 	Triple effectiveTriple(tripleStr);
-#ifdef WIN32
+#ifdef _WIN32
 	module->setTargetTriple(effectiveTriple);
 
 #else
@@ -145,7 +145,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	auto codeModel = std::optional<CodeModel::Model>(CodeModel::Small);
 	CodeGenOptLevel cgOpt = toCodeGenOpt(optLevel);
 	std::unique_ptr<TargetMachine> targetMachine(
-	#ifdef WIN32
+	#ifdef _WIN32
 		target->createTargetMachine(effectiveTriple, cpu, features, options,
 									relocationModel, codeModel, cgOpt));
 

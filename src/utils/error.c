@@ -342,9 +342,9 @@ static const char* get_suggestion(ErrorType error_type) {
         case ERROR_REDEFINITION:
             return "Remove or rename the previous declaration to avoid conflicts";
         case ERROR_TYPE:
-            return "Check types or add an explicit cast/convert the expression";
+            return "Ensure both sides of the expression have compatible types (add a cast if needed)";
         case ERROR_SYNTAX:
-            return "Check syntax near the indicated location (missing token/parenthesis)";
+            return "Check syntax near the indicated location (missing semicolon, parenthesis, or unexpected token)";
         case ERROR_LEXICAL:
             return "Remove unsupported characters or fix the token spelling";
         case ERROR_RUNTIME:

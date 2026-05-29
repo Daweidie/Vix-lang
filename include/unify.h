@@ -87,7 +87,7 @@ public:
 			bool compatible = (a->kind == TypeKind::Bool && (b->kind == TypeKind::I32 || b->kind == TypeKind::I8)) ||
 							  (b->kind == TypeKind::Bool && (a->kind == TypeKind::I32 || a->kind == TypeKind::I8));
 			if (!compatible) {
-				throw std::runtime_error("type mismatch: " + pretty(a) + " vs " + pretty(b));
+				throw std::runtime_error("expected type '" + pretty(a) + "', but got '" + pretty(b) + "'");
 			}
 			return;
 		}
@@ -107,7 +107,7 @@ public:
 				break;
 			case TypeKind::Struct:
 				if (a->data.struct_data.name != b->data.struct_data.name) {
-					throw std::runtime_error("struct mismatch: " + a->data.struct_data.name + " vs " + b->data.struct_data.name);
+					throw std::runtime_error("expected struct '" + a->data.struct_data.name + "', but got '" + b->data.struct_data.name + "'");
 				}
 				break;
 			case TypeKind::App:

@@ -1,7 +1,6 @@
 pub type Result:[T, E] = Ok(T) | Err(E)
 
-pub type TokenKind = 
-    | Identifier
+pub type TokenKind =  Identifier
     | Number
     | String
     | Keyword
@@ -29,5 +28,5 @@ fn skip_ws(src:string,pos:i32): i32
 
 fn tokenize(src:string): Result:[Token,string]
 {
-    return 0
+    return Err("not implemented")
 }

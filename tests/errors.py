@@ -11,7 +11,7 @@ class TestTypeErrors:
         src = 'fn foo() -> i32 { return "hello" } fn main(): i32 { return 0 }'
         res, _ = compile_and_run(compiler, src, tmp_path)
         assert res.returncode != 0
-        assert "type mismatch" in res.stderr.lower()
+        assert "expected type" in res.stderr.lower() or "type mismatch" in res.stderr.lower()
 
     def test_type_mismatch_binary_op(self, compiler, tmp_path):
         src = 'fn main(): i32 { let x = "hello" + 5 return 0 }'
@@ -23,7 +23,7 @@ class TestTypeErrors:
         src = 'fn main() { return 0 }'
         res, _ = compile_and_run(compiler, src, tmp_path)
         assert res.returncode != 0
-        assert "type mismatch" in res.stderr.lower()
+        assert "expected type" in res.stderr.lower() or "type mismatch" in res.stderr.lower()
 
 
 @pytest.mark.error

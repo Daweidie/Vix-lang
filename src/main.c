@@ -463,6 +463,7 @@ int main(int argc, char **argv) {
                 }
 
                 if (!save_c) {
+                    remove(llvm_f);
                     if (root) {
                         free_ast(root);
                     }

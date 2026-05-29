@@ -127,6 +127,30 @@ struct TypeChecker {
 		error_count++;
 	}
 
+	ASTNode* find_return_node(ASTNode* node) {
+		if (!node) return nullptr;
+		if (node->type == AST_RETURN) return node;
+		if (node->type == AST_PROGRAM) {
+			for (int i = 0; i < node->data.program.statement_count; i++) {
+				ASTNode* found = find_return_node(node->data.program.statements[i]);
+				if (found) return found;
+			}
+		}
+		if (node->type == AST_IF) {
+			ASTNode* found = find_return_node(node->data.if_stmt.then_body);
+			if (found) return found;
+			found = find_return_node(node->data.if_stmt.else_body);
+			if (found) return found;
+		}
+		if (node->type == AST_WHILE) {
+			return find_return_node(node->data.while_stmt.body);
+		}
+		if (node->type == AST_FOR) {
+			return find_return_node(node->data.for_stmt.body);
+		}
+		return nullptr;
+	}
+
 	TypeInfo* alloc_type_info(TypeInfoKind kind) {
 		TypeInfo* info = (TypeInfo*)calloc(1, sizeof(TypeInfo));
 		if (!info) {
@@ -2046,9 +2070,16 @@ struct TypeChecker {
 		TypePtr ret_type = type_from_ast(node->data.function.return_type);
 		if (!(node->data.function.is_extern && node->data.function.body == nullptr)) {
 			try {
-				unify.unify(body_type, ret_type);
+				unify.unify(ret_type, body_type);
 			} catch (const std::exception& ex) {
-				report_type_error(node, ex.what());
+				ASTNode* ret_node = find_return_node(node->data.function.body);
+				if (ret_node && ret_node->data.return_stmt.expr) {
+					report_type_error(ret_node->data.return_stmt.expr, ex.what());
+				} else if (ret_node) {
+					report_type_error(ret_node, ex.what());
+				} else {
+					report_type_error(node, ex.what());
+				}
 			}
 		}
 		generic_bindings = std::move(saved_generics);
