@@ -2,6 +2,5 @@ import "lexer.vix"
 fn main(): i32
 {
     let src = "fn main() { return 0; }"
-    lex(src)
     return 0
 }
