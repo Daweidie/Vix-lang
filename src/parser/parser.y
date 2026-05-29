@@ -618,7 +618,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %type <node> expression logical_expression comparison_expression additive_expression term factor power factor_unary
 %type <node> literal identifier input_expression
 %type <node> block_statement if_rest expression_list
-%type <node> lvalue
+
 %type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern
 %type <node> generic_param_list generic_type_args enum_variant
 %type <node> type_list
@@ -1287,21 +1287,7 @@ print_statement
     ;
 
 assignment_statement
-    : lvalue ASSIGN expression  { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
-    | IDENTIFIER LBRACKET expression RBRACKET ASSIGN expression {
-        ASTNode* target = create_index_node_with_yyltype(
-            create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$),
-            $3,
-            (YYLTYPE*) &@$);
-        $$ = create_assign_node_with_yyltype(target, $6, (YYLTYPE*) &@$);
-    }
-    ;
-
-lvalue
-    : identifier                    { $$ = $1; }
-    | lvalue DOT identifier         { $$ = create_member_access_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
-    | lvalue LBRACKET expression RBRACKET { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
-    | AT lvalue                     { $$ = create_unaryop_node(OP_DEREF, $2); }
+    : factor_unary ASSIGN expression  { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     ;
 
 compound_assignment_statement

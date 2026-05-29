@@ -2121,6 +2121,16 @@ public:
             return ConstantInt::getFalse(context);
         };
         
+        if (!isFloat && leftVal->getType() != rightVal->getType()) {
+            if (leftVal->getType()->isIntegerTy() && rightVal->getType()->isIntegerTy()) {
+                if (leftVal->getType()->getIntegerBitWidth() > rightVal->getType()->getIntegerBitWidth()) {
+                    rightVal = builder.CreateIntCast(rightVal, leftVal->getType(), true, "arith_cast");
+                } else if (rightVal->getType()->getIntegerBitWidth() > leftVal->getType()->getIntegerBitWidth()) {
+                    leftVal = builder.CreateIntCast(leftVal, rightVal->getType(), true, "arith_cast");
+                }
+            }
+        }
+
         switch (node->data.binop.op) {
             case OP_ADD:
                 if (isFloat) return VisitResult(builder.CreateFAdd(leftVal, rightVal, "addtmp"), resultType);
