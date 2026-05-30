@@ -1539,5 +1539,6 @@ identifier
 
 void yyerror(const char* s) {
     const char* filename = current_input_filename ? current_input_filename : "unknown";
-    report_syntax_error_with_location(s, filename, yylineno);
+    int col = (yylloc.first_column > 0) ? yylloc.first_column : 1;
+    report_syntax_error_with_location_column(s, filename, yylineno, col);
 }
