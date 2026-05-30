@@ -17,3 +17,43 @@ pub fn strcmp(a:ptr,b:ptr): i32
     }
     return 0
 }
+extern "C"
+{
+	fn malloc(size: usize): ptr
+	fn strlen(s: ptr): usize
+	fn free(ptr: ptr): void
+}
+fn strconnect(a:ptr,b:ptr): ?ptr
+{
+	let mut i = 0
+	let mut j = 0
+	let mut result = malloc(strlen(a) + strlen(b) + 1)
+	if(result == 0)
+	{
+		return None
+	}
+	while (a[i] != 0)
+	{
+		result[j] = a[i]
+		i += 1
+		j += 1
+	}
+	i = 0
+	while (b[i] != 0)
+	{
+		result[j] = b[i]
+		i += 1
+		j += 1
+	}
+	result[j] = 0
+	return Some(result)
+}
+fn main(): i32
+{
+	let a = "Hello"
+	let b = "World"
+	let c = strconnect(a, b)
+	print(c)
+	free(c)
+	return 0
+}
