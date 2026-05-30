@@ -27,9 +27,9 @@ fn main(): i32
 	let z = add:[f64](2.5, 3.5)
 	let y2 = add:[i32](-4, 9)
 	let z2 = add:[f64](-2.25, 0.75)
-    printf("b = %d\n", b.value);
-    printf("x = %d\n", x);
-	printf("y = %d\n", y);
+    printf("b = %d\n", b.value)
+    printf("x = %d\n", x)
+	printf("y = %d\n", y)
 	printf("z = %f\n", z)
 	printf("y2 = %d\n", y2)
 	printf("z2 = %f\n", z2)

@@ -318,6 +318,20 @@ Symbol* lookup_symbol(SymbolTable* table, const char* name) {
     return NULL;
 }
 
+static Symbol* lookup_symbol_current_scope(SymbolTable* table, const char* name) {
+    if (!table || !name) return NULL;
+    
+    Symbol* current = table->head;
+    while (current) {
+        if (strcmp(current->name, name) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+    
+    return NULL;
+}
+
 void destroy_symbol_table(SymbolTable* symbol_table) {
     if (!symbol_table) return;
     
@@ -482,7 +496,7 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                     errors_found++;
                 } else {
                     if (node->data.assign.is_declaration) {
-                        if (existing) {
+                        if (existing && lookup_symbol_current_scope(table, node->data.assign.left->data.identifier.name)) {
                             const char* filename = current_input_filename ? current_input_filename : "unknown";
                             int line = (node->data.assign.left->location.first_line > 0) ? node->data.assign.left->location.first_line : 1;
                             report_redefinition_error_with_location(node->data.assign.left->data.identifier.name, filename, line);
@@ -717,7 +731,8 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                         ASTNode* init_value = find_var_init_mapping(var_name);
                         if (init_value && init_value->type == AST_EXPRESSION_LIST) {
                             int array_length = init_value->data.expression_list.expression_count;
-                            if (index_value >= array_length) {
+                            /* Skip bounds check for empty arrays (may be modified by push at runtime) */
+                            if (array_length > 0 && index_value >= array_length) {
                                 const char* filename = current_input_filename ? current_input_filename : "unknown";
                                 int line = (node->data.index.index->location.first_line > 0) ? node->data.index.index->location.first_line : 1;
                                 report_array_out_of_bounds_error_with_location(var_name, (int)index_value, array_length, filename, line);

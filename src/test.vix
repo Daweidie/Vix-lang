@@ -1,56 +1,42 @@
-type HashMap:[V] = struct
-{
+type HashMap:[V] = struct {
 	buckets: [ [ (string, V) ] ]
 	size: i32
 }
-type Option:[T] = Some(T) | None
-fn nor_cap(capacity: i32): i32
+
+fn normalize_capacity(capacity: i32): i32
 {
-	if (capacity <= 0)
-    { 
-        return 16
-    }
+	if (capacity <= 0) { return 1 }
 	return capacity
 }
-
 fn hash_str(s: string): i32
 {
-	let mut hash: i32 = 5381
-	let mut i = 0
-	while (i < s.length)
+	let mut hash = 5381
+	for (i in 0 .. s.length)
 	{
 		hash = (hash * 33) + s[i]
-		i = i + 1
 	}
-	if (hash < 0)
-    {
-        hash = -hash
-    }
+	if (hash < 0) { hash = -hash }
 	return hash
 }
 
 fn bucket_index(key: string, capacity: i32): i32
 {
 	let mut h = hash_str(key)
-	if (h < 0)
-    {
-        h = -h 
-    }
+	if (h < 0) { h = -h }
 	return h % capacity
 }
 
 pub fn new_hashmap:[V](capacity: i32): HashMap:[V]
 {
-	let cap = nor_cap(capacity)
+	let cap = normalize_capacity(capacity)
 	let buckets: [ [ (string, V) ] ] = []
-	let mut i = 0
-	while (i < cap)
+	for (i in 0 .. cap)
 	{
 		buckets.push([])
-		i = i + 1
 	}
 	return HashMap:[V]{ buckets: buckets, size: 0 }
 }
+
 pub fn len:[V](map: HashMap:[V]): i32
 {
 	return map.size
@@ -60,11 +46,69 @@ pub fn capacity:[V](map: HashMap:[V]): i32
 {
 	return map.buckets.length
 }
+
+pub fn put:[V](map: &HashMap:[V], key: string, value: V)
+{
+    let cap = map.buckets.length
+    if (cap == 0) { return }
+    let idx = bucket_index(key, cap)
+
+    for (i in 0 .. map.buckets[idx].length)
+    {
+        let entry = map.buckets[idx][i]
+        if (entry.0 == key)
+        {
+            map.buckets[idx][i] = (key, value)
+            return
+        }
+    }
+
+    map.buckets[idx].push((key, value))
+    map.size = map.size + 1
+}
+
+pub fn get:[V](map: HashMap:[V], key: string): ?V
+{
+	let cap = map.buckets.length
+	if (cap == 0) { return None }
+	let idx = bucket_index(key, cap)
+
+	for (i in 0 .. map.buckets[idx].length)
+	{
+		let entry = map.buckets[idx][i]
+		if (entry.0 == key)
+		{
+			return Some(entry.1)
+		}
+	}
+	return None
+}
+
+pub fn contains:[V](map: HashMap:[V], key: string): i32
+{
+	let found = get:[V](map, key)
+	match found
+	{
+		Some(_) -> return 1
+		None -> return 0
+	}
+}
 fn main(): i32
 {
-	let h = hash_str("hi")
-	print(h)
-	let idx = bucket_index("hello", 16)
-	print(idx)
-	return 0    
+    let mut map = new_hashmap:[i32](10)
+    put:[i32](&map, "one", 1)
+    put:[i32](&map, "two", 2)
+    put:[i32](&map, "three", 3)
+
+    let c1 = contains:[i32](map, "one")
+    let c2 = contains:[i32](map, "two")
+    let c3 = contains:[i32](map, "three")
+    let c4 = contains:[i32](map, "four")
+
+    print(c1)
+    print(c2)
+    print(c3)
+    print(c4)
+
+    return 0
 }

@@ -12,7 +12,7 @@ class TestVersionFlag:
         res = subprocess.run([str(compiler), "-v"], capture_output=True, text=True, timeout=5)
         assert res.returncode == 0
         assert "Vix Compiler" in res.stdout
-        assert "0.2.2" in res.stdout
+        assert "0.2.5" in res.stdout
 
     def test_version_long(self, compiler):
         res = subprocess.run([str(compiler), "--version"], capture_output=True, text=True, timeout=5)

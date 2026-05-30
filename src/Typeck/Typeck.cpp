@@ -908,11 +908,18 @@ struct TypeChecker {
 	}
 
 	TypePtr check_assign(ASTNode* node) {
+		if (!node) {
+			return builtin_void;
+		}
 		if (node->data.assign.is_declaration == 2) {
 			return node_types[node] = builtin_void;
 		}
 		ASTNode* left = node->data.assign.left;
 		ASTNode* right = node->data.assign.right;
+		if (!left) {
+			report_semantic_error(node, "invalid assignment: missing left-hand side");
+			return node_types[node] = builtin_void;
+		}
 		TypePtr rtype = right ? check_expr(right) : builtin_void;
 
 		if (node->data.assign.declared_type) {
@@ -1131,6 +1138,9 @@ struct TypeChecker {
 	}
 
 	TypePtr check_unaryop(ASTNode* node) {
+		if (!node || !node->data.unaryop.expr) {
+			return builtin_void;
+		}
 		TypePtr inner = check_expr(node->data.unaryop.expr);
 		switch (node->data.unaryop.op) {
 			case OP_ADDRESS:
@@ -1923,6 +1933,15 @@ struct TypeChecker {
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::String) {
 					continue;
 				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind != TypeKind::Ptr) {
+					// Allow passing non-pointer to pointer parameter (implicit address-of)
+					try {
+						unify.unify(param_type->data.ptr.pointee, arg_type);
+					} catch (const std::exception& ex) {
+						report_type_error(node, ex.what());
+					}
+					continue;
+				}
 				if (is_numeric(param_type) && is_numeric(arg_type)) {
 					// Allow numeric promotion (e.g., i32 -> i64/usize)
 					continue;
@@ -2072,13 +2091,31 @@ struct TypeChecker {
 			try {
 				unify.unify(ret_type, body_type);
 			} catch (const std::exception& ex) {
-				ASTNode* ret_node = find_return_node(node->data.function.body);
-				if (ret_node && ret_node->data.return_stmt.expr) {
-					report_type_error(ret_node->data.return_stmt.expr, ex.what());
-				} else if (ret_node) {
-					report_type_error(ret_node, ex.what());
-				} else {
-					report_type_error(node, ex.what());
+				/* Try auto-deref: if body_type is Ptr[T] and ret_type is T, allow it */
+				TypePtr resolved_body = unify.apply(body_type);
+				TypePtr resolved_ret = unify.apply(ret_type);
+				bool auto_deref_ok = false;
+				if (resolved_body->kind == TypeKind::Ptr && resolved_body->data.ptr.pointee) {
+					try {
+						unify.unify(resolved_ret, resolved_body->data.ptr.pointee);
+						auto_deref_ok = true;
+					} catch (...) {}
+				}
+				if (!auto_deref_ok && resolved_ret->kind == TypeKind::Ptr && resolved_ret->data.ptr.pointee) {
+					try {
+						unify.unify(resolved_body, resolved_ret->data.ptr.pointee);
+						auto_deref_ok = true;
+					} catch (...) {}
+				}
+				if (!auto_deref_ok) {
+					ASTNode* ret_node = find_return_node(node->data.function.body);
+					if (ret_node && ret_node->data.return_stmt.expr) {
+						report_type_error(ret_node->data.return_stmt.expr, ex.what());
+					} else if (ret_node) {
+						report_type_error(ret_node, ex.what());
+					} else {
+						report_type_error(node, ex.what());
+					}
 				}
 			}
 		}

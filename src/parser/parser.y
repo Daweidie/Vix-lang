@@ -646,64 +646,13 @@ statement_list
     ;
 
 statement
-    : print_statement SEMICOLON     { $$ = $1; }
-    | assignment_statement SEMICOLON { $$ = $1; }
-    | LET identifier ASSIGN expression SEMICOLON {
-        $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
-        $$->data.assign.is_declaration = 1;
-    }
-    | LET identifier ASSIGN expression COLON type SEMICOLON {
-        $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
-        $$->data.assign.is_declaration = 1;
-        $$->data.assign.declared_type = $6;
-    }
-    | LET MUT identifier ASSIGN expression SEMICOLON {
-        $$ = create_assign_node_with_yyltype($3, $5, (YYLTYPE*) &@$);
-        $3->mutability = MUTABILITY_MUTABLE;
-        $$->data.assign.is_declaration = 1;
-    }
-    | LET identifier COLON type ASSIGN expression SEMICOLON {
-        $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$);
-        $$->data.assign.is_declaration = 1;
-        $$->data.assign.declared_type = $4;
-    }
-    | LET identifier COLON type SEMICOLON {
-        ASTNode* init = create_default_value_for_type($4, (YYLTYPE*) &@$);
-        $$ = create_assign_node_with_yyltype($2, init, (YYLTYPE*) &@$);
-        $$->data.assign.is_declaration = 1;
-    }
-    | LET MUT identifier COLON type ASSIGN expression SEMICOLON {
-        $$ = create_assign_node_with_yyltype($3, $7, (YYLTYPE*) &@$);
-        $3->mutability = MUTABILITY_MUTABLE;
-        $$->data.assign.is_declaration = 1;
-        $$->data.assign.declared_type = $5;
-    }
-    | LET MUT identifier COLON type SEMICOLON {
-        ASTNode* init = create_default_value_for_type($5, (YYLTYPE*) &@$);
-        $$ = create_assign_node_with_yyltype($3, init, (YYLTYPE*) &@$);
-        $3->mutability = MUTABILITY_MUTABLE;
-        $$->data.assign.is_declaration = 1;
-        $$->data.assign.declared_type = $5;
-    }
-    | identifier COLON expression SEMICOLON { $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
-    | identifier COLON type ASSIGN expression SEMICOLON { 
-        $$ = create_assign_node_with_yyltype($1, $5, (YYLTYPE*) &@$); 
-    }
-    | MUT identifier ASSIGN expression SEMICOLON { 
-        $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$); 
-        $2->mutability = MUTABILITY_MUTABLE;
-    }
-    | MUT identifier COLON type ASSIGN expression SEMICOLON { 
-        $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$); 
-        $2->mutability = MUTABILITY_MUTABLE;
-    }
-    | IMPORT STRING SEMICOLON { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
+    : IMPORT STRING SEMICOLON { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | IMPORT STRING { $$ = create_import_node_with_yyltype($2, (YYLTYPE*) &@$); }
-    | compound_assignment_statement SEMICOLON { $$ = $1; }
     | while_statement               { $$ = $1; }
     | for_statement               { $$ = $1; }
     | print_statement               { $$ = $1; }
     | assignment_statement          { $$ = $1; }
+    | compound_assignment_statement { $$ = $1; }
     | LET identifier ASSIGN expression {
         $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
         $$->data.assign.is_declaration = 1;
@@ -746,7 +695,6 @@ statement
     | identifier COLON type ASSIGN expression { 
         $$ = create_assign_node_with_yyltype($1, $5, (YYLTYPE*) &@$); 
     }
-    | compound_assignment_statement { $$ = $1; }
     | pub_function_definition           { $$ = $1; }
     | function_definition           { $$ = $1; }
     | extern_block                 { $$ = $1; }
@@ -800,11 +748,8 @@ statement
     }
     | type_definition              { $$ = $1; }
     | match_statement              { $$ = $1; }
-    | RETURN expression SEMICOLON  { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | RETURN expression            { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
-    | RETURN SEMICOLON             { $$ = create_return_node_with_yyltype(NULL, (YYLTYPE*) &@$); }
     | RETURN                       { $$ = create_return_node_with_yyltype(NULL, (YYLTYPE*) &@$); }
-    | expression SEMICOLON         { $$ = $1; }
     | expression                   { $$ = $1; }
     | MUT identifier ASSIGN expression { 
         $$ = create_assign_node_with_yyltype($2, $4, (YYLTYPE*) &@$); 
@@ -814,8 +759,6 @@ statement
         $$ = create_assign_node_with_yyltype($2, $6, (YYLTYPE*) &@$); 
         $2->mutability = MUTABILITY_MUTABLE;
     }
-    | BREAK SEMICOLON               { $$ = create_break_node_with_yyltype((YYLTYPE*) &@$); }
-    | CONTINUE SEMICOLON            { $$ = create_continue_node_with_yyltype((YYLTYPE*) &@$); }
     | BREAK                         { $$ = create_break_node_with_yyltype((YYLTYPE*) &@$); }
     | CONTINUE                      { $$ = create_continue_node_with_yyltype((YYLTYPE*) &@$); }
     ;
