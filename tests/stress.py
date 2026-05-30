@@ -419,7 +419,7 @@ class TestPowerStress:
 class TestCombination:
     def test_function_struct_match_loop(self, compiler, tmp_path):
         src = '''struct Item { value: i32 }
-fn classify(item: Item) -> i32 {
+fn classify(item: Item): i32 {
     if (item.value == 0) { return 0 }
     elif (item.value == 1) { return 10 }
     elif (item.value == 2) { return 20 }
@@ -438,7 +438,7 @@ fn main(): i32 {
         assert lines == ["0", "10", "20", "-1", "-1"]
 
     def test_recursive_fib_with_match(self, compiler, tmp_path):
-        src = '''fn fib(n: i32) -> i32 {
+        src = '''fn fib(n: i32): i32 {
     match n {
         0 -> { return 0 }
         1 -> { return 1 }
@@ -503,7 +503,7 @@ fn main(): i32 {
 class TestAdditionalStress:
     @pytest.mark.parametrize("count", [10, 20, 30, 50, 100])
     def test_many_function_calls_in_loop(self, compiler, tmp_path, count):
-        src = f'''fn add_one(x: i32) -> i32 {{ return x + 1 }}
+        src = f'''fn add_one(x: i32): i32 {{ return x + 1 }}
 fn main(): i32 {{
     let mut x = 0
     for (i in 0 .. {count}) {{ x = add_one(x) }}
@@ -518,7 +518,7 @@ fn main(): i32 {{
     def test_nested_function_calls(self, compiler, tmp_path, depth):
         lines = []
         for i in range(depth):
-            lines.append(f'fn level{i}(x: i32) -> i32 {{ return x + 1 }}')
+            lines.append(f'fn level{i}(x: i32): i32 {{ return x + 1 }}')
         expr = "0"
         for i in range(depth):
             expr = f"level{i}({expr})"

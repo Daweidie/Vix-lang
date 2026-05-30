@@ -1,6 +1,6 @@
 extern "C"
 {
-	fn printf(format: ptr, ...) ->i32
+	fn printf(format: ptr, ...): i32
 }
 struct Box:[T]
 {

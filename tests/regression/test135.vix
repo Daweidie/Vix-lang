@@ -1,4 +1,4 @@
-fn linear_search(arr: [i32], size: i32, target: i32) -> i32
+fn linear_search(arr: [i32], size: i32, target: i32): i32
 {
 	for (i in 0 .. size) {
 		if (arr[i] == target) {

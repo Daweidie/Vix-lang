@@ -4,7 +4,7 @@ struct Person
 	age: i32
 }
 
-fn describe(p: Person) -> string
+fn describe(p: Person): string
 {
 	return p.name
 }

@@ -1,4 +1,4 @@
-fn find_max(arr: [i32], size: i32) -> i32
+fn find_max(arr: [i32], size: i32): i32
 {
 	let mut max_val = arr[0]
 	for (i in 1 .. size) {

@@ -1,4 +1,4 @@
-fn count_occurrences(arr: [i32], size: i32, target: i32) -> i32
+fn count_occurrences(arr: [i32], size: i32, target: i32): i32
 {
 	let mut count = 0
 	for (i in 0 .. size) {

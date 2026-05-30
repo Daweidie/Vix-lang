@@ -1,4 +1,4 @@
-fn classify(x: i32) -> string
+fn classify(x: i32): string
 {
 	match x {
 		0 -> { return "zero" }

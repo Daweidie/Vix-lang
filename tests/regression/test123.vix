@@ -1,4 +1,4 @@
-fn power(base: i32, exp: i32) -> i32
+fn power(base: i32, exp: i32): i32
 {
 	let mut result = 1
 	let mut i = 0

@@ -1048,8 +1048,8 @@ function_return_type
         int line = @1.first_line > 0 ? @1.first_line : yylineno;
         int col = @1.first_column > 0 ? @1.first_column : 1;
         set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
-        report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
-            "deprecated syntax: use ': type' instead of '-> type' for function return types");
+        report_simple_error(ERROR_LEVEL_ERROR, ERROR_SYNTAX,
+            "invalid function return syntax: use ': type' instead of '-> type'");
         $$ = $2;
     }
     | COLON type { $$ = $2; }

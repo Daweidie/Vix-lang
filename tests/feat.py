@@ -206,10 +206,10 @@ class TestControlFlow:
 class TestFunctions:
     @pytest.mark.parametrize("src,expected", [
         ('fn greet() { print("hi") } fn main(): i32 { greet() return 0 }', "hi"),
-        ('fn add(a: i32, b: i32) -> i32 { return a + b } fn main(): i32 { print(add(3, 4)) return 0 }', "7"),
-        ('fn square(x: i32) -> i32 { return x * x } fn main(): i32 { print(square(5)) return 0 }', "25"),
-        ('fn identity(x: i32) -> i32 { return x } fn main(): i32 { print(identity(42)) return 0 }', "42"),
-        ('fn zero() -> i32 { return 0 } fn main(): i32 { print(zero()) return 0 }', "0"),
+        ('fn add(a: i32, b: i32): i32 { return a + b } fn main(): i32 { print(add(3, 4)) return 0 }', "7"),
+        ('fn square(x: i32): i32 { return x * x } fn main(): i32 { print(square(5)) return 0 }', "25"),
+        ('fn identity(x: i32): i32 { return x } fn main(): i32 { print(identity(42)) return 0 }', "42"),
+        ('fn zero(): i32 { return 0 } fn main(): i32 { print(zero()) return 0 }', "0"),
     ])
     def test_basic_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -217,11 +217,11 @@ class TestFunctions:
         assert run.stdout.strip() == expected
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn fib(n: i32) -> i32 { if (n <= 1) { return n } return fib(n - 1) + fib(n - 2) } fn main(): i32 { print(fib(10)) return 0 }', "55"),
-        ('fn fact(n: i32) -> i32 { if (n <= 1) { return 1 } return n * fact(n - 1) } fn main(): i32 { print(fact(5)) return 0 }', "120"),
-        ('fn gcd(a: i32, b: i32) -> i32 { if (b == 0) { return a } return gcd(b, a % b) } fn main(): i32 { print(gcd(12, 8)) return 0 }', "4"),
-        ('fn is_even(n: i32) -> i32 { if (n % 2 == 0) { return 1 } return 0 } fn main(): i32 { print(is_even(4)) print(is_even(7)) return 0 }', "1\n0"),
-        ('fn power(base: i32, exp: i32) -> i32 { if (exp == 0) { return 1 } return base * power(base, exp - 1) } fn main(): i32 { print(power(2, 10)) return 0 }', "1024"),
+        ('fn fib(n: i32): i32 { if (n <= 1) { return n } return fib(n - 1) + fib(n - 2) } fn main(): i32 { print(fib(10)) return 0 }', "55"),
+        ('fn fact(n: i32): i32 { if (n <= 1) { return 1 } return n * fact(n - 1) } fn main(): i32 { print(fact(5)) return 0 }', "120"),
+        ('fn gcd(a: i32, b: i32): i32 { if (b == 0) { return a } return gcd(b, a % b) } fn main(): i32 { print(gcd(12, 8)) return 0 }', "4"),
+        ('fn is_even(n: i32): i32 { if (n % 2 == 0) { return 1 } return 0 } fn main(): i32 { print(is_even(4)) print(is_even(7)) return 0 }', "1\n0"),
+        ('fn power(base: i32, exp: i32): i32 { if (exp == 0) { return 1 } return base * power(base, exp - 1) } fn main(): i32 { print(power(2, 10)) return 0 }', "1024"),
     ])
     def test_recursive_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -231,9 +231,9 @@ class TestFunctions:
         assert lines == expected_lines
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn f(x: i32) -> i32 { return x + 1 } fn g(x: i32) -> i32 { return f(f(x)) } fn main(): i32 { print(g(5)) return 0 }', "7"),
-        ('fn double(x: i32) -> i32 { return x * 2 } fn main(): i32 { print(double(double(double(1)))) return 0 }', "8"),
-        ('fn apply(fn_name: i32, x: i32) -> i32 { return x + 1 } fn main(): i32 { print(apply(0, 10)) return 0 }', "11"),
+        ('fn f(x: i32): i32 { return x + 1 } fn g(x: i32): i32 { return f(f(x)) } fn main(): i32 { print(g(5)) return 0 }', "7"),
+        ('fn double(x: i32): i32 { return x * 2 } fn main(): i32 { print(double(double(double(1)))) return 0 }', "8"),
+        ('fn apply(fn_name: i32, x: i32): i32 { return x + 1 } fn main(): i32 { print(apply(0, 10)) return 0 }', "11"),
     ])
     def test_function_composition(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -242,9 +242,9 @@ class TestFunctions:
 
     @pytest.mark.parametrize("src,expected", [
         ('fn swap_print(a: i32, b: i32) { print(b) print(a) } fn main(): i32 { swap_print(1, 2) return 0 }', "2\n1"),
-        ('fn sum3(a: i32, b: i32, c: i32) -> i32 { return a + b + c } fn main(): i32 { print(sum3(1, 2, 3)) return 0 }', "6"),
-        ('fn max2(a: i32, b: i32) -> i32 { if (a > b) { return a } return b } fn main(): i32 { print(max2(5, 3)) print(max2(2, 8)) return 0 }', "5\n8"),
-        ('fn abs(x: i32) -> i32 { if (x < 0) { return -x } return x } fn main(): i32 { print(abs(-5)) print(abs(3)) return 0 }', "5\n3"),
+        ('fn sum3(a: i32, b: i32, c: i32): i32 { return a + b + c } fn main(): i32 { print(sum3(1, 2, 3)) return 0 }', "6"),
+        ('fn max2(a: i32, b: i32): i32 { if (a > b) { return a } return b } fn main(): i32 { print(max2(5, 3)) print(max2(2, 8)) return 0 }', "5\n8"),
+        ('fn abs(x: i32): i32 { if (x < 0) { return -x } return x } fn main(): i32 { print(abs(-5)) print(abs(3)) return 0 }', "5\n3"),
     ])
     def test_multi_param_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -341,7 +341,7 @@ class TestMatchExpressions:
         assert run.stdout.strip() == expected
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn classify(x: i32) -> i32 { match x { 0 -> { return 0 } 1 -> { return 1 } _ -> { return -1 } } return 0 } fn main(): i32 { print(classify(0)) print(classify(1)) print(classify(5)) return 0 }', "0\n1\n-1"),
+        ('fn classify(x: i32): i32 { match x { 0 -> { return 0 } 1 -> { return 1 } _ -> { return -1 } } return 0 } fn main(): i32 { print(classify(0)) print(classify(1)) print(classify(5)) return 0 }', "0\n1\n-1"),
     ])
     def test_match_in_function(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -468,8 +468,8 @@ class TestStructs:
         assert lines == expected_lines
 
     @pytest.mark.parametrize("src,expected", [
-        ('struct Point { x: i32, y: i32 } fn dist_sq(p: Point) -> i32 { return p.x * p.x + p.y * p.y } fn main(): i32 { let p = Point { x: 3, y: 4 } print(dist_sq(p)) return 0 }', "25"),
-        ('struct Counter { value: i32 } fn increment(c: Counter) -> i32 { return c.value + 1 } fn main(): i32 { let c = Counter { value: 10 } print(increment(c)) return 0 }', "11"),
+        ('struct Point { x: i32, y: i32 } fn dist_sq(p: Point): i32 { return p.x * p.x + p.y * p.y } fn main(): i32 { let p = Point { x: 3, y: 4 } print(dist_sq(p)) return 0 }', "25"),
+        ('struct Counter { value: i32 } fn increment(c: Counter): i32 { return c.value + 1 } fn main(): i32 { let c = Counter { value: 10 } print(increment(c)) return 0 }', "11"),
     ])
     def test_struct_as_param(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -641,7 +641,7 @@ class TestComplexPrograms:
         assert lines == ["0","1","2","3","4","5","6","7","8","9"]
 
     def test_factorial_iterative(self, compiler, tmp_path):
-        src = '''fn fact(n: i32) -> i32 {
+        src = '''fn fact(n: i32): i32 {
             let mut result = 1
             let mut i = 2
             while (i <= n) { result *= i i += 1 }
@@ -657,7 +657,7 @@ class TestComplexPrograms:
         assert lines == ["1","1","2","6","24","120","720","5040","40320","362880"]
 
     def test_prime_check(self, compiler, tmp_path):
-        src = '''fn is_prime(n: i32) -> i32 {
+        src = '''fn is_prime(n: i32): i32 {
             if (n < 2) { return 0 }
             let mut i = 2
             while (i * i <= n) {
@@ -678,11 +678,11 @@ class TestComplexPrograms:
         assert lines == ["2","3","5","7","11","13","17","19"]
 
     def test_gcd_lcm(self, compiler, tmp_path):
-        src = '''fn gcd(mut a: i32, mut b: i32) -> i32 {
+        src = '''fn gcd(mut a: i32, mut b: i32): i32 {
             while (b != 0) { let t = b b = a % b a = t }
             return a
         }
-        fn lcm(a: i32, b: i32) -> i32 {
+        fn lcm(a: i32, b: i32): i32 {
             return (a / gcd(a, b)) * b
         }
         fn main(): i32 {
@@ -868,7 +868,7 @@ class TestExtendedControlFlow:
         (5, "120"), (6, "720"), (7, "5040"), (8, "40320"), (9, "362880"),
     ])
     def test_factorial(self, compiler, tmp_path, n, expected):
-        src = f'''fn fact(n: i32) -> i32 {{
+        src = f'''fn fact(n: i32): i32 {{
     if (n <= 1) {{ return 1 }}
     return n * fact(n - 1)
 }}
@@ -882,7 +882,7 @@ fn main(): i32 {{ print(fact({n})) return 0 }}'''
         (5, "5"), (6, "8"), (7, "13"), (8, "21"), (9, "34"), (10, "55"),
     ])
     def test_fibonacci(self, compiler, tmp_path, n, expected):
-        src = f'''fn fib(n: i32) -> i32 {{
+        src = f'''fn fib(n: i32): i32 {{
     if (n <= 1) {{ return n }}
     return fib(n - 1) + fib(n - 2)
 }}
@@ -938,7 +938,7 @@ class TestExtendedFunctions:
         (6, "36"), (7, "49"), (8, "64"), (9, "81"), (10, "100"),
     ])
     def test_square_function(self, compiler, tmp_path, n, expected):
-        src = f'fn sq(x: i32) -> i32 {{ return x * x }} fn main(): i32 {{ print(sq({n})) return 0 }}'
+        src = f'fn sq(x: i32): i32 {{ return x * x }} fn main(): i32 {{ print(sq({n})) return 0 }}'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == expected
@@ -948,7 +948,7 @@ class TestExtendedFunctions:
         (100, 200, "300"), (1, 99, "100"),
     ])
     def test_add_function(self, compiler, tmp_path, a, b, expected):
-        src = f'fn add(a: i32, b: i32) -> i32 {{ return a + b }} fn main(): i32 {{ print(add({a}, {b})) return 0 }}'
+        src = f'fn add(a: i32, b: i32): i32 {{ return a + b }} fn main(): i32 {{ print(add({a}, {b})) return 0 }}'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == expected
@@ -958,7 +958,7 @@ class TestExtendedFunctions:
         (48, 18, "6"), (17, 13, "1"),
     ])
     def test_gcd_function(self, compiler, tmp_path, a, b, expected):
-        src = f'''fn gcd(a: i32, b: i32) -> i32 {{
+        src = f'''fn gcd(a: i32, b: i32): i32 {{
     if (b == 0) {{ return a }}
     return gcd(b, a % b)
 }}
