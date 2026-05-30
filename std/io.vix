@@ -7,7 +7,7 @@ extern "C"
     fn fread(buf: ptr, size: i64, count: i64, file: ptr) -> i64
     fn fwrite(buf: ptr, size: i64, count: i64, file: ptr) -> i64
 }
-pub fn puts(s: ptr) -> i32
+pub fn puts(s: ptr): i32
 {
     return printf("%s\n", s)
 }
