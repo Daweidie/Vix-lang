@@ -394,8 +394,10 @@ static void sanitize_message(const char* message, char* buffer, size_t buffer_si
 }
 
 static void print_suggestion_block(const char* suggestion) {
+    (void)suggestion;
+    return;
     if (!suggestion || !*suggestion) return;
-    fprintf(stderr, "%s= %s%shelp%s: %s\n",
+    fprintf(stderr, "%s   = %s%shelp%s: %s\n",
             colorize(ANSI_DIM),
             colorize(ANSI_BOLD),
             colorize(ANSI_CYAN),
@@ -403,9 +405,64 @@ static void print_suggestion_block(const char* suggestion) {
             suggestion);
 }
 
+static void print_diagnostic_note_or_help(const char* line) {
+    if (!line || !*line) return;
+    while (*line == ' ' || *line == '\t') line++;
+
+    const char* label = NULL;
+    const char* text = line;
+    if (strncmp(line, "note:", 5) == 0) {
+        label = "note";
+        text = line + 5;
+    } else if (strncmp(line, "help:", 5) == 0) {
+        return;
+    }
+    while (*text == ' ' || *text == '\t') text++;
+
+    if (label) {
+        fprintf(stderr, "%s   = %s%s%s%s: %s\n",
+                colorize(ANSI_DIM),
+                colorize(ANSI_BOLD),
+                strcmp(label, "help") == 0 ? colorize(ANSI_CYAN) : colorize(ANSI_BLUE),
+                label,
+                colorize(ANSI_RESET),
+                text);
+    } else {
+        fprintf(stderr, "%s   =%s %s\n", colorize(ANSI_DIM), colorize(ANSI_RESET), line);
+    }
+}
+
+static void print_message_notes(const char* message) {
+    if (!message) return;
+    const char* line = strchr(message, '\n');
+    while (line) {
+        line++;
+        const char* end = strchr(line, '\n');
+        size_t len = end ? (size_t)(end - line) : strlen(line);
+        char buffer[1024];
+        if (len >= sizeof(buffer)) len = sizeof(buffer) - 1;
+        memcpy(buffer, line, len);
+        buffer[len] = '\0';
+        print_diagnostic_note_or_help(buffer);
+        line = end;
+    }
+}
+
 static void print_diagnostic_header(ErrorLevel level, ErrorType error_type, const char* message) {
     char msg_buf[1024];
-    sanitize_message(message, msg_buf, sizeof(msg_buf));
+    size_t title_len = 0;
+    if (message) {
+        const char* newline = strchr(message, '\n');
+        title_len = newline ? (size_t)(newline - message) : strlen(message);
+    }
+    if (title_len >= sizeof(msg_buf)) title_len = sizeof(msg_buf) - 1;
+    if (message && title_len > 0) {
+        memcpy(msg_buf, message, title_len);
+        msg_buf[title_len] = '\0';
+    } else {
+        msg_buf[0] = '\0';
+    }
+    sanitize_message(msg_buf, msg_buf, sizeof(msg_buf));
 
     const char* reset = colorize(ANSI_RESET);
     const char* level_text = level_label(level);
@@ -422,7 +479,7 @@ static void print_diagnostic_header(ErrorLevel level, ErrorType error_type, cons
                 reset);
     }
     fprintf(stderr, ": %s\n", msg_buf[0] ? msg_buf : "");
-    fprintf(stderr, "%s-->%s %s:%d:%d\n", colorize(ANSI_BLUE), reset, current_filename, current_line, current_column);
+    fprintf(stderr, "  %s-->%s %s:%d:%d\n", colorize(ANSI_BLUE), reset, current_filename, current_line, current_column);
 }
 
 static void print_internal_header(const char* message) {
@@ -463,9 +520,11 @@ static void emit_diagnostic(ErrorLevel level, ErrorType error_type, const char* 
         show_source_context(level, error_type, current_line, current_column, length);
     }
 
+    print_message_notes(message);
+
     if (suggestion_override && *suggestion_override) {
         print_suggestion_block(suggestion_override);
-    } else {
+    } else if (!message || strstr(message, "help:") == NULL) {
         print_suggestion_block(get_suggestion(error_type));
     }
 }
@@ -491,6 +550,32 @@ void report_warning(const char* format, ...) {
     va_end(args);
 }
 
+void report_warning_with_location_and_snippet(const char* msg, const char* filename, int line, const char* snippet) {
+    if (!msg || !filename || line <= 0) return;
+
+    const char* old_filename;
+    int old_line;
+    int old_column;
+    int column = 1;
+    int length = 1;
+
+    if (snippet && *snippet) {
+        length = (int)strlen(snippet);
+        char* line_content = get_line_content(line);
+        if (line_content) {
+            char* found = strstr(line_content, snippet);
+            if (found) {
+                column = (int)(found - line_content) + 1;
+            }
+            free(line_content);
+        }
+    }
+
+    push_location(filename, line, column, &old_filename, &old_line, &old_column);
+    report_simple_error_with_length(ERROR_LEVEL_WARNING, ERROR_WARNING, msg, length);
+    pop_location(old_filename, old_line, old_column);
+}
+
 void report_unused_variable_warning(const char* variable_name, const char* filename, int line) {
     report_unused_variable_warning_with_location(variable_name, filename, line, 1);
 }
@@ -501,8 +586,18 @@ void report_unused_variable_warning_with_location(const char* variable_name, con
         int old_line;
         int old_column;
         char buffer[256];
+        int adjusted_column = column;
 
-        push_location(filename, line, column, &old_filename, &old_line, &old_column);
+        char* line_content = get_line_content(line);
+        if (line_content) {
+            char* found = strstr(line_content, variable_name);
+            if (found) {
+                adjusted_column = (int)(found - line_content) + 1;
+            }
+            free(line_content);
+        }
+
+        push_location(filename, line, adjusted_column, &old_filename, &old_line, &old_column);
         snprintf(buffer, sizeof(buffer), "unused variable '%s'", variable_name);
         report_simple_error_with_length(ERROR_LEVEL_WARNING, ERROR_WARNING, buffer, (int)strlen(variable_name));
         pop_location(old_filename, old_line, old_column);
@@ -781,17 +876,17 @@ void report_mismatched_parentheses() {
 
 void print_error_summary() {
     if (error_count > 0 || warning_count > 0) {
-        fprintf(stderr, "\nCompilation finished with ");
-        if (error_count > 0) {
-            fprintf(stderr, "%d error(s) ", error_count);
-            if (warning_count > 0) {
-                fprintf(stderr, "and ");
-            }
+        fprintf(stderr, "\nFound ");
+        if (error_count > 0 && warning_count > 0) {
+            fprintf(stderr, "%d error%s and %d warning%s",
+                    error_count, error_count == 1 ? "" : "s",
+                    warning_count, warning_count == 1 ? "" : "s");
+        } else if (error_count > 0) {
+            fprintf(stderr, "%d error%s", error_count, error_count == 1 ? "" : "s");
+        } else {
+            fprintf(stderr, "%d warning%s", warning_count, warning_count == 1 ? "" : "s");
         }
-        if (warning_count > 0) {
-            fprintf(stderr, "%d warning(s)", warning_count);
-        }
-        fprintf(stderr, ".\n");
+        fprintf(stderr, "\n");
     }
 }
 

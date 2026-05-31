@@ -456,6 +456,7 @@ using namespace llvm;
                 if (!argRes.value) return VisitResult();
 
                 AllocaInst* objectAlloc = nullptr;
+                GlobalVariable* objectGlobal = nullptr;
                 Value* objectSlotPtr = nullptr;
                 Type* objectSlotElemType = nullptr;
                 Value* objectFieldPtr = nullptr;
@@ -463,6 +464,7 @@ using namespace llvm;
                 if (!objectName.empty()) {
                     objectAlloc = scopeManager.findVariable(objectName);
                     if (!objectAlloc) objectAlloc = findVariableInMain(objectName);
+                    if (!objectAlloc) objectGlobal = findGlobalVariable(objectName);
                 }
 
                 if (!objectAlloc && objectNode->type == AST_MEMBER_ACCESS) {
@@ -538,11 +540,15 @@ using namespace llvm;
                 }
 
                 Type* elemType = Type::getInt32Ty(context);
-                if (objectAlloc) {
+                if (Type* inferredElemType = getInferredArrayElementType(objectNode)) {
+                    elemType = inferredElemType;
+                } else if (objectAlloc) {
                     Type* allocType = getActualType(objectAlloc);
                     if (allocType && allocType->isPointerTy()) {
                         elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(allocType), objectName);
                     }
+                } else if (objectGlobal && objectGlobal->getValueType()->isPointerTy()) {
+                    elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(objectGlobal->getValueType()), objectName);
                 } else if (objectRes.value->getType()->isPointerTy()) {
                     auto objHintIt = pointerElementHints.find(objectRes.value);
                     if (objHintIt != pointerElementHints.end() && objHintIt->second) {
@@ -554,6 +560,9 @@ using namespace llvm;
 
                 ValueType elemVT = typeHelper.getValueTypeFromType(elemType);
                 Value* argCast = typeHelper.castValue(builder, argRes.value, argRes.type, elemVT);
+                if (elemType->isStructTy() && argCast->getType()->isPointerTy()) {
+                    argCast = builder.CreateLoad(elemType, argCast, "push_arg_struct_load");
+                }
                 if (argCast->getType() != elemType) {
                     if (argCast->getType()->isPointerTy() && elemType->isPointerTy()) {
                         argCast = builder.CreateBitCast(argCast, elemType, "push_arg_ptrcast");
@@ -567,10 +576,13 @@ using namespace llvm;
                     pushStateName = std::string("__tmp_push_") + std::to_string((uintptr_t)objectNode);
                 }
 
-                uint64_t elemBytes = 4;
-                if (elemType->isIntegerTy(8)) elemBytes = 1;
-                else if (elemType->isIntegerTy(64) || elemType->isDoubleTy() || elemType->isPointerTy()) elemBytes = 8;
-                else if (elemType->isFloatTy()) elemBytes = 4;
+                uint64_t elemBytes = module->getDataLayout().getTypeAllocSize(elemType);
+                if (elemBytes == 0) {
+                    elemBytes = 4;
+                    if (elemType->isIntegerTy(8)) elemBytes = 1;
+                    else if (elemType->isIntegerTy(64) || elemType->isDoubleTy() || elemType->isPointerTy()) elemBytes = 8;
+                    else if (elemType->isFloatTy()) elemBytes = 4;
+                }
 
                 Value* oldPtr = objectRes.value;
                 if (objectFieldPtr && objectFieldType) {
@@ -621,6 +633,15 @@ using namespace llvm;
                         storePtr = builder.CreateBitCast(newPtr, allocType, "push_store_ptr_cast");
                     }
                     builder.CreateStore(storePtr, objectAlloc);
+                }
+
+                if (objectGlobal) {
+                    Type* globalType = objectGlobal->getValueType();
+                    Value* storePtr = newPtr;
+                    if (globalType && storePtr->getType() != globalType && globalType->isPointerTy()) {
+                        storePtr = builder.CreateBitCast(storePtr, globalType, "push_global_store_ptr_cast");
+                    }
+                    builder.CreateStore(storePtr, objectGlobal);
                 }
 
                 if (objectSlotPtr && objectSlotElemType) {

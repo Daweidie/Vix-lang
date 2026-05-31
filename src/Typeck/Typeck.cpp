@@ -23,6 +23,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "../../include/ast.h"
 #include "../../include/compiler.h"
@@ -124,6 +125,270 @@ struct TypeChecker {
 		set_location_with_column(filename, line, col);
 		report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, message.c_str());
 		error_count++;
+	}
+
+	int node_span_length(const ASTNode* node, int fallback) {
+		if (node && node->location.first_line == node->location.last_line &&
+			node->location.last_column > node->location.first_column) {
+			return node->location.last_column - node->location.first_column;
+		}
+		return fallback > 0 ? fallback : 1;
+	}
+
+	void report_warning_at(const ASTNode* node, const std::string& message, int length = 1) {
+		const char* filename = node_file(node);
+		int line = node_line(node);
+		int col = node_col(node);
+		set_location_with_column(filename, line, col);
+		report_simple_error_with_length(ERROR_LEVEL_WARNING, ERROR_WARNING, message.c_str(), length);
+	}
+
+	void report_warning_at_snippet(const ASTNode* node, const std::string& message, const std::string& snippet) {
+		report_warning_with_location_and_snippet(message.c_str(), node_file(node), node_line(node), snippet.c_str());
+	}
+
+	struct ArrayParamUsage {
+		std::string name;
+		ASTNode* declaration = nullptr;
+		ASTNode* first_modify = nullptr;
+		int first_modify_length = 1;
+		std::string first_modify_snippet;
+		ASTNode* first_length_read = nullptr;
+		int first_length_read_length = 1;
+		std::string first_length_read_snippet;
+		ASTNode* first_length_read_after_modify = nullptr;
+		bool used = false;
+		bool modified = false;
+		bool returned = false;
+		bool warned_modify_after_length = false;
+	};
+
+	bool is_array_like_type(const TypePtr& type) {
+		if (!type) {
+			return false;
+		}
+		TypePtr resolved = unify.apply(type);
+		return resolved->kind == TypeKind::Array || resolved->kind == TypeKind::FixedArray;
+	}
+
+	ArrayParamUsage* find_array_param(std::vector<ArrayParamUsage>& params, const char* name) {
+		if (!name) {
+			return nullptr;
+		}
+		for (auto& param : params) {
+			if (param.name == name) {
+				return &param;
+			}
+		}
+		return nullptr;
+	}
+
+	const char* identifier_name(ASTNode* node) {
+		return node && node->type == AST_IDENTIFIER ? node->data.identifier.name : nullptr;
+	}
+
+	int member_expr_length(const char* object_name, const char* field_name) {
+		int object_len = object_name ? (int)strlen(object_name) : 1;
+		int field_len = field_name ? (int)strlen(field_name) : 0;
+		return object_len + (field_len > 0 ? field_len + 1 : 0);
+	}
+
+	std::string member_expr_snippet(const char* object_name, const char* field_name) {
+		std::string snippet = object_name ? object_name : "";
+		if (field_name && *field_name) {
+			snippet += ".";
+			snippet += field_name;
+		}
+		return snippet;
+	}
+
+	void scan_array_param_usage(ASTNode* node, std::vector<ArrayParamUsage>& params, bool in_return) {
+		if (!node) {
+			return;
+		}
+
+		switch (node->type) {
+			case AST_IDENTIFIER: {
+				if (ArrayParamUsage* usage = find_array_param(params, node->data.identifier.name)) {
+					usage->used = true;
+					if (in_return) {
+						usage->returned = true;
+					}
+				}
+				break;
+			}
+			case AST_RETURN:
+				scan_array_param_usage(node->data.return_stmt.expr, params, true);
+				break;
+			case AST_CALL: {
+				ASTNode* func = node->data.call.func;
+				bool handled_push_receiver = false;
+				if (func && func->type == AST_MEMBER_ACCESS) {
+					ASTNode* object = func->data.member_access.object;
+					const char* object_name = identifier_name(object);
+					const char* field_name = identifier_name(func->data.member_access.field);
+					if (ArrayParamUsage* usage = find_array_param(params, object_name)) {
+						usage->used = true;
+						if (field_name && strcmp(field_name, "push") == 0) {
+							usage->modified = true;
+							if (!usage->first_modify) {
+								usage->first_modify = object ? object : node;
+								usage->first_modify_length = member_expr_length(object_name, field_name);
+								usage->first_modify_snippet = member_expr_snippet(object_name, field_name);
+							}
+							if (usage->first_length_read && !usage->warned_modify_after_length) {
+					report_warning_at_snippet(usage->first_length_read,
+						"array parameter '" + usage->name +
+						"' is modified after reading its length\n"
+						"  note: the length was read at line " + std::to_string(node_line(usage->first_length_read)) +
+						", but modifications to the copy won't affect the original",
+						usage->first_length_read_snippet);
+								usage->warned_modify_after_length = true;
+							}
+							handled_push_receiver = true;
+						}
+					}
+				}
+				if (!handled_push_receiver) {
+					scan_array_param_usage(func, params, in_return);
+				}
+				if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST) {
+					int count = node->data.call.args->data.expression_list.expression_count;
+					for (int i = 0; i < count; i++) {
+						scan_array_param_usage(node->data.call.args->data.expression_list.expressions[i], params, in_return);
+					}
+				}
+				break;
+			}
+			case AST_MEMBER_ACCESS: {
+				ASTNode* object = node->data.member_access.object;
+				const char* object_name = identifier_name(object);
+				const char* field_name = identifier_name(node->data.member_access.field);
+				if (ArrayParamUsage* usage = find_array_param(params, object_name)) {
+					usage->used = true;
+					if (field_name && (strcmp(field_name, "length") == 0 || strcmp(field_name, "size") == 0)) {
+						if (!usage->first_length_read) {
+							usage->first_length_read = object ? object : node;
+							usage->first_length_read_length = member_expr_length(object_name, field_name);
+							usage->first_length_read_snippet = member_expr_snippet(object_name, field_name);
+						}
+						if (usage->modified && !usage->first_length_read_after_modify) {
+							usage->first_length_read_after_modify = node;
+						}
+					}
+				} else {
+					scan_array_param_usage(object, params, in_return);
+				}
+				break;
+			}
+			case AST_PROGRAM:
+				for (int i = 0; i < node->data.program.statement_count; i++) {
+					scan_array_param_usage(node->data.program.statements[i], params, in_return);
+				}
+				break;
+			case AST_ASSIGN:
+			case AST_CONST:
+				scan_array_param_usage(node->data.assign.left, params, in_return);
+				scan_array_param_usage(node->data.assign.right, params, in_return);
+				break;
+			case AST_BINOP:
+				scan_array_param_usage(node->data.binop.left, params, in_return);
+				scan_array_param_usage(node->data.binop.right, params, in_return);
+				break;
+			case AST_UNARYOP:
+				scan_array_param_usage(node->data.unaryop.expr, params, in_return);
+				break;
+			case AST_IF:
+				scan_array_param_usage(node->data.if_stmt.condition, params, in_return);
+				scan_array_param_usage(node->data.if_stmt.then_body, params, in_return);
+				scan_array_param_usage(node->data.if_stmt.else_body, params, in_return);
+				break;
+			case AST_WHILE:
+				scan_array_param_usage(node->data.while_stmt.condition, params, in_return);
+				scan_array_param_usage(node->data.while_stmt.body, params, in_return);
+				break;
+			case AST_FOR:
+				scan_array_param_usage(node->data.for_stmt.start, params, in_return);
+				scan_array_param_usage(node->data.for_stmt.end, params, in_return);
+				scan_array_param_usage(node->data.for_stmt.body, params, in_return);
+				break;
+			case AST_INDEX:
+				scan_array_param_usage(node->data.index.target, params, in_return);
+				scan_array_param_usage(node->data.index.index, params, in_return);
+				break;
+			case AST_STRUCT_LITERAL:
+				scan_array_param_usage(node->data.struct_literal.fields, params, in_return);
+				break;
+			case AST_EXPRESSION_LIST:
+				for (int i = 0; i < node->data.expression_list.expression_count; i++) {
+					scan_array_param_usage(node->data.expression_list.expressions[i], params, in_return);
+				}
+				break;
+			case AST_PRINT:
+				scan_array_param_usage(node->data.print.expr, params, in_return);
+				break;
+			case AST_TOINT:
+				scan_array_param_usage(node->data.toint.expr, params, in_return);
+				break;
+			case AST_TOFLOAT:
+				scan_array_param_usage(node->data.tofloat.expr, params, in_return);
+				break;
+			default:
+				break;
+		}
+	}
+
+	std::vector<ArrayParamUsage> collect_array_params(ASTNode* fn) {
+		std::vector<ArrayParamUsage> params;
+		if (!fn || !fn->data.function.params || fn->data.function.params->type != AST_EXPRESSION_LIST) {
+			return params;
+		}
+		int count = fn->data.function.params->data.expression_list.expression_count;
+		for (int i = 0; i < count; i++) {
+			ASTNode* param = fn->data.function.params->data.expression_list.expressions[i];
+			if (!param || param->type != AST_ASSIGN || !param->data.assign.left ||
+				param->data.assign.left->type != AST_IDENTIFIER) {
+				continue;
+			}
+			TypePtr ptype = type_from_ast(param->data.assign.right);
+			if (!is_array_like_type(ptype)) {
+				continue;
+			}
+			ArrayParamUsage usage;
+			usage.name = param->data.assign.left->data.identifier.name ? param->data.assign.left->data.identifier.name : "";
+			usage.declaration = param->data.assign.left;
+			if (!usage.name.empty()) {
+				params.push_back(std::move(usage));
+			}
+		}
+		return params;
+	}
+
+	void warn_array_parameter_value_semantics(ASTNode* fn) {
+		std::vector<ArrayParamUsage> params = collect_array_params(fn);
+		if (params.empty()) {
+			return;
+		}
+		scan_array_param_usage(fn->data.function.body, params, false);
+		for (const auto& usage : params) {
+			if (!usage.used) {
+				report_warning_at(usage.declaration,
+					"array parameter '" + usage.name + "' is never used\n"
+					"  note: array parameters are passed by value (copy)");
+				continue;
+			}
+			if (usage.modified && !usage.returned && usage.first_modify) {
+				report_warning_at_snippet(usage.first_modify,
+					"array parameter '" + usage.name + "' is modified but changes are lost\n"
+					"  note: array parameters are passed by value (copy)",
+					usage.first_modify_snippet);
+			}
+			if (usage.first_length_read_after_modify && !usage.returned) {
+				report_warning_at(usage.first_length_read_after_modify,
+					"reading array parameter '" + usage.name + "' after modifying a copy\n"
+					"  note: the array parameter was modified earlier, but the original caller's array is unchanged");
+			}
+		}
 	}
 
 	ASTNode* find_return_node(ASTNode* node) {
@@ -2116,6 +2381,7 @@ struct TypeChecker {
 		}
 
 		TypePtr body_type = check_block(node->data.function.body, false);
+		warn_array_parameter_value_semantics(node);
 		TypePtr ret_type = type_from_ast(node->data.function.return_type);
 		if (!(node->data.function.is_extern && node->data.function.body == nullptr)) {
 			try {

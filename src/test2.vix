@@ -1,0 +1,31 @@
+type Point = struct
+{
+    x: i32,
+    y: i32
+}
+
+let mut POINTS: [Point] = []
+
+fn add_point(p: Point): i32
+{
+    let id = POINTS.length
+    POINTS.push(p)
+    return id
+}
+
+fn build_points(): [Point]
+{
+    add_point(Point{ x: 1, y: 2 })
+    add_point(Point{ x: 3, y: 4 })
+    return POINTS
+}
+
+fn main(): i32
+{
+    let points = build_points()
+    for (p in points)
+    {
+        print(p.x, p.y)
+    }
+    return 0
+}

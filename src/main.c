@@ -400,9 +400,7 @@ int main(int argc, char **argv) {
     SymbolTable *g_tbl = create_symbol_table(NULL);
     int uvars = check_unused_variables(root, g_tbl);
     destroy_symbol_table(g_tbl);
-    if (uvars > 0) {
-      fprintf(stderr, "\033[33mFound %d unused variable(s)\033[0m\n", uvars);
-    }
+    (void)uvars;
     if (get_error_count() > 0) {
       fprintf(stderr, "Compilation failed with %d error(s)\n",
               get_error_count());
@@ -514,6 +512,7 @@ int main(int argc, char **argv) {
           if (show_time)
             print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                                t_codegen_ts);
+          print_error_summary();
           return 0;
         }
       }
@@ -556,6 +555,7 @@ int main(int argc, char **argv) {
         if (show_time)
           print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                              t_codegen_ts);
+        print_error_summary();
         return 0;
       }
       if (out_f && save_c) {
@@ -624,6 +624,7 @@ int main(int argc, char **argv) {
       if (show_time)
         print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                            t_codegen_ts);
+      print_error_summary();
       return 0;
     }
 
@@ -637,6 +638,7 @@ int main(int argc, char **argv) {
       if (show_time)
         print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                            t_codegen_ts);
+      print_error_summary();
       return 0;
     }
 
@@ -650,6 +652,7 @@ int main(int argc, char **argv) {
       if (show_time)
         print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                            t_codegen_ts);
+      print_error_summary();
       return 0;
     }
   } else {

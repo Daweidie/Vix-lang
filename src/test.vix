@@ -1,13 +1,29 @@
-fn peek(x:i32): i32
+type Point = struct
 {
-	return x
+	x: i32,
+	y: i32
 }
+fn add_point(points:[Point], p: Point): i32
+{
+    let id = points.length
+    points.push(p)
+    return id
+}
+
+fn build_points(): [Point]
+{
+    let mut pts: [Point] = []
+    let id1 = add_point(pts, Point{ x: 1, y: 2 })
+    let id2 = add_point(pts, Point{ x: 3, y: 4 })
+    return pts
+}
+
 fn main(): i32
 {
-	match peek(42)
+	let points = build_points()
+	for(p in points)
 	{
-		42 -> print("42")
-		_ -> print("none")
+		print(p.x, p.y)
 	}
 	return 0
 }
