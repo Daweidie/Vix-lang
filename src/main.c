@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.2.5 Copyright(c) 2025-2026 LLVM : 20.1.2(8)\n");
+      printf("Vix Compiler 0.2.8 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       return 0;
     } else if (strcmp(argv[i], "-llvm") == 0) {
       out_llvm = 1;
