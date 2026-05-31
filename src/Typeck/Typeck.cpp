@@ -13,14 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "../../include/typeck.h"
+//#include "../../include/typeck.h"
 
 #include <cstring>
 #include <cstdlib>
 #include <functional>
 #include <map>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
