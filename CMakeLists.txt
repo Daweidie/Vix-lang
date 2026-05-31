@@ -110,7 +110,14 @@ set(C_SOURCES
     ${FLEX_vix_lexer_OUTPUTS}
 )
 set(CXX_SOURCES
-    src/compiler/CodeGen.cpp
+    src/compiler/Codegen.cpp
+    src/compiler/Types.cpp
+    src/compiler/Attrs.cpp
+    src/compiler/Exprs.cpp
+    src/compiler/Stmts.cpp
+    src/compiler/Funcs.cpp
+    src/compiler/Structs.cpp
+    src/compiler/Arrays.cpp
     src/compiler/Passes.cpp
     src/compiler/Llc/Llc.cpp
     src/compiler/Linker/Linker.cpp
@@ -122,6 +129,7 @@ add_executable(vixc ${C_SOURCES} ${CXX_SOURCES})
 
 target_include_directories(vixc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/compiler
     ${CMAKE_CURRENT_BINARY_DIR}/parser
 )
 target_compile_options(vixc PRIVATE
