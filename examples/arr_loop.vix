@@ -3,7 +3,7 @@ fn arr_loop(arr: [i32]) {
         print(arr[i])
     }
 }
-fn main() ->  i32 {
+fn main(): i32 {
     let arr = [5, 2, 8, 1, 9, 10]
     arr_loop(arr)
     print(arr.length)

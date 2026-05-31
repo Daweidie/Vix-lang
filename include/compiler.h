@@ -28,6 +28,7 @@ void set_location_with_column(const char* filename, int line, int column);
 void load_source_file(const char* filename);
 void report_lexical_error_with_location(const char* message, const char* filename, int line);
 void report_syntax_error_with_location(const char* token, const char* filename, int line);
+void report_syntax_error_with_location_column(const char* token, const char* filename, int line, int column);
 void report_undefined_identifier_with_location(const char* identifier, const char* filename, int line);
 void report_undefined_function_with_location(const char* function_name, const char* filename, int line);
 void report_undefined_variable_with_location(const char* variable_name, const char* filename, int line);

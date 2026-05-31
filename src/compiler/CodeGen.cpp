@@ -1121,6 +1121,9 @@ private:
         if (node->inferred_type->kind == TYPEINFO_PTR) {
             return getLLVMTypeFromTypeInfo(node->inferred_type->element);
         }
+        if (node->inferred_type->kind == TYPEINFO_ARRAY || node->inferred_type->kind == TYPEINFO_FIXED_ARRAY) {
+            return getLLVMTypeFromTypeInfo(node->inferred_type->element);
+        }
         return nullptr;
     }
     
@@ -2790,6 +2793,20 @@ public:
                 int arraySize = node->data.assign.right->data.expression_list.expression_count;
                 typeHelper.registerVariableArraySize(name, arraySize);
                 
+                /* Use declared type to determine array element type for empty arrays */
+                if (arraySize == 0 && node->data.assign.declared_type) {
+                    ASTNode* declType = node->data.assign.declared_type;
+                    if (declType->type == AST_TYPE_LIST) {
+                        ASTNode* elemTypeNode = declType->data.list_type.element_type;
+                        if (elemTypeNode) {
+                            Type* declaredElemType = typeHelper.getTypeFromTypeNode(elemTypeNode);
+                            if (declaredElemType) {
+                                typeHelper.registerArrayType(name, declaredElemType, 0);
+                            }
+                        }
+                    }
+                }
+                
                 if (rightVal.value && rightVal.value->getType()->isPointerTy()) {
                     Type* elemType = getInferredArrayElementType(node->data.assign.right);
                     bool hasInferredElem = (elemType != nullptr);
@@ -3924,6 +3941,13 @@ public:
                                     } else {
                                         paramTypes.push_back(PointerType::get(context, 0));
                                         typeHelper.registerArrayType(paramName, Type::getInt32Ty(context), -1);
+                                        ASTNode* elemTypeNode = right->data.pointer_type.element_type;
+                                        if (elemTypeNode) {
+                                            Type* elemLLVM = typeHelper.getTypeFromTypeNode(elemTypeNode);
+                                            if (elemLLVM && elemLLVM->isStructTy()) {
+                                                paramStructTypes[paramName] = cast<StructType>(elemLLVM);
+                                            }
+                                        }
                                     }
                                 } else if (right->type == AST_TYPE_LIST || right->type == AST_TYPE_FIXED_SIZE_LIST) {
                                     Type* elemType = typeHelper.getArrayElementTypeFromNode(right);
@@ -4071,13 +4095,20 @@ public:
         if (!useStructSRet && !logicalReturnType->isVoidTy()) {
             BasicBlock* curBB = builder.GetInsertBlock();
             if (curBB && !curBB->getTerminator() && lastBodyResult.value) {
-                ValueType expectedValueType = typeHelper.getValueTypeFromType(logicalReturnType);
-                Value* retValue = typeHelper.castValue(builder, lastBodyResult.value, lastBodyResult.type, expectedValueType);
-                if (logicalReturnType->isPointerTy() && retValue->getType()->isPointerTy() &&
-                    retValue->getType() != logicalReturnType) {
-                    retValue = builder.CreateBitCast(retValue, logicalReturnType, "ret_ptr_cast");
+                /* Auto-deref: if returning a pointer but expected type is a value, load from the pointer */
+                bool lastIsPtr = (lastBodyResult.type == ValueType::POINTER || lastBodyResult.type == ValueType::STRING) && lastBodyResult.value->getType()->isPointerTy();
+                if (lastIsPtr && !logicalReturnType->isPointerTy()) {
+                    Value* loaded = builder.CreateLoad(logicalReturnType, lastBodyResult.value, "autoderef_ret");
+                    builder.CreateRet(loaded);
+                } else {
+                    ValueType expectedValueType = typeHelper.getValueTypeFromType(logicalReturnType);
+                    Value* retValue = typeHelper.castValue(builder, lastBodyResult.value, lastBodyResult.type, expectedValueType);
+                    if (logicalReturnType->isPointerTy() && retValue->getType()->isPointerTy() &&
+                        retValue->getType() != logicalReturnType) {
+                        retValue = builder.CreateBitCast(retValue, logicalReturnType, "ret_ptr_cast");
+                    }
+                    builder.CreateRet(retValue);
                 }
-                builder.CreateRet(retValue);
             }
         }
 
@@ -4818,6 +4849,15 @@ public:
         if (node->data.return_stmt.expr) {
             VisitResult retVal = visit(node->data.return_stmt.expr);
             if (!retVal.value) return VisitResult();
+            
+            /* Auto-deref: if returning a pointer but expected type is a value, load from the pointer */
+            bool retIsPtr = (retVal.type == ValueType::POINTER || retVal.type == ValueType::STRING) && retVal.value->getType()->isPointerTy();
+            if (retIsPtr && !expectedReturnType->isPointerTy() && !expectedReturnType->isVoidTy()) {
+                Type* loadType = expectedReturnType;
+                Value* loaded = builder.CreateLoad(loadType, retVal.value, "autoderef_ret");
+                builder.CreateRet(loaded);
+                return VisitResult(loaded, typeHelper.getValueTypeFromType(expectedReturnType));
+            }
             
             ValueType expectedValueType = typeHelper.getValueTypeFromType(expectedReturnType);
             Value* retValue = typeHelper.castValue(builder, retVal.value, retVal.type, expectedValueType);
@@ -5840,7 +5880,8 @@ public:
                 result->addIncoming(nullVal, nullBB);
                 result->addIncoming(loaded, loadBB);
                 if (elemType->isPointerTy()) {
-                    pointerElementHints[result] = Type::getInt32Ty(context);
+                    Type* inferredElem = getInferredPointerElementType(node);
+                    pointerElementHints[result] = inferredElem ? inferredElem : Type::getInt32Ty(context);
                 }
                 return VisitResult(result, vt);
             }
@@ -5902,7 +5943,8 @@ public:
             result->addIncoming(nullVal, nullBB);
             result->addIncoming(loaded, loadBB);
             if (elemType->isPointerTy()) {
-                pointerElementHints[result] = Type::getInt32Ty(context);
+                Type* inferredElem = getInferredPointerElementType(node);
+                pointerElementHints[result] = inferredElem ? inferredElem : Type::getInt32Ty(context);
             }
             return VisitResult(result, vt);
         }

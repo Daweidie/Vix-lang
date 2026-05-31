@@ -110,6 +110,8 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
         for (int i = 0; yytext[i] != '\0'; i++) { \
             if (yytext[i] == '\n') { \
                 yycolumn = 1; \
+            } else if (yytext[i] == '\t') { \
+                yycolumn = ((yycolumn - 1) / 8 + 1) * 8 + 1; \
             } else { \
                 yycolumn++; \
             } \
@@ -117,6 +119,15 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
     } while(0)
 
 #define GET_FIRST_COLUMN() (yycolumn - yyleng + 1)
+
+#define SET_TOKEN_LOCATION() \
+    do { \
+        int col = GET_FIRST_COLUMN(); \
+        yylloc.first_line = yylineno; \
+        yylloc.first_column = col; \
+        yylloc.last_line = yylineno; \
+        yylloc.last_column = col + yyleng - 1; \
+    } while(0)
 %}
 
 %%
@@ -136,83 +147,83 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "#"[^\n]* { UPDATE_COLUMN(); }
 "//"[^\n]*         { UPDATE_COLUMN(); }
 
-"print"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return PRINT; }
-"input"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return INPUT; }
-"string"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_STR; }
-"return"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return RETURN; }
-"fn"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FN; }
-"u32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
-"i64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
-"u64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
-"i8"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I8; }
-"u8"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I8; }
-"f32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F32; }
-"f64"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_F64; }
-"usize"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I64; }
-"extern"            { UPDATE_COLUMN(); yylval.str = strdup(yytext); return EXTERN; }
-"const"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); /* const removed from user syntax */ }
-"let"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return LET; }
-"mut"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MUT; }
-"->"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ARROW; }
-"i32"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_I32; }
-"void"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_VOID; }
-"nil"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return NIL; }
-"if"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IF; }
-"elif"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ELIF; }
-"else"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return ELSE; }
-"while"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return WHILE; }
-"break"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return BREAK; }
-"continue"          { UPDATE_COLUMN(); yylval.str = strdup(yytext); return CONTINUE; }
-"for"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return FOR; }
-"in"                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IN; }
-"global"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); /* global removed from user syntax */ }
-"struct"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return STRUCT; }
-"and"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return AND; }
-"or"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return OR; }
-"import"           { UPDATE_COLUMN(); yylval.str = strdup(yytext); return IMPORT; }
-"pub"               { UPDATE_COLUMN(); yylval.str = strdup(yytext); return PUB; }
-"type"              { UPDATE_COLUMN(); yylval.str = strdup(yytext); return TYPE_KW; }
-"match"             { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MATCH; }
-"true"              { UPDATE_COLUMN(); yylval.num_int = 1; return NUMBER_INT; }
-"false"             { UPDATE_COLUMN(); yylval.num_int = 0; return NUMBER_INT; }
+"print"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return PRINT; }
+"input"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return INPUT; }
+"string"            { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_STR; }
+"return"            { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return RETURN; }
+"fn"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return FN; }
+"u32"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I32; }
+"i64"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I64; }
+"u64"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I64; }
+"i8"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I8; }
+"u8"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I8; }
+"f32"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_F32; }
+"f64"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_F64; }
+"usize"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I64; }
+"extern"            { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return EXTERN; }
+"const"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); /* const removed from user syntax */ }
+"let"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return LET; }
+"mut"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return MUT; }
+"->"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return ARROW; }
+"i32"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I32; }
+"void"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_VOID; }
+"nil"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return NIL; }
+"if"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return IF; }
+"elif"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return ELIF; }
+"else"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return ELSE; }
+"while"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return WHILE; }
+"break"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return BREAK; }
+"continue"          { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return CONTINUE; }
+"for"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return FOR; }
+"in"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return IN; }
+"global"           { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); /* global removed from user syntax */ }
+"struct"           { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return STRUCT; }
+"and"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return AND; }
+"or"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return OR; }
+"import"           { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return IMPORT; }
+"pub"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return PUB; }
+"type"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_KW; }
+"match"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return MATCH; }
+"true"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 1; return NUMBER_INT; }
+"false"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 0; return NUMBER_INT; }
 
-"="                 { UPDATE_COLUMN(); return ASSIGN; }
-"+="                { UPDATE_COLUMN(); return PLUS_ASSIGN; }
-"-="                { UPDATE_COLUMN(); yylval.str = strdup(yytext); return MINUS_ASSIGN; }
-"*="                { UPDATE_COLUMN(); return MULTIPLY_ASSIGN; }
-"/="                { UPDATE_COLUMN(); return DIVIDE_ASSIGN; }
-"%="                { UPDATE_COLUMN(); return MODULO_ASSIGN; }
-"+"                 { UPDATE_COLUMN(); return PLUS; }
-"-"                 { UPDATE_COLUMN(); return MINUS; }
-"*"                 { UPDATE_COLUMN(); return MULTIPLY; }
-"/"                 { UPDATE_COLUMN(); return DIVIDE; }
-"%"                 { UPDATE_COLUMN(); return MODULO; }
-"**"                { UPDATE_COLUMN(); return POWER; }
-"=="                { UPDATE_COLUMN(); return EQ; }
-"!="                { UPDATE_COLUMN(); return NE; }
-"!"                 { UPDATE_COLUMN(); return BANG; }
-"<"                 { UPDATE_COLUMN(); return LT; }
-"<="                { UPDATE_COLUMN(); return LE; }
-">"                 { UPDATE_COLUMN(); return GT; }
-">="                { UPDATE_COLUMN(); return GE; }
+"="                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return ASSIGN; }
+"+="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return PLUS_ASSIGN; }
+"-="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return MINUS_ASSIGN; }
+"*="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return MULTIPLY_ASSIGN; }
+"/="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return DIVIDE_ASSIGN; }
+"%="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return MODULO_ASSIGN; }
+"+"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return PLUS; }
+"-"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return MINUS; }
+"*"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return MULTIPLY; }
+"/"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return DIVIDE; }
+"%"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return MODULO; }
+"**"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return POWER; }
+"=="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return EQ; }
+"!="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return NE; }
+"!"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return BANG; }
+"<"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return LT; }
+"<="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return LE; }
+">"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return GT; }
+">="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return GE; }
 
-"("                 { UPDATE_COLUMN(); return LPAREN; }
-")"                 { UPDATE_COLUMN(); return RPAREN; }
-"{"                 { UPDATE_COLUMN(); return LBRACE; }
-"}"                 { UPDATE_COLUMN(); return RBRACE; }
-"["                 { UPDATE_COLUMN(); return LBRACKET; }
-"]"                 { UPDATE_COLUMN(); return RBRACKET; }
-"@"                 { UPDATE_COLUMN(); return AT; }
-"&"                 { UPDATE_COLUMN(); return AMPERSAND; }
+"("                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return LPAREN; }
+")"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return RPAREN; }
+"{"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return LBRACE; }
+"}"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return RBRACE; }
+"["                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return LBRACKET; }
+"]"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return RBRACKET; }
+"@"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return AT; }
+"&"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return AMPERSAND; }
 
-";"                 { UPDATE_COLUMN(); return SEMICOLON; }
-","                 { UPDATE_COLUMN(); return COMMA; }
-"..."               { UPDATE_COLUMN(); return DOTDOTDOT; }
-".."                { UPDATE_COLUMN(); return DOTDOT; }
-"."                 { UPDATE_COLUMN(); return DOT; }
-":"                 { UPDATE_COLUMN(); return COLON; }
-"|"                 { UPDATE_COLUMN(); return PIPE; }
-"?"                 { UPDATE_COLUMN(); return QUESTION; }
+";"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return SEMICOLON; }
+","                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return COMMA; }
+"..."               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return DOTDOTDOT; }
+".."                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return DOTDOT; }
+"."                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return DOT; }
+":"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return COLON; }
+"|"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return PIPE; }
+"?"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return QUESTION; }
 
 [a-zA-Z_][a-zA-Z0-9_]*!?  {
                         int col = GET_FIRST_COLUMN();

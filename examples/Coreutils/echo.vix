@@ -2,7 +2,7 @@ import "std/strings.vix"
 extern "C"
 {
     fn printf(format:ptr,...): i32
-    fn getenv(name: ptr) -> ptr
+    fn getenv(name: ptr): ptr
 }
 fn main(argc:i32,argv:ptr): i32
 {

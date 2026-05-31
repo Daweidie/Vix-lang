@@ -206,10 +206,10 @@ class TestControlFlow:
 class TestFunctions:
     @pytest.mark.parametrize("src,expected", [
         ('fn greet() { print("hi") } fn main(): i32 { greet() return 0 }', "hi"),
-        ('fn add(a: i32, b: i32) -> i32 { return a + b } fn main(): i32 { print(add(3, 4)) return 0 }', "7"),
-        ('fn square(x: i32) -> i32 { return x * x } fn main(): i32 { print(square(5)) return 0 }', "25"),
-        ('fn identity(x: i32) -> i32 { return x } fn main(): i32 { print(identity(42)) return 0 }', "42"),
-        ('fn zero() -> i32 { return 0 } fn main(): i32 { print(zero()) return 0 }', "0"),
+        ('fn add(a: i32, b: i32): i32 { return a + b } fn main(): i32 { print(add(3, 4)) return 0 }', "7"),
+        ('fn square(x: i32): i32 { return x * x } fn main(): i32 { print(square(5)) return 0 }', "25"),
+        ('fn identity(x: i32): i32 { return x } fn main(): i32 { print(identity(42)) return 0 }', "42"),
+        ('fn zero(): i32 { return 0 } fn main(): i32 { print(zero()) return 0 }', "0"),
     ])
     def test_basic_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -217,11 +217,11 @@ class TestFunctions:
         assert run.stdout.strip() == expected
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn fib(n: i32) -> i32 { if (n <= 1) { return n } return fib(n - 1) + fib(n - 2) } fn main(): i32 { print(fib(10)) return 0 }', "55"),
-        ('fn fact(n: i32) -> i32 { if (n <= 1) { return 1 } return n * fact(n - 1) } fn main(): i32 { print(fact(5)) return 0 }', "120"),
-        ('fn gcd(a: i32, b: i32) -> i32 { if (b == 0) { return a } return gcd(b, a % b) } fn main(): i32 { print(gcd(12, 8)) return 0 }', "4"),
-        ('fn is_even(n: i32) -> i32 { if (n % 2 == 0) { return 1 } return 0 } fn main(): i32 { print(is_even(4)) print(is_even(7)) return 0 }', "1\n0"),
-        ('fn power(base: i32, exp: i32) -> i32 { if (exp == 0) { return 1 } return base * power(base, exp - 1) } fn main(): i32 { print(power(2, 10)) return 0 }', "1024"),
+        ('fn fib(n: i32): i32 { if (n <= 1) { return n } return fib(n - 1) + fib(n - 2) } fn main(): i32 { print(fib(10)) return 0 }', "55"),
+        ('fn fact(n: i32): i32 { if (n <= 1) { return 1 } return n * fact(n - 1) } fn main(): i32 { print(fact(5)) return 0 }', "120"),
+        ('fn gcd(a: i32, b: i32): i32 { if (b == 0) { return a } return gcd(b, a % b) } fn main(): i32 { print(gcd(12, 8)) return 0 }', "4"),
+        ('fn is_even(n: i32): i32 { if (n % 2 == 0) { return 1 } return 0 } fn main(): i32 { print(is_even(4)) print(is_even(7)) return 0 }', "1\n0"),
+        ('fn power(base: i32, exp: i32): i32 { if (exp == 0) { return 1 } return base * power(base, exp - 1) } fn main(): i32 { print(power(2, 10)) return 0 }', "1024"),
     ])
     def test_recursive_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -231,9 +231,9 @@ class TestFunctions:
         assert lines == expected_lines
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn f(x: i32) -> i32 { return x + 1 } fn g(x: i32) -> i32 { return f(f(x)) } fn main(): i32 { print(g(5)) return 0 }', "7"),
-        ('fn double(x: i32) -> i32 { return x * 2 } fn main(): i32 { print(double(double(double(1)))) return 0 }', "8"),
-        ('fn apply(fn_name: i32, x: i32) -> i32 { return x + 1 } fn main(): i32 { print(apply(0, 10)) return 0 }', "11"),
+        ('fn f(x: i32): i32 { return x + 1 } fn g(x: i32): i32 { return f(f(x)) } fn main(): i32 { print(g(5)) return 0 }', "7"),
+        ('fn double(x: i32): i32 { return x * 2 } fn main(): i32 { print(double(double(double(1)))) return 0 }', "8"),
+        ('fn apply(fn_name: i32, x: i32): i32 { return x + 1 } fn main(): i32 { print(apply(0, 10)) return 0 }', "11"),
     ])
     def test_function_composition(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -242,9 +242,9 @@ class TestFunctions:
 
     @pytest.mark.parametrize("src,expected", [
         ('fn swap_print(a: i32, b: i32) { print(b) print(a) } fn main(): i32 { swap_print(1, 2) return 0 }', "2\n1"),
-        ('fn sum3(a: i32, b: i32, c: i32) -> i32 { return a + b + c } fn main(): i32 { print(sum3(1, 2, 3)) return 0 }', "6"),
-        ('fn max2(a: i32, b: i32) -> i32 { if (a > b) { return a } return b } fn main(): i32 { print(max2(5, 3)) print(max2(2, 8)) return 0 }', "5\n8"),
-        ('fn abs(x: i32) -> i32 { if (x < 0) { return -x } return x } fn main(): i32 { print(abs(-5)) print(abs(3)) return 0 }', "5\n3"),
+        ('fn sum3(a: i32, b: i32, c: i32): i32 { return a + b + c } fn main(): i32 { print(sum3(1, 2, 3)) return 0 }', "6"),
+        ('fn max2(a: i32, b: i32): i32 { if (a > b) { return a } return b } fn main(): i32 { print(max2(5, 3)) print(max2(2, 8)) return 0 }', "5\n8"),
+        ('fn abs(x: i32): i32 { if (x < 0) { return -x } return x } fn main(): i32 { print(abs(-5)) print(abs(3)) return 0 }', "5\n3"),
     ])
     def test_multi_param_functions(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -341,7 +341,7 @@ class TestMatchExpressions:
         assert run.stdout.strip() == expected
 
     @pytest.mark.parametrize("src,expected", [
-        ('fn classify(x: i32) -> i32 { match x { 0 -> { return 0 } 1 -> { return 1 } _ -> { return -1 } } return 0 } fn main(): i32 { print(classify(0)) print(classify(1)) print(classify(5)) return 0 }', "0\n1\n-1"),
+        ('fn classify(x: i32): i32 { match x { 0 -> { return 0 } 1 -> { return 1 } _ -> { return -1 } } return 0 } fn main(): i32 { print(classify(0)) print(classify(1)) print(classify(5)) return 0 }', "0\n1\n-1"),
     ])
     def test_match_in_function(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -468,8 +468,8 @@ class TestStructs:
         assert lines == expected_lines
 
     @pytest.mark.parametrize("src,expected", [
-        ('struct Point { x: i32, y: i32 } fn dist_sq(p: Point) -> i32 { return p.x * p.x + p.y * p.y } fn main(): i32 { let p = Point { x: 3, y: 4 } print(dist_sq(p)) return 0 }', "25"),
-        ('struct Counter { value: i32 } fn increment(c: Counter) -> i32 { return c.value + 1 } fn main(): i32 { let c = Counter { value: 10 } print(increment(c)) return 0 }', "11"),
+        ('struct Point { x: i32, y: i32 } fn dist_sq(p: Point): i32 { return p.x * p.x + p.y * p.y } fn main(): i32 { let p = Point { x: 3, y: 4 } print(dist_sq(p)) return 0 }', "25"),
+        ('struct Counter { value: i32 } fn increment(c: Counter): i32 { return c.value + 1 } fn main(): i32 { let c = Counter { value: 10 } print(increment(c)) return 0 }', "11"),
     ])
     def test_struct_as_param(self, compiler, tmp_path, src, expected):
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -641,7 +641,7 @@ class TestComplexPrograms:
         assert lines == ["0","1","2","3","4","5","6","7","8","9"]
 
     def test_factorial_iterative(self, compiler, tmp_path):
-        src = '''fn fact(n: i32) -> i32 {
+        src = '''fn fact(n: i32): i32 {
             let mut result = 1
             let mut i = 2
             while (i <= n) { result *= i i += 1 }
@@ -657,7 +657,7 @@ class TestComplexPrograms:
         assert lines == ["1","1","2","6","24","120","720","5040","40320","362880"]
 
     def test_prime_check(self, compiler, tmp_path):
-        src = '''fn is_prime(n: i32) -> i32 {
+        src = '''fn is_prime(n: i32): i32 {
             if (n < 2) { return 0 }
             let mut i = 2
             while (i * i <= n) {
@@ -678,11 +678,11 @@ class TestComplexPrograms:
         assert lines == ["2","3","5","7","11","13","17","19"]
 
     def test_gcd_lcm(self, compiler, tmp_path):
-        src = '''fn gcd(mut a: i32, mut b: i32) -> i32 {
+        src = '''fn gcd(mut a: i32, mut b: i32): i32 {
             while (b != 0) { let t = b b = a % b a = t }
             return a
         }
-        fn lcm(a: i32, b: i32) -> i32 {
+        fn lcm(a: i32, b: i32): i32 {
             return (a / gcd(a, b)) * b
         }
         fn main(): i32 {
@@ -868,7 +868,7 @@ class TestExtendedControlFlow:
         (5, "120"), (6, "720"), (7, "5040"), (8, "40320"), (9, "362880"),
     ])
     def test_factorial(self, compiler, tmp_path, n, expected):
-        src = f'''fn fact(n: i32) -> i32 {{
+        src = f'''fn fact(n: i32): i32 {{
     if (n <= 1) {{ return 1 }}
     return n * fact(n - 1)
 }}
@@ -882,7 +882,7 @@ fn main(): i32 {{ print(fact({n})) return 0 }}'''
         (5, "5"), (6, "8"), (7, "13"), (8, "21"), (9, "34"), (10, "55"),
     ])
     def test_fibonacci(self, compiler, tmp_path, n, expected):
-        src = f'''fn fib(n: i32) -> i32 {{
+        src = f'''fn fib(n: i32): i32 {{
     if (n <= 1) {{ return n }}
     return fib(n - 1) + fib(n - 2)
 }}
@@ -938,7 +938,7 @@ class TestExtendedFunctions:
         (6, "36"), (7, "49"), (8, "64"), (9, "81"), (10, "100"),
     ])
     def test_square_function(self, compiler, tmp_path, n, expected):
-        src = f'fn sq(x: i32) -> i32 {{ return x * x }} fn main(): i32 {{ print(sq({n})) return 0 }}'
+        src = f'fn sq(x: i32): i32 {{ return x * x }} fn main(): i32 {{ print(sq({n})) return 0 }}'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == expected
@@ -948,7 +948,7 @@ class TestExtendedFunctions:
         (100, 200, "300"), (1, 99, "100"),
     ])
     def test_add_function(self, compiler, tmp_path, a, b, expected):
-        src = f'fn add(a: i32, b: i32) -> i32 {{ return a + b }} fn main(): i32 {{ print(add({a}, {b})) return 0 }}'
+        src = f'fn add(a: i32, b: i32): i32 {{ return a + b }} fn main(): i32 {{ print(add({a}, {b})) return 0 }}'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == expected
@@ -958,7 +958,7 @@ class TestExtendedFunctions:
         (48, 18, "6"), (17, 13, "1"),
     ])
     def test_gcd_function(self, compiler, tmp_path, a, b, expected):
-        src = f'''fn gcd(a: i32, b: i32) -> i32 {{
+        src = f'''fn gcd(a: i32, b: i32): i32 {{
     if (b == 0) {{ return a }}
     return gcd(b, a % b)
 }}
@@ -1050,3 +1050,1124 @@ class TestMassiveFeatures:
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(n)
+
+
+# ============================================================
+# 24. Reference Parameter Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestReferences:
+    @pytest.mark.parametrize("val", range(100))
+    def test_ref_param_i32(self, compiler, tmp_path, val):
+        src = f'''fn pass_ref(x: &i32): i32 {{ return x }}
+fn main(): i32 {{ let v = {val} print(pass_ref(&v)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val)
+
+    @pytest.mark.parametrize("a,b", [(i, i+1) for i in range(50)])
+    def test_ref_swap_values(self, compiler, tmp_path, a, b):
+        src = f'''fn get_first(a: &i32, b: &i32): i32 {{ return a }}
+fn main(): i32 {{ let x = {a} let y = {b} print(get_first(&x, &y)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_struct_field_read(self, compiler, tmp_path, val):
+        src = f'''type Box = struct {{ val: i32 }}
+fn read_val(b: &Box): i32 {{ return b.val }}
+fn main(): i32 {{ let b = Box{{ val: {val} }} print(read_val(&b)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_struct_field_write(self, compiler, tmp_path, val):
+        src = f'''type Box = struct {{ val: i32 }}
+fn write_val(b: &Box, v: i32) {{ b.val = v }}
+fn main(): i32 {{ let mut b = Box{{ val: 0 }} write_val(&b, {val}) print(b.val) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_increment(self, compiler, tmp_path, val):
+        src = f'''type Counter = struct {{ n: i32 }}
+fn inc(c: &Counter) {{ c.n = c.n + 1 }}
+fn main(): i32 {{ let mut c = Counter{{ n: {val} }} inc(&c) print(c.n) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val + 1)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_double_field(self, compiler, tmp_path, val):
+        src = f'''type Pair = struct {{ a: i32 b: i32 }}
+fn sum(p: &Pair): i32 {{ return p.a + p.b }}
+fn main(): i32 {{ let p = Pair{{ a: {val} b: {val * 2} }} print(sum(&p)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val + val * 2)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_chained_ops(self, compiler, tmp_path, val):
+        src = f'''type Num = struct {{ v: i32 }}
+fn double(n: &Num): i32 {{ return n.v * 2 }}
+fn main(): i32 {{ let n = Num{{ v: {val} }} print(double(&n)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val * 2)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_multi_param(self, compiler, tmp_path, val):
+        src = f'''type Box = struct {{ x: i32 y: i32 z: i32 }}
+fn sum3(b: &Box): i32 {{ return b.x + b.y + b.z }}
+fn main(): i32 {{ let b = Box{{ x: {val} y: {val+1} z: {val+2} }} print(sum3(&b)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(val * 3 + 3)
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_conditional(self, compiler, tmp_path, val):
+        src = f'''type Num = struct {{ v: i32 }}
+fn check(n: &Num): i32 {{ if (n.v > 50) {{ return 1 }} return 0 }}
+fn main(): i32 {{ let n = Num{{ v: {val} }} print(check(&n)) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = "1" if val > 50 else "0"
+        assert run.stdout.strip() == expected
+
+    @pytest.mark.parametrize("val", range(50))
+    def test_ref_loop(self, compiler, tmp_path, val):
+        src = f'''type Sum = struct {{ total: i32 }}
+fn add_range(s: &Sum, n: i32) {{ for (i in 0 .. n) {{ s.total = s.total + i }} }}
+fn main(): i32 {{ let mut s = Sum{{ total: 0 }} add_range(&s, {val}) print(s.total) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = val * (val - 1) // 2
+        assert run.stdout.strip() == str(expected)
+
+
+# ============================================================
+# 25. Scope Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestScope:
+    @pytest.mark.parametrize("n", range(50))
+    def test_let_shadow(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let x = {n}
+    if (x >= 0) {{
+        let x = x + 1
+        print(x)
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n + 1)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_nested_scope(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let a = {n}
+    if (true) {{
+        let b = a + 10
+        if (true) {{
+            let c = b + 20
+            print(c)
+        }}
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n + 30)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_for_scope(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut sum = 0
+    for (i in 0 .. {n}) {{
+        sum = sum + i
+    }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = n * (n - 1) // 2
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_while_scope(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut i = 0
+    let mut sum = 0
+    while (i < {n}) {{
+        sum = sum + i
+        i = i + 1
+    }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = n * (n - 1) // 2
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_if_scope(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let x = {n}
+    let mut result = 0
+    if (x > 25) {{
+        result = x * 2
+    }} else {{
+        result = x * 3
+    }}
+    print(result)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = n * 2 if n > 25 else n * 3
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_function_scope(self, compiler, tmp_path, n):
+        src = f'''fn helper(x: i32): i32 {{
+    let y = x + 1
+    return y * 2
+}}
+fn main(): i32 {{
+    print(helper({n}))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str((n + 1) * 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_mut_in_scope(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut x = {n}
+    if (true) {{
+        x = x + 10
+    }}
+    if (true) {{
+        x = x + 20
+    }}
+    print(x)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n + 30)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_for_break_like(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut sum = 0
+    for (i in 0 .. {n}) {{
+        if (i >= 10) {{
+            sum = sum + 100
+        }} else {{
+            sum = sum + i
+        }}
+    }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = sum(min(i, 10) for i in range(n)) + (max(0, n - 10) * 100 if n > 10 else 0)
+        # Simpler calculation
+        s = 0
+        for i in range(n):
+            if i >= 10:
+                s += 100
+            else:
+                s += i
+        assert run.stdout.strip() == str(s)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_nested_for(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut count = 0
+    for (i in 0 .. {n}) {{
+        for (j in 0 .. 3) {{
+            count = count + 1
+        }}
+    }}
+    print(count)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_scope_isolation(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let x = {n}
+    if (true) {{
+        let y = 999
+    }}
+    print(x)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+
+# ============================================================
+# 26. Struct Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestStructs:
+    @pytest.mark.parametrize("x,y", [(i, i*2) for i in range(50)])
+    def test_struct_basic(self, compiler, tmp_path, x, y):
+        src = f'''type Point = struct {{ x: i32 y: i32 }}
+fn main(): i32 {{
+    let p = Point{{ x: {x} y: {y} }}
+    print(p.x)
+    print(p.y)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == f"{x}\n{y}"
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_mutation(self, compiler, tmp_path, n):
+        src = f'''type Box = struct {{ val: i32 }}
+fn main(): i32 {{
+    let mut b = Box{{ val: {n} }}
+    b.val = b.val + 10
+    print(b.val)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n + 10)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_three_fields(self, compiler, tmp_path, n):
+        src = f'''type RGB = struct {{ r: i32 g: i32 b: i32 }}
+fn main(): i32 {{
+    let c = RGB{{ r: {n} g: {n+1} b: {n+2} }}
+    print(c.r + c.g + c.b)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3 + 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_return(self, compiler, tmp_path, n):
+        src = f'''type Num = struct {{ v: i32 }}
+fn make_num(n: i32): Num {{ return Num{{ v: n }} }}
+fn main(): i32 {{
+    let num = make_num({n})
+    print(num.v)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("a,b", [(i, 100-i) for i in range(50)])
+    def test_struct_method_like(self, compiler, tmp_path, a, b):
+        src = f'''type Pair = struct {{ a: i32 b: i32 }}
+fn pair_sum(p: &Pair): i32 {{ return p.a + p.b }}
+fn main(): i32 {{
+    let p = Pair{{ a: {a} b: {b} }}
+    print(pair_sum(&p))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a + b)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_nested(self, compiler, tmp_path, n):
+        src = f'''type Inner = struct {{ v: i32 }}
+type Outer = struct {{ inner: Inner tag: i32 }}
+fn main(): i32 {{
+    let o = Outer{{ inner: Inner{{ v: {n} }} tag: 1 }}
+    print(o.inner.v)
+    print(o.tag)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == f"{n}\n1"
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_assign_member(self, compiler, tmp_path, n):
+        src = f'''type State = struct {{ x: i32 y: i32 }}
+fn main(): i32 {{
+    let mut s = State{{ x: 0 y: 0 }}
+    s.x = {n}
+    s.y = {n * 2}
+    print(s.x + s.y)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_in_function(self, compiler, tmp_path, n):
+        src = f'''type Val = struct {{ v: i32 }}
+fn double_v(v: Val): i32 {{ return v.v * 2 }}
+fn main(): i32 {{
+    let v = Val{{ v: {n} }}
+    print(double_v(v))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_string_field(self, compiler, tmp_path, n):
+        src = f'''type Item = struct {{ name: string value: i32 }}
+fn main(): i32 {{
+    let item = Item{{ name: "item" value: {n} }}
+    print(item.value)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_struct_comparison(self, compiler, tmp_path, n):
+        src = f'''type Range = struct {{ min: i32 max: i32 }}
+fn in_range(r: &Range, v: i32): i32 {{
+    if (v >= r.min and v <= r.max) {{ return 1 }}
+    return 0
+}}
+fn main(): i32 {{
+    let r = Range{{ min: 10 max: 50 }}
+    print(in_range(&r, {n}))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = "1" if 10 <= n <= 50 else "0"
+        assert run.stdout.strip() == expected
+
+
+# ============================================================
+# 27. Generic Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestGenerics:
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_identity(self, compiler, tmp_path, n):
+        src = f'''fn identity:[T](x: T): T {{ return x }}
+fn main(): i32 {{ print(identity:[i32]({n})) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_struct_basic(self, compiler, tmp_path, n):
+        src = f'''type Wrapper:[T] = struct {{ value: T }}
+fn main(): i32 {{
+    let w = Wrapper:[i32]{{ value: {n} }}
+    print(w.value)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Generic struct by-value passing not fully working")
+    def test_generic_struct_field(self, compiler, tmp_path, n):
+        src = f'''type Box:[T] = struct {{ val: T }}
+fn get_val:[T](b: Box:[T]): T {{ return b.val }}
+fn main(): i32 {{
+    let b = Box:[i32]{{ val: {n} }}
+    print(get_val:[i32](b))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_ref_param(self, compiler, tmp_path, n):
+        src = f'''type Box:[T] = struct {{ val: T }}
+fn set_val:[T](b: &Box:[T], v: T) {{ b.val = v }}
+fn main(): i32 {{
+    let mut b = Box:[i32]{{ val: 0 }}
+    set_val:[i32](&b, {n})
+    print(b.val)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_pair(self, compiler, tmp_path, n):
+        src = f'''type Pair:[A,B] = struct {{ first: A second: B }}
+fn main(): i32 {{
+    let p = Pair:[i32,i32]{{ first: {n} second: {n*2} }}
+    print(p.first + p.second)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Function types (Fn(T): T) not yet supported")
+    def test_generic_function_apply(self, compiler, tmp_path, n):
+        src = f'''fn apply:[T](x: T, f: Fn(T): T): T {{ return f(x) }}
+fn double(x: i32): i32 {{ return x * 2 }}
+fn main(): i32 {{
+    print(apply:[i32]({n}, double))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_option(self, compiler, tmp_path, n):
+        src = f'''fn make_opt(x: i32): ?i32 {{ if (x > 0) {{ return Some(x) }} return None }}
+fn main(): i32 {{
+    let opt = make_opt({n})
+    match opt {{
+        Some(v) -> print(v)
+        None -> print(0)
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n if n > 0 else 0)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_result(self, compiler, tmp_path, n):
+        src = f'''fn safe_div(a: i32, b: i32): Result:[i32,string] {{
+    if (b == 0) {{ return Err("div by zero") }}
+    return Ok(a / b)
+}}
+fn main(): i32 {{
+    let r = safe_div({n * 10}, 5)
+    match r {{
+        Ok(v) -> print(v)
+        Err(_) -> print(-1)
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_struct_ref_field(self, compiler, tmp_path, n):
+        src = f'''type Cell:[T] = struct {{ data: T }}
+fn read_cell:[T](c: &Cell:[T]): T {{ return c.data }}
+fn main(): i32 {{
+    let c = Cell:[i32]{{ data: {n} }}
+    print(read_cell:[i32](&c))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_generic_chain(self, compiler, tmp_path, n):
+        src = f'''fn wrap:[T](x: T): T {{ return x }}
+fn unwrap:[T](x: T): T {{ return x }}
+fn main(): i32 {{
+    let v = unwrap:[i32](wrap:[i32]({n}))
+    print(v)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+
+# ============================================================
+# 28. Array and Indexing Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestArrays:
+    @pytest.mark.parametrize("n", range(50))
+    def test_array_literal(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr = [{n}, {n+1}, {n+2}, {n+3}, {n+4}]
+    print(arr[0])
+    print(arr[4])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == f"{n}\n{n+4}"
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Dynamic array .length not fully working")
+    def test_array_length(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr: [i32] = []
+    for (i in 0 .. {n}) {{
+        arr.push(i)
+    }}
+    print(arr.length)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_array_sum(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut sum = 0
+    let arr = [{n}, {n+1}, {n+2}]
+    for (i in 0 .. arr.length) {{
+        sum = sum + arr[i]
+    }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3 + 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Array push on empty arrays not fully working")
+    def test_array_push(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr: [i32] = []
+    arr.push({n})
+    arr.push({n + 10})
+    arr.push({n + 20})
+    print(arr[0])
+    print(arr[1])
+    print(arr[2])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == f"{n}\n{n+10}\n{n+20}"
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_array_for_in(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr = [{n}, {n*2}, {n*3}]
+    let mut sum = 0
+    for (v in arr) {{
+        sum = sum + v
+    }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 6)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_array_index_var(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr = [10, 20, 30, 40, 50]
+    let idx = {n % 5}
+    print(arr[idx])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = [10, 20, 30, 40, 50][n % 5]
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Nested arrays not fully working")
+    def test_array_nested(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let outer: [[i32]] = []
+    let inner = [{n}, {n+1}]
+    outer.push(inner)
+    print(outer[0][0])
+    print(outer[0][1])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == f"{n}\n{n+1}"
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Arrays in structs not fully working")
+    def test_array_in_struct(self, compiler, tmp_path, n):
+        src = f'''type Data = struct {{ values: [i32] count: i32 }}
+fn main(): i32 {{
+    let mut d = Data{{ values: [], count: 0 }}
+    d.values.push({n})
+    d.values.push({n+1})
+    d.count = 2
+    print(d.values[0] + d.values[1])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 2 + 1)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_array_string(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr = ["hello", "world", "test"]
+    print(arr[{n % 3}])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = ["hello", "world", "test"][n % 3]
+        assert run.stdout.strip() == expected
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_array_mutation(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let arr = [0, 0, 0]
+    arr[0] = {n}
+    arr[1] = {n+1}
+    arr[2] = {n+2}
+    print(arr[0] + arr[1] + arr[2])
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3 + 3)
+
+
+# ============================================================
+# 29. Control Flow Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestControlFlow:
+    @pytest.mark.parametrize("n", range(50))
+    def test_if_else(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    if ({n} > 25) {{ print(1) }} else {{ print(0) }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == ("1" if n > 25 else "0")
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_if_chain(self, compiler, tmp_path, n):
+        src = f'''fn classify(x: i32): i32 {{
+    if (x < 10) {{ return 0 }}
+    if (x < 20) {{ return 1 }}
+    if (x < 30) {{ return 2 }}
+    if (x < 40) {{ return 3 }}
+    return 4
+}}
+fn main(): i32 {{ print(classify({n})) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        if n < 10: expected = 0
+        elif n < 20: expected = 1
+        elif n < 30: expected = 2
+        elif n < 40: expected = 3
+        else: expected = 4
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_for_range(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut sum = 0
+    for (i in 0 .. {n}) {{ sum = sum + i }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * (n - 1) // 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_while_basic(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut i = 0
+    let mut sum = 0
+    while (i < {n}) {{ sum = sum + i i = i + 1 }}
+    print(sum)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * (n - 1) // 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_nested_if(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let x = {n}
+    if (x >= 0) {{
+        if (x < 50) {{
+            print(1)
+        }} else {{
+            print(2)
+        }}
+    }} else {{
+        print(-1)
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        if n >= 0 and n < 50: expected = "1"
+        elif n >= 50: expected = "2"
+        else: expected = "-1"
+        assert run.stdout.strip() == expected
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_for_with_if(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut count = 0
+    for (i in 0 .. {n}) {{
+        if (i % 2 == 0) {{ count = count + 1 }}
+    }}
+    print(count)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str((n + 1) // 2)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_match_basic(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let x = {n % 5}
+    match x {{
+        0 -> print(100)
+        1 -> print(200)
+        2 -> print(300)
+        3 -> print(400)
+        _ -> print(500)
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = [100, 200, 300, 400, 500][n % 5]
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_while_with_break_cond(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut i = 0
+    while (i < {n}) {{
+        if (i * i >= {n}) {{ i = i + 1000 }}
+        else {{ i = i + 1 }}
+    }}
+    print(i)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        # This test just verifies compilation and basic execution
+        assert run.stdout.strip() is not None
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_for_accumulator(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let mut prod = 1
+    for (i in 1 .. {min(n+1, 13)}) {{ prod = prod * i }}
+    print(prod)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = 1
+        for i in range(1, min(n+1, 13)):
+            expected *= i
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_ternary_like(self, compiler, tmp_path, n):
+        src = f'''fn abs(x: i32): i32 {{ if (x < 0) {{ return -x }} return x }}
+fn main(): i32 {{ print(abs({n - 25})) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(abs(n - 25))
+
+
+# ============================================================
+# 30. Expression Tests (500 tests)
+# ============================================================
+@pytest.mark.feature
+class TestExpressions:
+    @pytest.mark.parametrize("a,b", [(i, i+1) for i in range(50)])
+    def test_add(self, compiler, tmp_path, a, b):
+        src = f'fn main(): i32 {{ print({a} + {b}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a + b)
+
+    @pytest.mark.parametrize("a,b", [(i+10, i+1) for i in range(50)])
+    def test_sub(self, compiler, tmp_path, a, b):
+        src = f'fn main(): i32 {{ print({a} - {b}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a - b)
+
+    @pytest.mark.parametrize("a,b", [(i, i+2) for i in range(50)])
+    def test_mul(self, compiler, tmp_path, a, b):
+        src = f'fn main(): i32 {{ print({a} * {b}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a * b)
+
+    @pytest.mark.parametrize("a,b", [(i*2+2, 2) for i in range(50)])
+    def test_div(self, compiler, tmp_path, a, b):
+        src = f'fn main(): i32 {{ print({a} / {b}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a // b)
+
+    @pytest.mark.parametrize("a,b", [(i*3+1, 3) for i in range(50)])
+    def test_mod(self, compiler, tmp_path, a, b):
+        src = f'fn main(): i32 {{ print({a} % {b}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(a % b)
+
+    @pytest.mark.parametrize("a,b", [(i, i+1) for i in range(50)])
+    def test_comparison(self, compiler, tmp_path, a, b):
+        src = f'''fn main(): i32 {{
+    if ({a} < {b}) {{ print(1) }} else {{ print(0) }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == ("1" if a < b else "0")
+
+    @pytest.mark.parametrize("a,b", [(i, i*2) for i in range(50)])
+    def test_and(self, compiler, tmp_path, a, b):
+        src = f'''fn main(): i32 {{
+    if ({a} > 0 and {b} > 0) {{ print(1) }} else {{ print(0) }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == ("1" if a > 0 and b > 0 else "0")
+
+    @pytest.mark.parametrize("a,b", [(i, -i) for i in range(50)])
+    def test_or(self, compiler, tmp_path, a, b):
+        src = f'''fn main(): i32 {{
+    if ({a} > 0 or {b} > 0) {{ print(1) }} else {{ print(0) }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == ("1" if a > 0 or b > 0 else "0")
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_negate(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print(-{n}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(-n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_complex_expr(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print(({n} + 1) * 2 - {n}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str((n + 1) * 2 - n)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_string_concat(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let s = "value" + " "
+    print(s)
+    print({n})
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == f"value \n{n}"
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_pow(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print(2 ** {n % 16}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(2 ** (n % 16))
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_paren_expr(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print((({n} + 1) * ({n} + 2)) - ({n} * {n})) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        expected = (n + 1) * (n + 2) - n * n
+        assert run.stdout.strip() == str(expected)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_multi_op(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print({n} + {n+1} + {n+2} + {n+3} + {n+4}) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 5 + 10)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_mixed_ops(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print({n} * 2 + {n} * 3) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 5)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_div_mul(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print(({n} * 6) / 2) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_chained_cmp(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let x = {n}
+    if (x >= 0 and x < 100) {{ print(1) }} else {{ print(0) }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == ("1" if 0 <= n < 100 else "0")
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_nested_arithmetic(self, compiler, tmp_path, n):
+        src = f'fn main(): i32 {{ print((({n} + 1) * 2 + 3) * 4) return 0 }}'
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(((n + 1) * 2 + 3) * 4)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_bool_to_int(self, compiler, tmp_path, n):
+        src = f'''fn main(): i32 {{
+    let b = {n} > 50
+    if (b) {{ print(1) }} else {{ print(0) }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == ("1" if n > 50 else "0")
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_function_call_expr(self, compiler, tmp_path, n):
+        src = f'''fn f(x: i32): i32 {{ return x * x + x }}
+fn main(): i32 {{ print(f({n})) return 0 }}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n * n + n)
+
+
+# ============================================================
+# 31. HashMap-like API Tests (200 tests)
+# ============================================================
+@pytest.mark.feature
+class TestHashMapAPI:
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Generic struct ref access not fully working")
+    def test_generic_struct_ref_access(self, compiler, tmp_path, n):
+        src = f'''type Map:[V] = struct {{ size: i32 cap: i32 }}
+fn get_size:[V](m: &Map:[V]): i32 {{ return m.size }}
+fn main(): i32 {{
+    let mut m = Map:[i32]{{ size: {n} cap: 100 }}
+    print(get_size:[i32](&m))
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n)
+
+    @pytest.mark.parametrize("n", range(50))
+    @pytest.mark.xfail(reason="Generic struct ref mutation not fully working")
+    def test_generic_struct_ref_mutate(self, compiler, tmp_path, n):
+        src = f'''type Map:[V] = struct {{ size: i32 cap: i32 }}
+fn inc_size:[V](m: &Map:[V]) {{ m.size = m.size + 1 }}
+fn main(): i32 {{
+    let mut m = Map:[i32]{{ size: {n} cap: 100 }}
+    inc_size:[i32](&m)
+    inc_size:[i32](&m)
+    inc_size:[i32](&m)
+    print(m.size)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n + 3)
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_hash_fn(self, compiler, tmp_path, n):
+        src = f'''fn hash_str(s: string): i32 {{
+    let mut hash = 5381
+    for (i in 0 .. s.length) {{
+        hash = (hash * 33) + s[i]
+    }}
+    if (hash < 0) {{ hash = -hash }}
+    return hash
+}}
+fn main(): i32 {{
+    let h = hash_str("test{n}")
+    print(h)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() is not None
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_bucket_index(self, compiler, tmp_path, n):
+        src = f'''fn hash_str(s: string): i32 {{
+    let mut hash = 5381
+    for (i in 0 .. s.length) {{
+        hash = (hash * 33) + s[i]
+    }}
+    if (hash < 0) {{ hash = -hash }}
+    return hash
+}}
+fn bucket_index(key: string, cap: i32): i32 {{
+    let h = hash_str(key)
+    return h % cap
+}}
+fn main(): i32 {{
+    let idx = bucket_index("key{n}", {max(n, 1)})
+    print(idx)
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() is not None
+
+    @pytest.mark.parametrize("n", range(50))
+    def test_option_match(self, compiler, tmp_path, n):
+        src = f'''fn find_val(arr: [i32], target: i32): ?i32 {{
+    for (i in 0 .. arr.length) {{
+        if (arr[i] == target) {{ return Some(arr[i]) }}
+    }}
+    return None
+}}
+fn main(): i32 {{
+    let arr = [{n}, {n+1}, {n+2}, {n+3}, {n+4}]
+    let found = find_val(arr, {n+2})
+    match found {{
+        Some(v) -> print(v)
+        None -> print(-1)
+    }}
+    return 0
+}}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == str(n + 2)

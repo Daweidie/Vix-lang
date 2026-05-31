@@ -80,7 +80,7 @@ class TestTypeInference:
         assert run.stdout.strip() == "30"
 
     def test_infer_from_function_call(self, compiler, tmp_path):
-        src = '''fn get_val() -> i32 { return 99 }
+        src = '''fn get_val(): i32 { return 99 }
 fn main(): i32 { let x = get_val() print(x) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -100,7 +100,7 @@ fn main(): i32 { greet() return 0 }'''
         assert run.stdout.strip() == "hi"
 
     def test_i32_return(self, compiler, tmp_path):
-        src = '''fn add(a: i32, b: i32) -> i32 { return a + b }
+        src = '''fn add(a: i32, b: i32): i32 { return a + b }
 fn main(): i32 { print(add(3, 4)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -114,14 +114,14 @@ fn main(): i32 { greet("world") return 0 }'''
         assert "hello" in run.stdout
 
     def test_pointer_param(self, compiler, tmp_path):
-        src = '''fn deref(p: ptr) -> i32 { return @p }
+        src = '''fn deref(p: ptr): i32 { return @p }
 fn main(): i32 { let x = 42 print(deref(&x)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == "42"
 
     def test_f64_params(self, compiler, tmp_path):
-        src = '''fn add(a: f64, b: f64) -> f64 { return a + b }
+        src = '''fn add(a: f64, b: f64): f64 { return a + b }
 fn main(): i32 { print(add(1.5, 2.5)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -135,7 +135,7 @@ fn main(): i32 { do_nothing(42) print("ok") return 0 }'''
         assert "ok" in run.stdout
 
     def test_multiple_params(self, compiler, tmp_path):
-        src = '''fn sum5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32 { return a + b + c + d + e }
+        src = '''fn sum5(a: i32, b: i32, c: i32, d: i32, e: i32): i32 { return a + b + c + d + e }
 fn main(): i32 { print(sum5(1, 2, 3, 4, 5)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -343,7 +343,7 @@ fn main(): i32 {
 @pytest.mark.feature
 class TestADTTypes:
     def test_option_type(self, compiler, tmp_path):
-        src = '''fn find(x: i32) -> ?i32 {
+        src = '''fn find(x: i32): ?i32 {
     if (x > 0) { return Some(x) }
     return None
 }
@@ -356,7 +356,7 @@ fn main(): i32 {
         assert compile_res.returncode == 0
 
     def test_result_type(self, compiler, tmp_path):
-        src = '''fn safe_div(a: i32, b: i32) -> Result[i32, string] {
+        src = '''fn safe_div(a: i32, b: i32): Result[i32, string] {
     if (b == 0) { return Err("division by zero") }
     return Ok(a / b)
 }
@@ -427,8 +427,8 @@ class TestStringType:
 @pytest.mark.feature
 class TestExternTypes:
     def test_extern_function_call(self, compiler, tmp_path):
-        src = '''extern "C" { fn printf(format: ptr, ...) -> i32 }
-fn main() -> i32 {
+        src = '''extern "C" { fn printf(format: ptr, ...): i32 }
+fn main(): i32 {
     printf("extern works\\n")
     return 0
 }'''
@@ -437,8 +437,8 @@ fn main() -> i32 {
         assert "extern works" in run.stdout
 
     def test_extern_with_varargs(self, compiler, tmp_path):
-        src = '''extern "C" { fn printf(format: ptr, ...) -> i32 }
-fn main() -> i32 {
+        src = '''extern "C" { fn printf(format: ptr, ...): i32 }
+fn main(): i32 {
     printf("value: %d\\n", 42)
     return 0
 }'''
@@ -1212,7 +1212,7 @@ class TestCompilerRobustness:
         assert run.stdout.strip() == str(expected)
 
     def test_recursive_function(self, compiler, tmp_path):
-        src = '''fn fib(n: i32) -> i32 {
+        src = '''fn fib(n: i32): i32 {
     if (n <= 1) { return n }
     return fib(n - 1) + fib(n - 2)
 }

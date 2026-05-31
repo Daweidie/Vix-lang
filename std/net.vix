@@ -29,14 +29,14 @@ pub fn new_tcp() : Result[Socket, string]
     }
     Ok(Socket{fd: fd})
 }
-pub fn connect_tcp(sock: Socket, address: sockaddr_in): Result[(), string]
+pub fn connect_tcp(sock: Socket, address: sockaddr_in): Result[i32, string]
 {
     let res = connect(sock.fd, &address, 16)
     if (res < 0)
     {
         return Err("Failed to connect")
     }
-    Ok(())
+    Ok(0)
 }
 fn main(): i32
 {

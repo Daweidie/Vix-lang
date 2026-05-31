@@ -1,4 +1,4 @@
-fn sum_arr(arr: [i32]) -> i32
+fn sum_arr(arr: [i32]): i32
 {
 	let mut s = 0
 	for (i in 0 .. arr.length) {

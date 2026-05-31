@@ -178,8 +178,17 @@ static void print_caret_line(const char* line, int column, int length, const cha
     int line_len = (int)strlen(line);
     if (col > line_len + 1) col = line_len + 1;
 
+    int display_col = 0;
     for (int i = 0; i < col - 1 && line[i] != '\0'; i++) {
-        fputc(line[i] == '\t' ? '\t' : ' ', stderr);
+        if (line[i] == '\t') {
+            display_col = ((display_col / 8) + 1) * 8;
+        } else {
+            display_col++;
+        }
+    }
+
+    for (int i = 0; i < display_col; i++) {
+        fputc(' ', stderr);
     }
 
     fprintf(stderr, "%s%s", colorize(color), colorize(ANSI_BOLD));
@@ -543,12 +552,16 @@ void report_lexical_error_with_location(const char* message, const char* filenam
 }
 
 void report_syntax_error_with_location(const char* token, const char* filename, int line) {
+    report_syntax_error_with_location_column(token, filename, line, 1);
+}
+
+void report_syntax_error_with_location_column(const char* token, const char* filename, int line, int column) {
     const char* old_filename;
     int old_line;
     int old_column;
     char buffer[256];
 
-    push_location(filename, line, 1, &old_filename, &old_line, &old_column);
+    push_location(filename, line, column, &old_filename, &old_line, &old_column);
     if (token) {
         snprintf(buffer, sizeof(buffer), "unexpected token '%s'", token);
     } else {

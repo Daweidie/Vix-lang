@@ -1,5 +1,5 @@
 // Boolean logic with and/or keywords
-fn check(x: i32) -> i32
+fn check(x: i32): i32
 {
 	if (x > 0 and x < 100) {
 		return 1

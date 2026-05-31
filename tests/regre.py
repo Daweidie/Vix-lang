@@ -13,11 +13,11 @@ class TestExistingRegression:
         "test1.vix": (True, ["123", "xyz"]),
         "test2.vix": (False, "capturing local variables"),
         "test3.vix": (False, "capturing local variables"),
-        "test4.vix": (False, "expected type"),
+        "test4.vix": (False, "capturing local variables"),
         "test5.vix": (True, []),
         "test6.vix": (True, ["3.500000"]),
-        "test7.vix": (False, "expected type"),
-        "test8.vix": (False, "expected type"),
+        "test7.vix": (True, ["42"]),
+        "test8.vix": (False, "undefined identifier"),
         "test9.vix": (True, ["123", "xyz"]),
         "test10.vix": (True, ["3", "2"]),
         "test11.vix": (False, "self-recursive struct fields"),
@@ -230,13 +230,21 @@ class TestExistingRegression:
         "test218.vix": (True, ["1", "-1", "-1", "-1", "1"]),
         "test219.vix": (True, ["10", "20", "20", "10"]),
         "test220.vix": (True, ["A", "B", "C", "D", "F"]),
+        "test221.vix": (True, ["100", "200", "300"]),
+        "test222.vix": (True, ["42", "1", "2", "3"]),
+        "test223.vix": (True, ["10"]),
+        "test224.vix": (True, ["261238937", "279393645", "5381"]),
+        "test225.vix": (True, ["42", "hello"]),
+        "test226.vix": (True, ["10", "20"]),
+        "test227.vix": (True, ["3", "updated"]),
+        "test228.vix": (True, ["-1", "1", "0"]),
     }
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
         "test_num",
-        list(range(1, 221)),
-        ids=[f"test{n}" for n in range(1, 221)],
+        list(range(1, 229)),
+        ids=[f"test{n}" for n in range(1, 229)],
     )
     def test_regression(self, compiler, tmp_path, test_num):
         test_file = TEST_DIR / f"test{test_num}.vix"

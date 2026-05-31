@@ -9,7 +9,7 @@ fn test_2() {
         print(i)
     }
 }
-fn main() ->  i32 {
+fn main(): i32 {
     print("Testing:")
     test_1()
     print("Testing:")
