@@ -279,6 +279,33 @@ class TestArrayTypes:
         assert "hello" in run.stdout
         assert "world" in run.stdout
 
+    def test_array_param_copy_mutation_warning(self, compiler, tmp_path):
+        src = '''fn add_one(points: [i32]): i32 {
+    let len = points.length
+    points.push(4)
+    return len
+}
+fn main(): i32 {
+    let points = [1, 2, 3]
+    return add_one(points)
+}'''
+        compile_res, _ = compile_and_run(compiler, src, tmp_path)
+        assert compile_res.returncode == 0
+        assert "array parameter 'points' is modified after reading its length" in compile_res.stderr
+        assert "array parameter 'points' is modified but changes are lost" in compile_res.stderr
+
+    def test_unused_array_param_warning(self, compiler, tmp_path):
+        src = '''fn process(points: [i32]): i32 {
+    return 0
+}
+fn main(): i32 {
+    let points = [1, 2, 3]
+    return process(points)
+}'''
+        compile_res, _ = compile_and_run(compiler, src, tmp_path)
+        assert compile_res.returncode == 0
+        assert "array parameter 'points' is never used" in compile_res.stderr
+
 
 # ============================================================
 # 7. Struct Types
