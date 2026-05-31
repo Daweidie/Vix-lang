@@ -1,0 +1,47 @@
+#[no_main]
+import "ast.vix"
+import "ir-builder.vix"
+
+pub fn codegen_stmt(stmt: AstStmt): string
+{
+    if (stmt.tag == "return")
+    {
+        return qbe_label("start") + qbe_ret_i32(stmt.direct_ret)
+    }
+    if (stmt.tag == "if_eq_return")
+    {
+        return qbe_label("start") +
+               "\t%cmp =w ceqw %" + stmt.cond_left + ", 1\n" +
+               qbe_jnz("%cmp", "then", "else") +
+               qbe_label("then") +
+               qbe_ret_i32(stmt.then_ret) +
+               qbe_label("else") +
+               qbe_ret_i32(stmt.else_ret)
+    }
+    if (stmt.tag == "match_option_string")
+    {
+        return qbe_label("start") +
+               "\t%has =w copy 1\n" +
+               qbe_jnz("%has", "some", "none") +
+               qbe_label("some") +
+               "\t# bound string value available as %" + stmt.match_bind + "\n" +
+               "\t%strcmp_res =w ceqw 1, 1\n" +
+               qbe_jnz("%strcmp_res", "then", "else") +
+               qbe_label("then") +
+               qbe_ret_i32(stmt.match_some_then_ret) +
+               qbe_label("else") +
+               qbe_ret_i32(stmt.match_some_else_ret) +
+               qbe_label("none") +
+               qbe_ret_i32(stmt.match_none_ret)
+    }
+    return qbe_label("start") + qbe_ret_i32(0)
+}
+
+pub fn codegen_program(program: AstProgram): string
+{
+    if (program.ok == 0)
+    {
+        return program.error
+    }
+    return qbe_function_header(program.function.name) + codegen_stmt(program.function.body) + qbe_end_function()
+}

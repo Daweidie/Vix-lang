@@ -807,6 +807,8 @@ private:
     TypeHelper typeHelper;
     Function* printfFunction;
     Function* strlenFunction;
+    Function* strcpyFunction;
+    Function* strcatFunction;
     bool isGlobalScope;
     bool mainFunctionCreated;
     SourceAttrInfo sourceAttrs;
@@ -1163,6 +1165,24 @@ private:
         );
         strlenFunction->setCallingConv(CallingConv::C);
     }
+
+    Function* getOrCreateStrcpyFunction() {
+        if (strcpyFunction) return strcpyFunction;
+        Type* i8PtrTy = PointerType::get(context, 0);
+        FunctionType* strcpyType = FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+        strcpyFunction = Function::Create(strcpyType, Function::ExternalLinkage, "strcpy", module.get());
+        strcpyFunction->setCallingConv(CallingConv::C);
+        return strcpyFunction;
+    }
+
+    Function* getOrCreateStrcatFunction() {
+        if (strcatFunction) return strcatFunction;
+        Type* i8PtrTy = PointerType::get(context, 0);
+        FunctionType* strcatType = FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy}, false);
+        strcatFunction = Function::Create(strcatType, Function::ExternalLinkage, "strcat", module.get());
+        strcatFunction->setCallingConv(CallingConv::C);
+        return strcatFunction;
+    }
     Type* getPointerElementTypeSafely(PointerType* ptrType, const std::string& varName) {
         if (!ptrType) return Type::getInt8Ty(context);
 
@@ -1335,6 +1355,37 @@ private:
         Function* reallocFn = Function::Create(reallocType, Function::ExternalLinkage, "realloc", module.get());
         reallocFn->setCallingConv(CallingConv::C);
         return reallocFn;
+    }
+
+    Value* emitStringConcat(Value* left, Value* right) {
+        if (!left || !right) return nullptr;
+        Type* i8PtrTy = PointerType::get(context, 0);
+        if (left->getType() != i8PtrTy) {
+            left = builder.CreateBitCast(left, i8PtrTy, "strcat_left_cast");
+        }
+        if (right->getType() != i8PtrTy) {
+            right = builder.CreateBitCast(right, i8PtrTy, "strcat_right_cast");
+        }
+
+        Value* empty = safeCreateGlobalString("", "strcat_empty");
+        if (empty) {
+            left = builder.CreateSelect(builder.CreateIsNull(left, "strcat_left_is_null"), empty, left, "strcat_left_safe");
+            right = builder.CreateSelect(builder.CreateIsNull(right, "strcat_right_is_null"), empty, right, "strcat_right_safe");
+        }
+
+        initStrlen();
+        Function* reallocFn = getOrCreateReallocFunction();
+        Function* strcpyFn = getOrCreateStrcpyFunction();
+        Function* strcatFn = getOrCreateStrcatFunction();
+
+        Value* leftLen = builder.CreateCall(strlenFunction, {left}, "strcat_lhs_len");
+        Value* rightLen = builder.CreateCall(strlenFunction, {right}, "strcat_rhs_len");
+        Value* totalLen = builder.CreateAdd(leftLen, rightLen, "strcat_total_len");
+        Value* allocSize = builder.CreateAdd(totalLen, ConstantInt::get(Type::getInt64Ty(context), 1), "strcat_alloc_sz");
+        Value* buf = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), allocSize}, "strcat_buf");
+        builder.CreateCall(strcpyFn, {buf, left});
+        builder.CreateCall(strcatFn, {buf, right});
+        return buf;
     }
 
     static constexpr uint64_t ARRAY_HEADER_BYTES = 8;
@@ -1597,7 +1648,7 @@ public:
         VisitResult(Value* v, ValueType t, StructType* st) : value(v), type(t), structType(st) {}
     };
     
-    LLVMCodeGenerator() : builder(context), typeHelper(context) {
+        LLVMCodeGenerator() : builder(context), typeHelper(context) {
         module = std::make_unique<Module>("VixModule", context);
         std::string Triple = g_vix_target_triple.empty() ? sys::getProcessTriple() : g_vix_target_triple;
         llvm::Triple targetTriple(Triple);
@@ -1608,6 +1659,8 @@ public:
         #endif
         printfFunction = nullptr;
         strlenFunction = nullptr;
+        strcpyFunction = nullptr;
+        strcatFunction = nullptr;
         isGlobalScope = true;
         mainFunctionCreated = false;
         sourceAttrs = parseSourceAttributes(current_input_filename);
@@ -2005,6 +2058,20 @@ public:
                 }
                 Value* gep = builder.CreateInBoundsGEP(elemType, ptrVal, idxVal, "ptr_arith");
                 return VisitResult(gep, ValueType::POINTER);
+            }
+        }
+
+        if (node->data.binop.op == OP_ADD) {
+            bool leftIsString = (leftRes.type == ValueType::STRING) ||
+                                (node->data.binop.left && node->data.binop.left->type == AST_STRING);
+            bool rightIsString = (rightRes.type == ValueType::STRING) ||
+                                 (node->data.binop.right && node->data.binop.right->type == AST_STRING);
+            if (leftIsString && rightIsString &&
+                leftRes.value->getType()->isPointerTy() && rightRes.value->getType()->isPointerTy()) {
+                Value* concat = emitStringConcat(leftRes.value, rightRes.value);
+                if (concat) {
+                    return VisitResult(concat, ValueType::STRING);
+                }
             }
         }
 
@@ -4217,9 +4284,55 @@ public:
                 AllocaInst* objectAlloc = nullptr;
                 Value* objectSlotPtr = nullptr;
                 Type* objectSlotElemType = nullptr;
+                Value* objectFieldPtr = nullptr;
+                Type* objectFieldType = nullptr;
                 if (!objectName.empty()) {
                     objectAlloc = scopeManager.findVariable(objectName);
                     if (!objectAlloc) objectAlloc = findVariableInMain(objectName);
+                }
+
+                if (!objectAlloc && objectNode->type == AST_MEMBER_ACCESS) {
+                    ASTNode* baseObject = objectNode->data.member_access.object;
+                    ASTNode* baseField = objectNode->data.member_access.field;
+                    if (baseObject && baseField && baseField->type == AST_IDENTIFIER && baseField->data.identifier.name) {
+                        std::string fieldName(baseField->data.identifier.name);
+                        VisitResult baseRes = visit(baseObject);
+                        StructType* structType = nullptr;
+                        Value* basePtr = nullptr;
+
+                        if (baseRes.structType) {
+                            structType = baseRes.structType;
+                            basePtr = baseRes.value;
+                        }
+
+                        if (!structType && baseObject->type == AST_IDENTIFIER && baseObject->data.identifier.name) {
+                            std::string baseName(baseObject->data.identifier.name);
+                            AllocaInst* baseAlloc = scopeManager.findVariable(baseName);
+                            if (!baseAlloc) baseAlloc = findVariableInMain(baseName);
+                            if (baseAlloc) {
+                                Type* allocType = getActualType(baseAlloc);
+                                if (allocType && allocType->isStructTy()) {
+                                    structType = cast<StructType>(allocType);
+                                    basePtr = baseAlloc;
+                                } else if (allocType && allocType->isPointerTy()) {
+                                    auto hintIt = pointerElementHints.find(baseAlloc);
+                                    if (hintIt != pointerElementHints.end() && hintIt->second && hintIt->second->isStructTy()) {
+                                        structType = cast<StructType>(hintIt->second);
+                                        basePtr = builder.CreateLoad(allocType, baseAlloc, fieldName + "_push_base_ld");
+                                    }
+                                }
+                            }
+                        }
+
+                        if (structType && basePtr) {
+                            std::string structName = structType->getName().str();
+                            int idx = typeHelper.getFieldIndex(structName, fieldName);
+                            if (idx >= 0) {
+                                objectFieldPtr = builder.CreateStructGEP(structType, basePtr, idx, fieldName + "_push_addr");
+                                objectFieldType = structType->getElementType(idx);
+                            }
+                        }
+                    }
                 }
 
                 if (!objectAlloc && objectNode->type == AST_INDEX) {
@@ -4286,6 +4399,9 @@ public:
                 else if (elemType->isFloatTy()) elemBytes = 4;
 
                 Value* oldPtr = objectRes.value;
+                if (objectFieldPtr && objectFieldType) {
+                    oldPtr = builder.CreateLoad(objectFieldType, objectFieldPtr, "push_field_load");
+                }
                 Type* targetPtrTy = PointerType::get(context, 0);
                 if (oldPtr->getType() != targetPtrTy) {
                     oldPtr = builder.CreateBitCast(oldPtr, targetPtrTy, "push_old_ptr_cast");
@@ -4340,6 +4456,25 @@ public:
                         slotStorePtr = builder.CreateBitCast(slotStorePtr, objectSlotElemType, "push_slot_store_cast");
                     }
                     builder.CreateStore(slotStorePtr, objectSlotPtr);
+                }
+
+                if (objectFieldPtr && objectFieldType && objectFieldType->isPointerTy()) {
+                    Value* fieldStorePtr = newPtr;
+                    if (fieldStorePtr->getType() != objectFieldType) {
+                        fieldStorePtr = builder.CreateBitCast(fieldStorePtr, objectFieldType, "push_field_store_cast");
+                    }
+                    builder.CreateStore(fieldStorePtr, objectFieldPtr);
+
+                    if (objectNode->type == AST_MEMBER_ACCESS) {
+                        ASTNode* baseObject = objectNode->data.member_access.object;
+                        ASTNode* baseField = objectNode->data.member_access.field;
+                        if (baseObject && baseField &&
+                            baseObject->type == AST_IDENTIFIER && baseObject->data.identifier.name &&
+                            baseField->type == AST_IDENTIFIER && baseField->data.identifier.name) {
+                            std::string key = std::string(baseObject->data.identifier.name) + "." + std::string(baseField->data.identifier.name);
+                            memberArrayLengthHints[key] = -1;
+                        }
+                    }
                 }
 
                 if (!objectName.empty()) {
@@ -5066,13 +5201,19 @@ public:
         }
 
         if (object->type == AST_MEMBER_ACCESS) {
+            VisitResult objRes = visit(object);
+            if (objRes.value && objRes.value->getType()->isPointerTy()) {
+                Value* runtimeLen = emitLoadArrayLength(objRes.value, "member_arr_len");
+                return VisitResult(runtimeLen, ValueType::INT32);
+            }
+
             ASTNode* obj = object->data.member_access.object;
             ASTNode* field = object->data.member_access.field;
             if (obj && field && obj->type == AST_IDENTIFIER && field->type == AST_IDENTIFIER &&
                 obj->data.identifier.name && field->data.identifier.name) {
                 std::string key = std::string(obj->data.identifier.name) + "." + std::string(field->data.identifier.name);
                 auto it = memberArrayLengthHints.find(key);
-                if (it != memberArrayLengthHints.end()) {
+                if (it != memberArrayLengthHints.end() && it->second >= 0) {
                     return VisitResult(ConstantInt::get(Type::getInt32Ty(context), it->second), ValueType::INT32);
                 }
             }

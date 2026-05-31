@@ -1,32 +1,234 @@
-pub type Result:[T, E] = Ok(T) | Err(E)
+#[no_main]
 
-pub type TokenKind =  Identifier
-    | Number
-    | String
-    | Keyword
-    | Symbol
-    | EOF
-
-pub type Token = struct 
+extern "C"
 {
-    kind:TokenKind,
-    value:string,
-    line:u32,
-    column:u32
-
+    fn malloc(size: usize): string
+    fn snprintf(buf: string, size: usize, fmt: string, ...): i32
 }
 
-fn skip_ws(src:string,pos:i32): i32
+pub type TokenStream = struct {
+    kinds: [i32],
+    texts: [string],
+    ints: [i32],
+    lines: [i32],
+    columns: [i32]
+}
+
+pub fn token_identifier(): i32 { return 1 }
+pub fn token_number(): i32 { return 2 }
+pub fn token_keyword(): i32 { return 3 }
+pub fn token_symbol(): i32 { return 4 }
+pub fn token_string(): i32 { return 5 }
+pub fn token_eof(): i32 { return 6 }
+
+pub fn lexer_i32(n: i32): string
 {
-    let mut i = pos
-    while(i < src.length and (src[i] == ' ' or src[i] == '\t' or src[i] == '\n' or src[i] == '\r'))
+    let buf: string = malloc(64)
+    snprintf(buf, 64, "%d", n)
+    return buf
+}
+
+pub fn stream_new(): TokenStream
+{
+    return TokenStream{ kinds: [], texts: [], ints: [], lines: [], columns: [] }
+}
+
+pub fn stream_push(stream: &TokenStream, kind: i32, text: string, int_value: i32, line: i32, column: i32)
+{
+    stream.kinds.push(kind)
+    stream.texts.push(text)
+    stream.ints.push(int_value)
+    stream.lines.push(line)
+    stream.columns.push(column)
+}
+
+pub fn stream_len(stream: TokenStream): i32
+{
+    return stream.kinds.length
+}
+
+pub fn stream_kind_at(stream: TokenStream, index: i32): i32
+{
+    return stream.kinds[index]
+}
+
+pub fn stream_text_at(stream: TokenStream, index: i32): string
+{
+    return stream.texts[index]
+}
+
+pub fn stream_int_at(stream: TokenStream, index: i32): i32
+{
+    return stream.ints[index]
+}
+
+pub fn stream_line_at(stream: TokenStream, index: i32): i32
+{
+    return stream.lines[index]
+}
+
+pub fn stream_col_at(stream: TokenStream, index: i32): i32
+{
+    return stream.columns[index]
+}
+
+pub fn peek_char(src: string, pos: i32): ?i8
+{
+    if (pos < 0 or pos >= src.length)
     {
-        i += 1
+        return None
     }
-    return i
+    return Some(src[pos])
 }
 
-fn tokenize(src:string): Result:[Token,string]
+pub fn is_alpha(c: i8): i32
 {
-    return Err("not implemented")
+    if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_') { return 1 }
+    return 0
+}
+
+pub fn is_digit(c: i8): i32
+{
+    if (c >= '0' and c <= '9') { return 1 }
+    return 0
+}
+
+pub fn is_ident(c: i8): i32
+{
+    if (is_alpha(c) == 1 or is_digit(c) == 1) { return 1 }
+    return 0
+}
+
+pub fn char_string(c: i8): string
+{
+    let s: string = malloc(2)
+    s[0] = c
+    s[1] = '\0'
+    return s
+}
+
+pub fn is_keyword(text: string): i32
+{
+    if (text == "fn" or text == "return" or text == "i32" or text == "match" or text == "if" or text == "Some" or text == "None")
+    {
+        return 1
+    }
+    return 0
+}
+
+pub fn keyword_token_kind(text: string): ?i32
+{
+    if (is_keyword(text) == 1)
+    {
+        return Some(token_keyword())
+    }
+    return None
+}
+
+pub fn tokenize(src: string): TokenStream
+{
+    let stream = stream_new()
+    let mut pos = 0
+    let mut line = 1
+    let mut column = 1
+
+    while (pos < src.length)
+    {
+        match peek_char(src, pos)
+        {
+            Some(c) -> {
+                if (c == ' ' or c == '\t' or c == '\r')
+                {
+                    pos += 1
+                    column += 1
+                }
+                elif (c == '\n')
+                {
+                    pos += 1
+                    line += 1
+                    column = 1
+                }
+                elif (is_alpha(c) == 1)
+                {
+                    let start_col = column
+                    let mut text = ""
+                    while (pos < src.length and is_ident(src[pos]) == 1)
+                    {
+                        text = text + char_string(src[pos])
+                        pos += 1
+                        column += 1
+                    }
+                    match keyword_token_kind(text)
+                    {
+                        Some(kind) -> stream_push(&stream, kind, text, 0, line, start_col)
+                        None -> stream_push(&stream, token_identifier(), text, 0, line, start_col)
+                    }
+                }
+                elif (is_digit(c) == 1)
+                {
+                    let start_col = column
+                    let mut value = 0
+                    while (pos < src.length and is_digit(src[pos]) == 1)
+                    {
+                        value = value * 10 + (src[pos] - '0')
+                        pos += 1
+                        column += 1
+                    }
+                    stream_push(&stream, token_number(), "", value, line, start_col)
+                }
+                elif (c == '"')
+                {
+                    let start_col = column
+                    let mut text = ""
+                    pos += 1
+                    column += 1
+                    while (pos < src.length and src[pos] != '"')
+                    {
+                        text = text + char_string(src[pos])
+                        pos += 1
+                        column += 1
+                    }
+                    if (pos < src.length and src[pos] == '"')
+                    {
+                        pos += 1
+                        column += 1
+                    }
+                    stream_push(&stream, token_string(), text, 0, line, start_col)
+                }
+                elif (c == '=' and pos + 1 < src.length and src[pos + 1] == '>')
+                {
+                    stream_push(&stream, token_symbol(), "=>", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '=' and pos + 1 < src.length and src[pos + 1] == '=')
+                {
+                    stream_push(&stream, token_symbol(), "==", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                else
+                {
+                    stream_push(&stream, token_symbol(), char_string(c), 0, line, column)
+                    pos += 1
+                    column += 1
+                }
+            }
+            None -> pos = src.length
+        }
+    }
+
+    stream_push(&stream, token_eof(), "", 0, line, column)
+    return stream
+}
+
+pub fn tokenize_debug(src: string): string
+{
+    let stream = tokenize(src)
+    let mut out = ""
+    for (i in 0 .. stream_len(stream))
+    {
+        out = out + "Token(kind=" + lexer_i32(stream_kind_at(stream, i)) + ", text='" + stream_text_at(stream, i) + "', int=" + lexer_i32(stream_int_at(stream, i)) + ", line=" + lexer_i32(stream_line_at(stream, i)) + ", col=" + lexer_i32(stream_col_at(stream, i)) + ")\n"
+    }
+    return out
 }

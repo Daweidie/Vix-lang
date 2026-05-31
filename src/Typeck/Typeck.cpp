@@ -441,6 +441,14 @@ struct TypeChecker {
 		return unify.apply(rhs);
 	}
 
+	bool is_string_compatible(const TypePtr& type) {
+		if (!type) {
+			return false;
+		}
+		TypePtr t = unify.apply(type);
+		return t->kind == TypeKind::String || t->kind == TypeKind::Ptr || t->kind == TypeKind::Var;
+	}
+
 	TypePtr register_function(ASTNode* fn) {
 		std::vector<TypePtr> params;
 		std::vector<int> generic_ids;
@@ -995,7 +1003,12 @@ struct TypeChecker {
 					try {
 						unify.unify(val->type, rtype);
 					} catch (const std::exception& ex) {
-						report_type_error(node, ex.what());
+						TypePtr lresolved = unify.apply(val->type);
+						TypePtr rresolved = unify.apply(rtype);
+						if (!((lresolved->kind == TypeKind::String && rresolved->kind == TypeKind::Ptr) ||
+						      (lresolved->kind == TypeKind::Ptr && rresolved->kind == TypeKind::String))) {
+							report_type_error(node, ex.what());
+						}
 					}
 				}
 			}
@@ -1017,7 +1030,12 @@ struct TypeChecker {
 			try {
 				unify.unify(ltype, rtype);
 			} catch (const std::exception& ex) {
-				report_type_error(node, ex.what());
+				TypePtr lresolved = unify.apply(ltype);
+				TypePtr rresolved = unify.apply(rtype);
+				if (!((lresolved->kind == TypeKind::String && rresolved->kind == TypeKind::Ptr) ||
+				      (lresolved->kind == TypeKind::Ptr && rresolved->kind == TypeKind::String))) {
+					report_type_error(node, ex.what());
+				}
 			}
 		}
 
@@ -1107,6 +1125,19 @@ struct TypeChecker {
 				report_type_error(node, ex.what());
 			}
 			return node_types[node] = builtin_string;
+		}
+
+		if (op == OP_ADD) {
+			TypePtr rl = unify.apply(lhs);
+			TypePtr rr = unify.apply(rhs);
+			bool has_string_operand = (rl->kind == TypeKind::String || rr->kind == TypeKind::String);
+			if (has_string_operand && is_string_compatible(lhs) && is_string_compatible(rhs)) {
+				try {
+					if (rl->kind == TypeKind::Var) unify.unify(lhs, builtin_string);
+					if (rr->kind == TypeKind::Var) unify.unify(rhs, builtin_string);
+				} catch (...) {}
+				return node_types[node] = builtin_string;
+			}
 		}
 
 		if (is_numeric(lhs) && is_numeric(rhs)) {
