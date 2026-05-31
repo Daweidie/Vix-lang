@@ -48,6 +48,7 @@ fn main(): i32
 
 - LearnVix:[GitHub Link](https://github.com/vixlang/LearnVix)
 - VixDocs:[GitHub Link](https://github.com/vixlang/LearnVix)
+- Zread: [Overview](https://zread.ai/vixlang/Vix-lang)
 
 ## Getting Help
 
