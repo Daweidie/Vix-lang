@@ -19,6 +19,11 @@ pub fn qbe_bool(v: i32): string
     return "1"
 }
 
+pub fn qbe_copy_i32(result_temp: string, value: i32): string
+{
+    return "\t" + result_temp + " =w copy " + qbe_i32(value) + "\n"
+}
+
 pub fn qbe_function_header(name: string): string
 {
     return "export function w $" + name + "()\n{\n"
@@ -41,7 +46,7 @@ pub fn qbe_jnz(temp: string, then_label: string, else_label: string): string
 
 pub fn qbe_eq_string(result_temp: string, left_name: string, right_literal: string): string
 {
-    return "\t" + result_temp + " =w ceql $strcmp(%," + left_name + ", $str_" + right_literal + ")\n"
+    return "\t" + result_temp + " =w call $vix_str_eq(l %" + left_name + ", l $str_" + right_literal + ")\n"
 }
 
 pub fn qbe_end_function(): string

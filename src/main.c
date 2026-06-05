@@ -338,27 +338,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (is_vic && gen_llvm) {
-    char llvm_filename[256];
-    if (strstr(llvm_f, ".ll") == NULL) {
-      snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
-    } else {
-      strcpy(llvm_filename, llvm_f);
-    }
-
-    FILE *llvm_file = fopen(llvm_filename, "w");
-    if (!llvm_file) {
-      fprintf(stderr, "Er: Cannot open LLVM IR file %s for writing\n",
-              llvm_filename);
-      fclose(input_file);
-      return 1;
-    }
-
-    llvm_emit_from_ast(root, llvm_file);
-    fclose(llvm_file);
-    fclose(input_file);
-    return 0;
-  }
+  (void)is_vic;
 
   current_input_filename = in_f;
   load_source_file(in_f);
@@ -443,7 +423,16 @@ int main(int argc, char **argv) {
         llvm_f = llvm_filename;
       } else {
         if (strstr(llvm_f, ".ll") == NULL) {
-          snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
+          int written = snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
+          if (written < 0 || (size_t)written >= sizeof(llvm_filename)) {
+            fprintf(stderr, "Error: LLVM IR output path is too long\n");
+            if (root) {
+              free_ast(root);
+            }
+            cleanup_error_handler();
+            fclose(input_file);
+            return 1;
+          }
           llvm_f = llvm_filename;
         }
       }
@@ -574,7 +563,13 @@ int main(int argc, char **argv) {
             size_t len = dot - llvm_f;
             snprintf(obj_file, sizeof(obj_file), "%.*s.o", (int)len, llvm_f);
           } else {
-            snprintf(obj_file, sizeof(obj_file), "%s.o", llvm_f);
+            int written = snprintf(obj_file, sizeof(obj_file), "%s.o", llvm_f);
+            if (written < 0 || (size_t)written >= sizeof(obj_file)) {
+              fprintf(stderr, "Error: object output path is too long\n");
+              remove(llvm_f);
+              fclose(input_file);
+              return 1;
+            }
           }
         }
 

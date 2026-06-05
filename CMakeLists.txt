@@ -133,8 +133,10 @@ target_include_directories(vixc PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/parser
 )
 target_compile_options(vixc PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -fno-stack-protector>
-    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -fno-stack-protector -fexceptions>
+    $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/W4>
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/W4 /EHsc>
+    $<$<AND:$<COMPILE_LANGUAGE:C>,$<NOT:$<C_COMPILER_ID:MSVC>>>:-Wall -Wextra -fstack-protector-strong>
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall -Wextra -fstack-protector-strong -fexceptions>
 )
 
 if(NOT WIN32)
@@ -157,9 +159,11 @@ else()
     )
     target_link_libraries(vixc PRIVATE ${LLVM_LIBS})
 endif()
-target_link_libraries(vixc PRIVATE
-    lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon
-)
+foreach(_lld_target IN ITEMS lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon)
+    if(TARGET ${_lld_target})
+        target_link_libraries(vixc PRIVATE ${_lld_target})
+    endif()
+endforeach()
 
 foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
     target_link_libraries(vixc PRIVATE ${lib})

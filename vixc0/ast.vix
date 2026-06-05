@@ -31,6 +31,7 @@ pub type AstStmt = struct {
     then_ret: i32,
     else_ret: i32,
     match_bind: string,
+    match_compare_right: string,
     match_some_then_ret: i32,
     match_some_else_ret: i32,
     match_none_ret: i32,
@@ -82,17 +83,17 @@ pub fn ast_expr_none(): AstExpr
 
 pub fn ast_stmt_return(value: i32): AstStmt
 {
-    return AstStmt{ tag: "return", value_expr: ast_expr_int(value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: value }
+    return AstStmt{ tag: "return", value_expr: ast_expr_int(value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: value }
 }
 
 pub fn ast_stmt_if_eq_ret(left: string, right: string, then_ret: i32, else_ret: i32): AstStmt
 {
-    return AstStmt{ tag: "if_eq_return", value_expr: ast_expr_eq(left, right), cond_left: left, cond_right: right, then_ret: then_ret, else_ret: else_ret, match_bind: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0 }
+    return AstStmt{ tag: "if_eq_return", value_expr: ast_expr_eq(left, right), cond_left: left, cond_right: right, then_ret: then_ret, else_ret: else_ret, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0 }
 }
 
-pub fn ast_stmt_match_some_none(bind: string, option_value: string, some_then_ret: i32, some_else_ret: i32, none_ret: i32): AstStmt
+pub fn ast_stmt_match_some_none(bind: string, option_value: string, compare_right: string, some_then_ret: i32, some_else_ret: i32, none_ret: i32): AstStmt
 {
-    return AstStmt{ tag: "match_option_string", value_expr: ast_expr_some_string(option_value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: bind, match_some_then_ret: some_then_ret, match_some_else_ret: some_else_ret, match_none_ret: none_ret, match_option_value: option_value, direct_ret: 0 }
+    return AstStmt{ tag: "match_option_string", value_expr: ast_expr_some_string(option_value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: bind, match_compare_right: compare_right, match_some_then_ret: some_then_ret, match_some_else_ret: some_else_ret, match_none_ret: none_ret, match_option_value: option_value, direct_ret: 0 }
 }
 
 pub fn ast_function(name: string, ret_ty: string, body: AstStmt): AstFunction
@@ -122,7 +123,7 @@ pub fn ast_stmt_debug(stmt: AstStmt): string
     }
     if (stmt.tag == "match_option_string")
     {
-        return "MatchSome(\"" + stmt.match_option_value + "\", " + stmt.match_bind + ", " + ast_i32(stmt.match_some_then_ret) + ", " + ast_i32(stmt.match_some_else_ret) + ", " + ast_i32(stmt.match_none_ret) + ")"
+        return "MatchSome(\"" + stmt.match_option_value + "\", " + stmt.match_bind + ", == \"" + stmt.match_compare_right + "\", " + ast_i32(stmt.match_some_then_ret) + ", " + ast_i32(stmt.match_some_else_ret) + ", " + ast_i32(stmt.match_none_ret) + ")"
     }
     return stmt.tag
 }

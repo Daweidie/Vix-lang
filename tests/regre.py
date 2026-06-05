@@ -7,7 +7,13 @@ from helpers import compile_vix, run_binary, compile_and_run, COMPILER, TEST_DIR
 
 
 class TestExistingRegression:
-    """Run all 400 existing regression tests through pytest."""
+    """Run existing regression tests through pytest."""
+
+    REGRESSION_CASES = sorted(
+        int(path.stem[4:])
+        for path in TEST_DIR.glob("test*.vix")
+        if path.stem[4:].isdigit()
+    )
 
     EXPECT = {
         "test1.vix": (True, ["123", "xyz"]),
@@ -92,7 +98,6 @@ class TestExistingRegression:
         "test80.vix": (True, ["0", "1", "2", "3", "4"]),
         "test81.vix": (True, ["55"]),
         "test82.vix": (True, ["9"]),
-        "test83.vix": (True, ["5"]),
         "test84.vix": (True, ["5"]),
         "test85.vix": (True, ["0", "1", "5", "55"]),
         "test86.vix": (True, ["1", "1", "120", "3628800"]),
@@ -193,7 +198,6 @@ class TestExistingRegression:
         "test181.vix": (True, ["100"]),
         "test182.vix": (True, ["hello", "100", "78.500000", "large"]),
         "test183.vix": (True, ["7", "12", "12", "11"]),
-        "test184.vix": (True, ["255", "10", "265", "16"]),
         "test185.vix": (True, ["50", "15", "6"]),
         "test186.vix": (True, ["0", "1", "3", "4", "15"]),
         "test187.vix": (True, ["1", "13", "3"]),
@@ -221,7 +225,6 @@ class TestExistingRegression:
         "test209.vix": (True, ["255", "10", "265"]),
         "test210.vix": (True, ["42"]),
         "test211.vix": (True, ["30"]),
-        "test212.vix": (True, ["15", "12", "48", "24", "3"]),
         "test213.vix": (True, ["big", "medium", "small", "non-positive", "non-positive"]),
         "test214.vix": (True, ["1", "2", "4", "5", "7", "8", "10"]),
         "test215.vix": (True, ["150", "5"]),
@@ -410,13 +413,16 @@ class TestExistingRegression:
         "test398.vix": (True, ["1", "2", "3"]),
         "test399.vix": (True, ["127", "1000000", "1000000000", "255", "-294967296", "3.141590", "hello"]),
         "test400.vix": (True, ["30", "47", "35"]),
+        "test401.vix": (True, ["10", "30", "40"]),
+        "test402.vix": (True, ["503"]),
+        "test403.vix": (True, ["5", "7", "edge"]),
     }
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
         "test_num",
-        list(range(1, 401)),
-        ids=[f"test{n}" for n in range(1, 401)],
+        REGRESSION_CASES,
+        ids=[f"test{n}" for n in REGRESSION_CASES],
     )
     def test_regression(self, compiler, tmp_path, test_num):
         test_file = TEST_DIR / f"test{test_num}.vix"

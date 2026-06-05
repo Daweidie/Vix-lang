@@ -11,7 +11,7 @@ pub fn codegen_stmt(stmt: AstStmt): string
     if (stmt.tag == "if_eq_return")
     {
         return qbe_label("start") +
-               "\t%cmp =w ceqw %" + stmt.cond_left + ", 1\n" +
+               qbe_eq_string("%cmp", stmt.cond_left, stmt.cond_right) +
                qbe_jnz("%cmp", "then", "else") +
                qbe_label("then") +
                qbe_ret_i32(stmt.then_ret) +
@@ -21,11 +21,11 @@ pub fn codegen_stmt(stmt: AstStmt): string
     if (stmt.tag == "match_option_string")
     {
         return qbe_label("start") +
-               "\t%has =w copy 1\n" +
+               qbe_copy_i32("%has", stmt.value_expr.option_has_value) +
                qbe_jnz("%has", "some", "none") +
                qbe_label("some") +
                "\t# bound string value available as %" + stmt.match_bind + "\n" +
-               "\t%strcmp_res =w ceqw 1, 1\n" +
+               qbe_eq_string("%strcmp_res", stmt.match_bind, stmt.match_compare_right) +
                qbe_jnz("%strcmp_res", "then", "else") +
                qbe_label("then") +
                qbe_ret_i32(stmt.match_some_then_ret) +

@@ -127,7 +127,7 @@ pub fn parse_match_stmt(parser: &Parser): AstStmt
     if (parser_expect_text(parser, "=>") == 0) { return ast_stmt_return(0) }
     let none_stmt = parse_return_stmt(parser)
     if (parser_expect_text(parser, "}") == 0) { return ast_stmt_return(0) }
-    return ast_stmt_match_some_none(bind, option_value, some_stmt.then_ret, some_stmt.else_ret, none_stmt.direct_ret)
+    return ast_stmt_match_some_none(bind, option_value, some_stmt.cond_right, some_stmt.then_ret, some_stmt.else_ret, none_stmt.direct_ret)
 }
 
 pub fn parse_function_body(parser: &Parser): AstStmt
