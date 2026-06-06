@@ -28,13 +28,18 @@ runtime-related components, examples, and language documentation.
 - **Reliability:** Static typing and compile-time checks catch common errors earlier.
 
 - **Simplicity:** The language keeps syntax concise while still supporting practical features like functions, modules, structs, pointers, generics, and control flow.
-```vix
+
+## Hello world!
+
+``` vix 
+import "std/io.vix"
 fn main(): i32
 {
-  print("Hello,world!")
-  return 0
+    puts("Hello,world!")
+    return 0
 }
 ```
+
 ## Repository Layout
 
 - `src/`: Compiler source code and build scripts.
