@@ -828,7 +828,8 @@ ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* r
         }
     }
 create_regular_binop:
-    ASTNode* node = alloc_ast_node();// 如果不能折叠，则创建正常的二元操作节点
+    ;// 如果不能折叠，则创建正常的二元操作节点
+    ASTNode* node = alloc_ast_node();
     node->type = AST_BINOP;
     node->location = location;
     node->data.binop.op = op;
