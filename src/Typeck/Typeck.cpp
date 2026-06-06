@@ -1659,12 +1659,25 @@ struct TypeChecker {
 		TypePtr var_type = unify.fresh();
 		if (node->data.for_stmt.end) {
 			TypePtr end_type = check_expr(node->data.for_stmt.end);
-			try {
-				unify.unify(iter_type, end_type);
-			} catch (const std::exception& ex) {
-				report_type_error(node, ex.what());
+			TypePtr resolved_iter = unify.apply(iter_type);
+			TypePtr resolved_end = unify.apply(end_type);
+			if (is_numeric(resolved_iter) && is_numeric(resolved_end)) {
+				TypePtr promoted = promote_numeric(resolved_iter, resolved_end);
+				try {
+					unify.unify(iter_type, promoted);
+					unify.unify(end_type, promoted);
+				} catch (const std::exception& ex) {
+					report_type_error(node, ex.what());
+				}
+				var_type = promoted;
+			} else {
+				try {
+					unify.unify(iter_type, end_type);
+				} catch (const std::exception& ex) {
+					report_type_error(node, ex.what());
+				}
+				var_type = iter_type;
 			}
-			var_type = iter_type;
 		} else {
 			if (iter_type->kind == TypeKind::Array) {
 				var_type = iter_type->data.array.element;

@@ -26,6 +26,15 @@
 - This fixes programs that build a global array with repeated `push` calls and then iterate it with `for`.
 - Files: `src/compiler/Funcs.cpp`
 
+## Bug Fixes
+
+### For-loop numeric type promotion
+- Fixed a type mismatch error when using a `for` loop with a range where the start and end are different numeric types (e.g., `0 .. bytes_read` where `0` is `I32` and `bytes_read` is `I64`).
+- The compiler now allows implicit numeric promotion between integer and float types in range expressions.
+- Modified `src/Typeck/Typeck.cpp` to use `promote_numeric` for range bounds.
+- Modified `include/unify.h` to allow numeric type compatibility in unification.
+- Files: `src/Typeck/Typeck.cpp`, `include/unify.h`
+
 ## Example
 
 Given:
@@ -44,6 +53,7 @@ fn add_point(points: [Point], p: Point): i32 {
 
 - Rebuilt `vixc` successfully.
 - Verified `src/test.vix` emits the new array-parameter warnings.
+- Verified `src/test.vix` now compiles successfully (only an unused variable warning remains).
 - Verified warning output no longer emits `help` lines or `#[warn(unused_variables)]` text.
 - Verified `src/test2.vix` now prints the pushed global `Point` values instead of producing no output.
 - Verified standalone fixtures for copied-array mutation and unused array parameter warnings.

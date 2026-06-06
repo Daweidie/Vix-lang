@@ -87,6 +87,14 @@ public:
 			bool compatible = (a->kind == TypeKind::Bool && (b->kind == TypeKind::I32 || b->kind == TypeKind::I8)) ||
 							  (b->kind == TypeKind::Bool && (a->kind == TypeKind::I32 || a->kind == TypeKind::I8));
 			if (!compatible) {
+				// Check if both are numeric types
+				bool a_numeric = (a->kind == TypeKind::I8 || a->kind == TypeKind::I32 || a->kind == TypeKind::I64 ||
+								  a->kind == TypeKind::F32 || a->kind == TypeKind::F64);
+				bool b_numeric = (b->kind == TypeKind::I8 || b->kind == TypeKind::I32 || b->kind == TypeKind::I64 ||
+								  b->kind == TypeKind::F32 || b->kind == TypeKind::F64);
+				compatible = a_numeric && b_numeric;
+			}
+			if (!compatible) {
 				throw std::runtime_error("expected type '" + pretty(a) + "', but got '" + pretty(b) + "'");
 			}
 			return;
