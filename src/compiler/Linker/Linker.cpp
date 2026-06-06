@@ -517,23 +517,26 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
     }
 
     // ── ELF sysroot (Linux only, non-bare) ────────────────────
+    SysPaths elfSysPaths;
     if (flavor == LinkFlavor::ELF && !bare) {
-        SysPaths sp = probeSysPaths(T);
+        elfSysPaths = probeSysPaths(T);
 
-        if (!sp.gccDir.empty())
-            args.push_back(sp.gccDir + "/crtbegin.o");
-        if (!sp.sysLibDir.empty()) {
-            args.push_back(sp.sysLibDir + "/crt1.o");
-            args.push_back(sp.sysLibDir + "/crti.o");
+        if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtbegin.o"))
+            args.push_back(elfSysPaths.gccDir + "/crtbegin.o");
+        if (!elfSysPaths.sysLibDir.empty()) {
+            if (fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
+                args.push_back(elfSysPaths.sysLibDir + "/crt1.o");
+            if (fileExists(elfSysPaths.sysLibDir + "/crti.o"))
+                args.push_back(elfSysPaths.sysLibDir + "/crti.o");
         }
-        if (!sp.dynamicLinker.empty()) {
+        if (!elfSysPaths.dynamicLinker.empty()) {
             args.push_back("--dynamic-linker");
-            args.push_back(sp.dynamicLinker);
+            args.push_back(elfSysPaths.dynamicLinker);
         }
-        if (!sp.sysLibDir.empty())
-            args.push_back("-L" + sp.sysLibDir);
-        if (!sp.gccDir.empty())
-            args.push_back("-L" + sp.gccDir);
+        if (!elfSysPaths.sysLibDir.empty())
+            args.push_back("-L" + elfSysPaths.sysLibDir);
+        if (!elfSysPaths.gccDir.empty())
+            args.push_back("-L" + elfSysPaths.gccDir);
         args.push_back("-L/lib");
         args.push_back("-L/usr/lib");
     }
@@ -550,11 +553,10 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
         args.push_back("-ldl");
         args.push_back("-lpthread");
         args.push_back("-lstdc++");
-        SysPaths sp = probeSysPaths(T);
-        if (!sp.gccDir.empty())
-            args.push_back(sp.gccDir + "/crtend.o");
-        if (!sp.sysLibDir.empty())
-            args.push_back(sp.sysLibDir + "/crtn.o");
+        if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtend.o"))
+            args.push_back(elfSysPaths.gccDir + "/crtend.o");
+        if (!elfSysPaths.sysLibDir.empty() && fileExists(elfSysPaths.sysLibDir + "/crtn.o"))
+            args.push_back(elfSysPaths.sysLibDir + "/crtn.o");
         if (options && options->static_link)
             args.push_back("-static");
     }
@@ -570,6 +572,148 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
     raw_string_ostream errOS(errStr);
 
     // ── Select LLD driver ─────────────────────────────────────
+    std::vector<lld::DriverDef> drivers;
+    switch (flavor) {
+        case LinkFlavor::ELF:
+            drivers.push_back({lld::Gnu, lld::elf::link});
+            break;
+        case LinkFlavor::MachO:
+            drivers.push_back({lld::Darwin, lld::macho::link});
+            break;
+        case LinkFlavor::COFF:
+            drivers.push_back({lld::WinLink, lld::coff::link});
+            break;
+        case LinkFlavor::MinGW:
+            drivers.push_back({lld::MinGW, lld::mingw::link});
+            break;
+        case LinkFlavor::Wasm:
+            drivers.push_back({lld::Wasm, lld::wasm::link});
+            break;
+    }
+
+    lld::Result result = lld::lldMain(rawArgs, outOS, errOS, drivers);
+
+    outOS.flush();
+    errOS.flush();
+
+    if (result.retCode != 0) {
+        lastError = errStr.empty()
+                        ? "linker failed with exit code " + std::to_string(result.retCode)
+                        : errStr;
+        if (error_msg) *error_msg = lastError.c_str();
+        return 0;
+    }
+
+    if (error_msg) *error_msg = nullptr;
+    return 1;
+}
+
+extern "C" int vix_link_multi(const char **obj_files, int obj_count,
+                              const char *output_file,
+                              const VixLinkOptions *options,
+                              const char **error_msg) {
+    static thread_local std::string lastError;
+
+    if (!obj_files || obj_count <= 0 || !output_file) {
+        lastError = "linker: missing input or output file";
+        if (error_msg) *error_msg = lastError.c_str();
+        return 0;
+    }
+
+    std::string tripleStr = (options && options->target_triple && options->target_triple[0])
+                                ? options->target_triple
+                                : sys::getDefaultTargetTriple();
+    Triple T(tripleStr);
+    LinkFlavor flavor = detectFlavor(T);
+    bool bare = options && options->bare_mode;
+
+    std::vector<std::string> args;
+    const char *progName = nullptr;
+    switch (flavor) {
+        case LinkFlavor::ELF:   progName = "ld.lld";    break;
+        case LinkFlavor::MachO: progName = "ld64.lld";  break;
+        case LinkFlavor::COFF:  progName = "lld-link";  break;
+        case LinkFlavor::MinGW: progName = "ld.lld";    break;
+        case LinkFlavor::Wasm:  progName = "wasm-ld";   break;
+    }
+    args.push_back(progName);
+
+    const char *entry = options ? options->entry_point : nullptr;
+    const char *script = options ? options->linker_script : nullptr;
+    const char *libc_dir = options ? options->libc_dir : nullptr;
+
+    switch (flavor) {
+        case LinkFlavor::ELF:
+            buildElfArgs(args, bare, entry, script);
+            break;
+        case LinkFlavor::MachO:
+            buildMachOArgs(args, T, bare, entry, script);
+            break;
+        case LinkFlavor::COFF:
+            buildCoffArgs(args, bare, entry, script, libc_dir);
+            break;
+        case LinkFlavor::MinGW:
+            buildMinGWArgs(args, T, bare, entry, script, libc_dir);
+            break;
+        case LinkFlavor::Wasm:
+            if (bare)
+                addBareArgs(args, entry, script);
+            break;
+    }
+
+    SysPaths elfSysPaths;
+    if (flavor == LinkFlavor::ELF && !bare) {
+        elfSysPaths = probeSysPaths(T);
+
+        if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtbegin.o"))
+            args.push_back(elfSysPaths.gccDir + "/crtbegin.o");
+        if (!elfSysPaths.sysLibDir.empty()) {
+            if (fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
+                args.push_back(elfSysPaths.sysLibDir + "/crt1.o");
+            if (fileExists(elfSysPaths.sysLibDir + "/crti.o"))
+                args.push_back(elfSysPaths.sysLibDir + "/crti.o");
+        }
+        if (!elfSysPaths.dynamicLinker.empty()) {
+            args.push_back("--dynamic-linker");
+            args.push_back(elfSysPaths.dynamicLinker);
+        }
+        if (!elfSysPaths.sysLibDir.empty())
+            args.push_back("-L" + elfSysPaths.sysLibDir);
+        if (!elfSysPaths.gccDir.empty())
+            args.push_back("-L" + elfSysPaths.gccDir);
+        args.push_back("-L/lib");
+        args.push_back("-L/usr/lib");
+    }
+
+    for (int i = 0; i < obj_count; i++) {
+        args.push_back(obj_files[i]);
+    }
+    args.push_back("-o");
+    args.push_back(output_file);
+
+    if (!bare && flavor == LinkFlavor::ELF) {
+        args.push_back("-lc");
+        args.push_back("-lm");
+        args.push_back("-ldl");
+        args.push_back("-lpthread");
+        args.push_back("-lstdc++");
+        if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtend.o"))
+            args.push_back(elfSysPaths.gccDir + "/crtend.o");
+        if (!elfSysPaths.sysLibDir.empty() && fileExists(elfSysPaths.sysLibDir + "/crtn.o"))
+            args.push_back(elfSysPaths.sysLibDir + "/crtn.o");
+        if (options && options->static_link)
+            args.push_back("-static");
+    }
+
+    std::vector<const char *> rawArgs;
+    rawArgs.reserve(args.size());
+    for (auto &s : args)
+        rawArgs.push_back(s.c_str());
+
+    std::string outStr, errStr;
+    raw_string_ostream outOS(outStr);
+    raw_string_ostream errOS(errStr);
+
     std::vector<lld::DriverDef> drivers;
     switch (flavor) {
         case LinkFlavor::ELF:

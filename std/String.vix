@@ -1,22 +1,6 @@
-pub fn strcmp(a:ptr,b:ptr): i32
-{
-    let mut i = 0
-    while(1)
-    {
-        let ca = a[i]
-        let cb = b[i]
-        if (ca != cb)
-        {
-            return ca - cb
-        }
-        if (ca == 0)
-        {
-            return 0
-        }
-        i +=1
-    }
-    return 0
-}
+import "mem.vix"
+pub type Result:[T, E] = Ok(T) | Err(E)
+
 extern "C"
 {
 	fn malloc(size: usize): ptr
@@ -27,7 +11,7 @@ fn strconnect(a:ptr,b:ptr): ?ptr
 {
 	let mut i = 0
 	let mut j = 0
-	let mut result = malloc(strlen(a) + strlen(b) + 1)
+	let mut result = malloc(a.length + b.length + 1)
 	if(result == 0)
 	{
 		return None
@@ -48,12 +32,57 @@ fn strconnect(a:ptr,b:ptr): ?ptr
 	result[j] = 0
 	return Some(result)
 }
+pub fn new_string(src: ptr, len: usize): Result[ptr, ptr]
+{
+    if (src == 0)
+	{
+		return Err("Source string is null")
+	}
+	let dest = malloc(len + 1)
+    if (dest == 0)
+	{
+        return Err("Out of memory")
+    }
+	copy(dest, src, len)
+	for(i in 0 .. len)
+	{
+		if (dest[i] == 0)
+		{
+			return Err("Source string is shorter than specified length")
+		}
+	}
+    dest[len] = 0
+    return Ok(dest)
+}
 fn main(): i32
 {
 	let a = "Hello"
 	let b = "World"
 	let c = strconnect(a, b)
-	print(c)
-	free(c)
+	match c
+	{
+		Some(ptr) ->
+		{
+			print(ptr)
+			free(ptr)
+		}
+		None ->
+		{
+			print("Failed to concatenate strings")
+		}
+	}
+	let s = new_string("Hello, Vix!", 11)
+	match s
+	{
+		Ok(ptr) ->
+		{
+			print(ptr)
+			free(ptr)
+		}
+		Err(err) ->
+		{
+			print(err)
+		}
+	}
 	return 0
 }

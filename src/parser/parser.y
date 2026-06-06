@@ -884,6 +884,11 @@ enum_variant_list
         add_expression_to_list(list, $1);
         $$ = list;
     }
+    | PIPE enum_variant {
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        add_expression_to_list(list, $2);
+        $$ = list;
+    }
     | enum_variant_list PIPE enum_variant {
         add_expression_to_list($1, $3);
         $$ = $1;

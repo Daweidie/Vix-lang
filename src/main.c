@@ -107,7 +107,8 @@ static const char *find_bundled_libc(void) {
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "OVERVIEW: Vix Compiler\n\n");
-    fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
+    fprintf(stderr, "USAGE: %s [options] <input.vix>\n", argv[0]);
+    fprintf(stderr, "       %s file1.o file2.o ... -o <output>\n\n", argv[0]);
     fprintf(stderr, "OPTIONS:\n");
     fprintf(stderr, "  -o <file>              Write output to <file>\n");
     fprintf(stderr, "  -S [file]              Emit assembly to <file> "
@@ -150,6 +151,10 @@ int main(int argc, char **argv) {
   int no_main = 0;
   int check_only = 0;
   int show_time = 0;
+  #define MAX_OBJ_FILES 256
+  char *obj_files[MAX_OBJ_FILES];
+  int obj_file_count = 0;
+  int link_mode = 0;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--target=", 9) == 0) {
       target = argv[i] + 9;
@@ -173,7 +178,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.2.9 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
+      printf("Vix Compiler 0.2.10 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       return 0;
     } else if (strcmp(argv[i], "-llvm") == 0) {
       out_llvm = 1;
@@ -216,9 +221,10 @@ int main(int argc, char **argv) {
       }
       opt_level = lvl;
     } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-      fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:20.1\n\n");
-      fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
+      fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:22.1.2(8)\n\n");
       fprintf(stderr, "OPTIONS:\n");
+      fprintf(stderr, "USAGE: %s [options] <input.vix>\n", argv[0]);
+      fprintf(stderr, "       %s file1.o file2.o ... -o <output>\n\n", argv[0]);
       fprintf(stderr, "  -o <file>              Write output to <file>\n");
       fprintf(stderr, "  -S [file]              Emit assembly to <file> "
                       "(default: <input>.s)\n");
@@ -244,13 +250,67 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Unknown option: %s\n", argv[i]);
       return 1;
     } else {
-      in_f = argv[i];
-      is_vic = strlen(argv[i]) > 4 &&
-               strcmp(argv[i] + strlen(argv[i]) - 4, ".vic") == 0;
+      size_t len = strlen(argv[i]);
+      if (len > 2 && strcmp(argv[i] + len - 2, ".o") == 0) {
+        if (obj_file_count < MAX_OBJ_FILES) {
+          obj_files[obj_file_count++] = argv[i];
+          link_mode = 1;
+        } else {
+          fprintf(stderr, "Error: too many object files (max %d)\n", MAX_OBJ_FILES);
+          return 1;
+        }
+      } else {
+        in_f = argv[i];
+        is_vic = len > 4 && strcmp(argv[i] + len - 4, ".vic") == 0;
+      }
     }
   }
   vix_setenv("VIX_DEBUG", dbg ? "1" : "0", 1); // 通过环境变量控制调试输出
   vix_set_opt_level(opt_level);
+
+  if (link_mode && obj_file_count > 0) {
+    if (!out_f) {
+      fprintf(stderr, "Error: -o <output> required when linking object files\n");
+      return 1;
+    }
+
+    const char *eff_t = target;
+    int bare = 0;
+    if (eff_t && (strstr(eff_t, "unknown-none") != NULL ||
+                  strstr(eff_t, "unknow-noe") != NULL)) {
+      bare = 1;
+    }
+
+    const char *ls = NULL;
+    if (bare) {
+      ls = "linker.ld";
+      if (!vix_file_readable(ls) && vix_file_readable("src/linker.ld")) {
+        ls = "src/linker.ld";
+      }
+    }
+
+    const char *link_err = NULL;
+    VixLinkOptions link_opts = {
+        .target_triple = eff_t,
+        .bare_mode = bare,
+        .linker_script = ls,
+        .static_link = bare,
+        .entry_point = bare ? "_start" : NULL,
+        .libc_dir = find_bundled_libc(),
+    };
+
+    if (!vix_link_multi((const char **)obj_files, obj_file_count, out_f,
+                        &link_opts, &link_err)) {
+      fprintf(stderr, "Error: Failed to link object files");
+      if (link_err && link_err[0] != '\0') {
+        fprintf(stderr, ":\n%s", link_err);
+      }
+      fprintf(stderr, "\n");
+      return 1;
+    }
+    return 0;
+  }
+
   if (!in_f) {
     in_f = argv[1];
   }
