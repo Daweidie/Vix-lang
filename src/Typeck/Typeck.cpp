@@ -632,6 +632,16 @@ struct TypeChecker {
 		return t->kind == TypeKind::I8 || t->kind == TypeKind::I32 || t->kind == TypeKind::I64 ||
 			   t->kind == TypeKind::F32 || t->kind == TypeKind::F64;
 	}
+
+	bool is_valid_vararg_type(const TypePtr& type) {
+		if (!type) {
+			return false;
+		}
+		TypePtr t = unify.apply(type);
+		return t->kind == TypeKind::I8 || t->kind == TypeKind::I32 || t->kind == TypeKind::I64 ||
+			   t->kind == TypeKind::F32 || t->kind == TypeKind::F64 || t->kind == TypeKind::Bool ||
+			   t->kind == TypeKind::String || t->kind == TypeKind::Ptr || t->kind == TypeKind::Var;
+	}
 	TypePtr freshen_type(const TypePtr& t) {
 		if (!t) return t;
 		TypePtr a = unify.apply(t);
@@ -2258,6 +2268,15 @@ struct TypeChecker {
 					unify.unify(fn_type->data.fn.params[i], arg_types[i]);
 				} catch (const std::exception& ex) {
 					report_type_error(node, ex.what());
+				}
+			}
+			// Check vararg arguments
+			if (fn_type->data.fn.vararg) {
+				for (size_t i = expected; i < actual; i++) {
+					TypePtr arg_type = unify.apply(arg_types[i]);
+					if (!is_valid_vararg_type(arg_type)) {
+						report_type_error(node, "cannot pass type '" + unify.pretty(arg_type) + "' to variadic function parameter");
+					}
 				}
 			}
 			return node_types[node] = fn_type->data.fn.ret;

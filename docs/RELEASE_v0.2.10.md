@@ -33,8 +33,17 @@
 - This fixes link failures on systems where the CRT objects are located in non-standard directories or where some objects are absent.
 - File: `src/compiler/Linker/Linker.cpp`
 
+### Vararg parameter type checking
+- Added type checking for variadic function arguments (e.g., `printf`).
+- Previously, arguments passed to vararg parameters were not type-checked, allowing complex ADT types like `Result` or `Option` to be passed directly, which caused silent runtime failures.
+- Now only primitive types (numeric, bool, string, ptr) are allowed as vararg arguments.
+- Passing ADT/struct/tuple/array types to vararg parameters now produces a clear type error.
+- File: `src/Typeck/Typeck.cpp`
+
 ## Validation
 
 - Rebuilt `vixc` successfully.
 - Verified enum definitions with leading `|` on the first variant now parse correctly.
 - Tested multi-object linking with `vixc a.o b.o -o prog`.
+- Verified that passing `Result` type to `printf` now produces a type error.
+- Verified correct usage with `match` unpacking compiles and runs correctly.
