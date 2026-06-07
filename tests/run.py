@@ -34,18 +34,13 @@ def run_step(name, cmd, cwd=None):
 def main():
     results = {}
     python = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+
     header("pytest")
     rc = run_step(
         "pytest",
         [python, "-m", "pytest", "-v", "--tb=short"],
     )
     results["pytest"] = rc
-    header("Legacy Test Runner")
-    rc = run_step(
-        "run_legacy.py",
-        [python, "run_legacy.py"],
-    )
-    results["legacy"] = rc
 
     header("Summary")
     all_pass = True

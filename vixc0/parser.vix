@@ -1,0 +1,162 @@
+#[no_main]
+import "lexer.vix"
+import "ast.vix"
+
+pub type Parser = struct {
+    stream: TokenStream,
+    pos: i32,
+    ok: i32,
+    error: string
+}
+
+pub fn parser_new(src: string): Parser
+{
+    return Parser{ stream: tokenize(src), pos: 0, ok: 1, error: "" }
+}
+
+pub fn parser_kind(parser: &Parser): i32
+{
+    return stream_kind_at(parser.stream, parser.pos)
+}
+
+pub fn parser_text(parser: &Parser): string
+{
+    return stream_text_at(parser.stream, parser.pos)
+}
+
+pub fn parser_int(parser: &Parser): i32
+{
+    return stream_int_at(parser.stream, parser.pos)
+}
+
+pub fn parser_advance(parser: &Parser)
+{
+    if (parser.pos + 1 < stream_len(parser.stream))
+    {
+        parser.pos += 1
+    }
+}
+
+pub fn parser_fail(parser: &Parser, message: string)
+{
+    parser.ok = 0
+    parser.error = message
+}
+
+pub fn parser_accept_text(parser: &Parser, text: string): i32
+{
+    if (parser_text(parser) == text)
+    {
+        parser_advance(parser)
+        return 1
+    }
+    return 0
+}
+
+pub fn parser_expect_text(parser: &Parser, text: string): i32
+{
+    if (parser_accept_text(parser, text) == 1)
+    {
+        return 1
+    }
+    parser_fail(parser, "expected token '" + text + "'")
+    return 0
+}
+
+pub fn parser_expect_kind(parser: &Parser, kind: i32): i32
+{
+    if (parser_kind(parser) == kind)
+    {
+        parser_advance(parser)
+        return 1
+    }
+    parser_fail(parser, "unexpected token kind")
+    return 0
+}
+
+pub fn parse_return_stmt(parser: &Parser): AstStmt
+{
+    if (parser_expect_text(parser, "return") == 0)
+    {
+        return ast_stmt_return(0)
+    }
+    let value = parser_int(parser)
+    if (parser_expect_kind(parser, token_number()) == 0)
+    {
+        return ast_stmt_return(0)
+    }
+    parser_accept_text(parser, ";")
+    return ast_stmt_return(value)
+}
+
+pub fn parse_if_stmt(parser: &Parser): AstStmt
+{
+    if (parser_expect_text(parser, "if") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "(") == 0) { return ast_stmt_return(0) }
+    let left = parser_text(parser)
+    if (parser_expect_kind(parser, token_identifier()) == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "==") == 0) { return ast_stmt_return(0) }
+    let right = parser_text(parser)
+    if (parser_expect_kind(parser, token_string()) == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, ")") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "{") == 0) { return ast_stmt_return(0) }
+    let then_stmt = parse_return_stmt(parser)
+    if (parser_expect_text(parser, "}") == 0) { return ast_stmt_return(0) }
+    let else_stmt = parse_return_stmt(parser)
+    return ast_stmt_if_eq_ret(left, right, then_stmt.direct_ret, else_stmt.direct_ret)
+}
+
+pub fn parse_match_stmt(parser: &Parser): AstStmt
+{
+    if (parser_expect_text(parser, "match") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "Some") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "(") == 0) { return ast_stmt_return(0) }
+    let option_value = parser_text(parser)
+    if (parser_expect_kind(parser, token_string()) == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, ")") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "{") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "Some") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "(") == 0) { return ast_stmt_return(0) }
+    let bind = parser_text(parser)
+    if (parser_expect_kind(parser, token_identifier()) == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, ")") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "=>") == 0) { return ast_stmt_return(0) }
+    let some_stmt = parse_if_stmt(parser)
+    parser_accept_text(parser, ",")
+    if (parser_expect_text(parser, "None") == 0) { return ast_stmt_return(0) }
+    if (parser_expect_text(parser, "=>") == 0) { return ast_stmt_return(0) }
+    let none_stmt = parse_return_stmt(parser)
+    if (parser_expect_text(parser, "}") == 0) { return ast_stmt_return(0) }
+    return ast_stmt_match_some_none(bind, option_value, some_stmt.cond_right, some_stmt.then_ret, some_stmt.else_ret, none_stmt.direct_ret)
+}
+
+pub fn parse_function_body(parser: &Parser): AstStmt
+{
+    if (parser_text(parser) == "return")
+    {
+        return parse_return_stmt(parser)
+    }
+    if (parser_text(parser) == "match")
+    {
+        return parse_match_stmt(parser)
+    }
+    parser_fail(parser, "unsupported function body")
+    return ast_stmt_return(0)
+}
+
+pub fn parse_program(src: string): AstProgram
+{
+    let mut parser = parser_new(src)
+    if (parser_expect_text(&parser, "fn") == 0) { return ast_program_err(parser.error) }
+    let name = parser_text(&parser)
+    if (parser_expect_kind(&parser, token_identifier()) == 0) { return ast_program_err(parser.error) }
+    if (parser_expect_text(&parser, "(") == 0) { return ast_program_err(parser.error) }
+    if (parser_expect_text(&parser, ")") == 0) { return ast_program_err(parser.error) }
+    if (parser_expect_text(&parser, ":") == 0) { return ast_program_err(parser.error) }
+    if (parser_expect_text(&parser, "i32") == 0) { return ast_program_err(parser.error) }
+    if (parser_expect_text(&parser, "{") == 0) { return ast_program_err(parser.error) }
+    let body = parse_function_body(&parser)
+    if (parser.ok == 0) { return ast_program_err(parser.error) }
+    if (parser_expect_text(&parser, "}") == 0) { return ast_program_err(parser.error) }
+    return ast_program_ok(ast_function(name, "i32", body))
+}

@@ -17,6 +17,10 @@ typedef struct {
 int vix_link(const char* obj_file, const char* output_file,
              const VixLinkOptions* options, const char** error_msg);
 
+int vix_link_multi(const char** obj_files, int obj_count,
+                   const char* output_file,
+                   const VixLinkOptions* options, const char** error_msg);
+
 #ifdef __cplusplus
 }
 #endif

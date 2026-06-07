@@ -502,8 +502,8 @@ class TestArrays:
 @pytest.mark.feature
 class TestPointers:
     @pytest.mark.parametrize("src_suffix,expected", [
-        ("let x = 42 let p = &x print(@p)", "42"),
-        ("let mut x = 10 let mut p = &x @p = 20 print(x)", "20"),
+        ("let x = 42 let p = ref x print(@p)", "42"),
+        ("let mut x = 10 let mut p = ref x @p = 20 print(x)", "20"),
     ])
     def test_pointer_basics(self, compiler, tmp_path, src_suffix, expected):
         src = f'fn main(): i32 {{ {src_suffix} return 0 }}'
@@ -1059,16 +1059,16 @@ class TestMassiveFeatures:
 class TestReferences:
     @pytest.mark.parametrize("val", range(100))
     def test_ref_param_i32(self, compiler, tmp_path, val):
-        src = f'''fn pass_ref(x: &i32): i32 {{ return x }}
-fn main(): i32 {{ let v = {val} print(pass_ref(&v)) return 0 }}'''
+        src = f'''fn pass_ref(x: ref i32): i32 {{ return x }}
+fn main(): i32 {{ let v = {val} print(pass_ref(ref v)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val)
 
     @pytest.mark.parametrize("a,b", [(i, i+1) for i in range(50)])
     def test_ref_swap_values(self, compiler, tmp_path, a, b):
-        src = f'''fn get_first(a: &i32, b: &i32): i32 {{ return a }}
-fn main(): i32 {{ let x = {a} let y = {b} print(get_first(&x, &y)) return 0 }}'''
+        src = f'''fn get_first(a: ref i32, b: ref i32): i32 {{ return a }}
+fn main(): i32 {{ let x = {a} let y = {b} print(get_first(ref x, ref y)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(a)
@@ -1076,8 +1076,8 @@ fn main(): i32 {{ let x = {a} let y = {b} print(get_first(&x, &y)) return 0 }}''
     @pytest.mark.parametrize("val", range(50))
     def test_ref_struct_field_read(self, compiler, tmp_path, val):
         src = f'''type Box = struct {{ val: i32 }}
-fn read_val(b: &Box): i32 {{ return b.val }}
-fn main(): i32 {{ let b = Box{{ val: {val} }} print(read_val(&b)) return 0 }}'''
+fn read_val(b: ref Box): i32 {{ return b.val }}
+fn main(): i32 {{ let b = Box{{ val: {val} }} print(read_val(ref b)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val)
@@ -1085,8 +1085,8 @@ fn main(): i32 {{ let b = Box{{ val: {val} }} print(read_val(&b)) return 0 }}'''
     @pytest.mark.parametrize("val", range(50))
     def test_ref_struct_field_write(self, compiler, tmp_path, val):
         src = f'''type Box = struct {{ val: i32 }}
-fn write_val(b: &Box, v: i32) {{ b.val = v }}
-fn main(): i32 {{ let mut b = Box{{ val: 0 }} write_val(&b, {val}) print(b.val) return 0 }}'''
+fn write_val(b: ref Box, v: i32) {{ b.val = v }}
+fn main(): i32 {{ let mut b = Box{{ val: 0 }} write_val(ref b, {val}) print(b.val) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val)
@@ -1094,8 +1094,8 @@ fn main(): i32 {{ let mut b = Box{{ val: 0 }} write_val(&b, {val}) print(b.val) 
     @pytest.mark.parametrize("val", range(50))
     def test_ref_increment(self, compiler, tmp_path, val):
         src = f'''type Counter = struct {{ n: i32 }}
-fn inc(c: &Counter) {{ c.n = c.n + 1 }}
-fn main(): i32 {{ let mut c = Counter{{ n: {val} }} inc(&c) print(c.n) return 0 }}'''
+fn inc(c: ref Counter) {{ c.n = c.n + 1 }}
+fn main(): i32 {{ let mut c = Counter{{ n: {val} }} inc(ref c) print(c.n) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val + 1)
@@ -1103,8 +1103,8 @@ fn main(): i32 {{ let mut c = Counter{{ n: {val} }} inc(&c) print(c.n) return 0 
     @pytest.mark.parametrize("val", range(50))
     def test_ref_double_field(self, compiler, tmp_path, val):
         src = f'''type Pair = struct {{ a: i32 b: i32 }}
-fn sum(p: &Pair): i32 {{ return p.a + p.b }}
-fn main(): i32 {{ let p = Pair{{ a: {val} b: {val * 2} }} print(sum(&p)) return 0 }}'''
+fn sum(p: ref Pair): i32 {{ return p.a + p.b }}
+fn main(): i32 {{ let p = Pair{{ a: {val} b: {val * 2} }} print(sum(ref p)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val + val * 2)
@@ -1112,8 +1112,8 @@ fn main(): i32 {{ let p = Pair{{ a: {val} b: {val * 2} }} print(sum(&p)) return 
     @pytest.mark.parametrize("val", range(50))
     def test_ref_chained_ops(self, compiler, tmp_path, val):
         src = f'''type Num = struct {{ v: i32 }}
-fn double(n: &Num): i32 {{ return n.v * 2 }}
-fn main(): i32 {{ let n = Num{{ v: {val} }} print(double(&n)) return 0 }}'''
+fn double(n: ref Num): i32 {{ return n.v * 2 }}
+fn main(): i32 {{ let n = Num{{ v: {val} }} print(double(ref n)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val * 2)
@@ -1121,8 +1121,8 @@ fn main(): i32 {{ let n = Num{{ v: {val} }} print(double(&n)) return 0 }}'''
     @pytest.mark.parametrize("val", range(50))
     def test_ref_multi_param(self, compiler, tmp_path, val):
         src = f'''type Box = struct {{ x: i32 y: i32 z: i32 }}
-fn sum3(b: &Box): i32 {{ return b.x + b.y + b.z }}
-fn main(): i32 {{ let b = Box{{ x: {val} y: {val+1} z: {val+2} }} print(sum3(&b)) return 0 }}'''
+fn sum3(b: ref Box): i32 {{ return b.x + b.y + b.z }}
+fn main(): i32 {{ let b = Box{{ x: {val} y: {val+1} z: {val+2} }} print(sum3(ref b)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == str(val * 3 + 3)
@@ -1130,8 +1130,8 @@ fn main(): i32 {{ let b = Box{{ x: {val} y: {val+1} z: {val+2} }} print(sum3(&b)
     @pytest.mark.parametrize("val", range(50))
     def test_ref_conditional(self, compiler, tmp_path, val):
         src = f'''type Num = struct {{ v: i32 }}
-fn check(n: &Num): i32 {{ if (n.v > 50) {{ return 1 }} return 0 }}
-fn main(): i32 {{ let n = Num{{ v: {val} }} print(check(&n)) return 0 }}'''
+fn check(n: ref Num): i32 {{ if (n.v > 50) {{ return 1 }} return 0 }}
+fn main(): i32 {{ let n = Num{{ v: {val} }} print(check(ref n)) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         expected = "1" if val > 50 else "0"
@@ -1140,8 +1140,8 @@ fn main(): i32 {{ let n = Num{{ v: {val} }} print(check(&n)) return 0 }}'''
     @pytest.mark.parametrize("val", range(50))
     def test_ref_loop(self, compiler, tmp_path, val):
         src = f'''type Sum = struct {{ total: i32 }}
-fn add_range(s: &Sum, n: i32) {{ for (i in 0 .. n) {{ s.total = s.total + i }} }}
-fn main(): i32 {{ let mut s = Sum{{ total: 0 }} add_range(&s, {val}) print(s.total) return 0 }}'''
+fn add_range(s: ref Sum, n: i32) {{ for (i in 0 .. n) {{ s.total = s.total + i }} }}
+fn main(): i32 {{ let mut s = Sum{{ total: 0 }} add_range(ref s, {val}) print(s.total) return 0 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         expected = val * (val - 1) // 2
@@ -1381,10 +1381,10 @@ fn main(): i32 {{
     @pytest.mark.parametrize("a,b", [(i, 100-i) for i in range(50)])
     def test_struct_method_like(self, compiler, tmp_path, a, b):
         src = f'''type Pair = struct {{ a: i32 b: i32 }}
-fn pair_sum(p: &Pair): i32 {{ return p.a + p.b }}
+fn pair_sum(p: ref Pair): i32 {{ return p.a + p.b }}
 fn main(): i32 {{
     let p = Pair{{ a: {a} b: {b} }}
-    print(pair_sum(&p))
+    print(pair_sum(ref p))
     return 0
 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -1447,13 +1447,13 @@ fn main(): i32 {{
     @pytest.mark.parametrize("n", range(50))
     def test_struct_comparison(self, compiler, tmp_path, n):
         src = f'''type Range = struct {{ min: i32 max: i32 }}
-fn in_range(r: &Range, v: i32): i32 {{
+fn in_range(r: ref Range, v: i32): i32 {{
     if (v >= r.min and v <= r.max) {{ return 1 }}
     return 0
 }}
 fn main(): i32 {{
     let r = Range{{ min: 10 max: 50 }}
-    print(in_range(&r, {n}))
+    print(in_range(ref r, {n}))
     return 0
 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -1504,10 +1504,10 @@ fn main(): i32 {{
     @pytest.mark.parametrize("n", range(50))
     def test_generic_ref_param(self, compiler, tmp_path, n):
         src = f'''type Box:[T] = struct {{ val: T }}
-fn set_val:[T](b: &Box:[T], v: T) {{ b.val = v }}
+fn set_val:[T](b: ref Box:[T], v: T) {{ b.val = v }}
 fn main(): i32 {{
     let mut b = Box:[i32]{{ val: 0 }}
-    set_val:[i32](&b, {n})
+    set_val:[i32](ref b, {n})
     print(b.val)
     return 0
 }}'''
@@ -1576,10 +1576,10 @@ fn main(): i32 {{
     @pytest.mark.parametrize("n", range(50))
     def test_generic_struct_ref_field(self, compiler, tmp_path, n):
         src = f'''type Cell:[T] = struct {{ data: T }}
-fn read_cell:[T](c: &Cell:[T]): T {{ return c.data }}
+fn read_cell:[T](c: ref Cell:[T]): T {{ return c.data }}
 fn main(): i32 {{
     let c = Cell:[i32]{{ data: {n} }}
-    print(read_cell:[i32](&c))
+    print(read_cell:[i32](ref c))
     return 0
 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -2082,10 +2082,10 @@ class TestHashMapAPI:
     @pytest.mark.xfail(reason="Generic struct ref access not fully working")
     def test_generic_struct_ref_access(self, compiler, tmp_path, n):
         src = f'''type Map:[V] = struct {{ size: i32 cap: i32 }}
-fn get_size:[V](m: &Map:[V]): i32 {{ return m.size }}
+fn get_size:[V](m: ref Map:[V]): i32 {{ return m.size }}
 fn main(): i32 {{
     let mut m = Map:[i32]{{ size: {n} cap: 100 }}
-    print(get_size:[i32](&m))
+    print(get_size:[i32](ref m))
     return 0
 }}'''
         _, run = compile_and_run(compiler, src, tmp_path)
@@ -2096,12 +2096,12 @@ fn main(): i32 {{
     @pytest.mark.xfail(reason="Generic struct ref mutation not fully working")
     def test_generic_struct_ref_mutate(self, compiler, tmp_path, n):
         src = f'''type Map:[V] = struct {{ size: i32 cap: i32 }}
-fn inc_size:[V](m: &Map:[V]) {{ m.size = m.size + 1 }}
+fn inc_size:[V](m: ref Map:[V]) {{ m.size = m.size + 1 }}
 fn main(): i32 {{
     let mut m = Map:[i32]{{ size: {n} cap: 100 }}
-    inc_size:[i32](&m)
-    inc_size:[i32](&m)
-    inc_size:[i32](&m)
+    inc_size:[i32](ref m)
+    inc_size:[i32](ref m)
+    inc_size:[i32](ref m)
     print(m.size)
     return 0
 }}'''

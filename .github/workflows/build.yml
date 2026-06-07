@@ -54,21 +54,21 @@ jobs:
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 20
-          sudo apt-get install -y llvm-20-dev lld-20 liblld-20-dev clang-20 flex bison patchelf
+          sudo ./llvm.sh 22
+          sudo apt-get install -y llvm-22-dev lld-22 liblld-22-dev clang-22 flex bison patchelf
 
       # ===================== macOS =====================
       - name: Install LLVM and dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install llvm@20 lld@20 flex bison
-          LLVM_PREFIX="$(brew --prefix llvm@20)"
+          brew install llvm@22 lld@22 flex bison
+          LLVM_PREFIX="$(brew --prefix llvm@22)"
           echo "${LLVM_PREFIX}/bin" >> $GITHUB_PATH
-          echo "$(brew --prefix lld@20)/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix lld@22)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
-          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:$(brew --prefix lld@20)" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:$(brew --prefix lld@22)" >> $GITHUB_ENV
 
       # ===================== Windows =====================
       - name: Setup MSYS2 (Windows)

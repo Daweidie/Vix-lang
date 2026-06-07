@@ -54,6 +54,8 @@ int get_warning_count();
 void print_error_summary();
 void cleanup_error_handler();
 void report_simple_error(ErrorLevel level, ErrorType error_type, const char* msg);
+void report_simple_error_with_length(ErrorLevel level, ErrorType error_type, const char* msg, int length);
+void report_warning_with_location_and_snippet(const char* msg, const char* filename, int line, const char* snippet);
 void report_unused_variable_warning(const char* variable_name, const char* filename, int line);
 void report_unused_variable_warning_with_location(const char* variable_name, const char* filename, int line, int column);
 void report_struct_field_missing_with_location_and_suggestion(const char* struct_name, const char* field_name, const char* suggestion, const char* filename, int line, int column);

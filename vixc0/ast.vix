@@ -1,0 +1,138 @@
+#[no_main]
+
+extern "C"
+{
+    fn malloc(size: usize): string
+    fn snprintf(buf: string, size: usize, fmt: string, ...): i32
+}
+
+pub fn ast_i32(n: i32): string
+{
+    let buf: string = malloc(64)
+    snprintf(buf, 64, "%d", n)
+    return buf
+}
+
+pub type AstExpr = struct {
+    tag: string,
+    text: string,
+    int_value: i32,
+    left: string,
+    right: string,
+    option_has_value: i32,
+    option_value: string
+}
+
+pub type AstStmt = struct {
+    tag: string,
+    value_expr: AstExpr,
+    cond_left: string,
+    cond_right: string,
+    then_ret: i32,
+    else_ret: i32,
+    match_bind: string,
+    match_compare_right: string,
+    match_some_then_ret: i32,
+    match_some_else_ret: i32,
+    match_none_ret: i32,
+    match_option_value: string,
+    direct_ret: i32
+}
+
+pub type AstFunction = struct {
+    name: string,
+    ret_ty: string,
+    body: AstStmt
+}
+
+pub type AstProgram = struct {
+    function: AstFunction,
+    ok: i32,
+    error: string
+}
+
+pub fn ast_expr_int(value: i32): AstExpr
+{
+    return AstExpr{ tag: "int", text: "", int_value: value, left: "", right: "", option_has_value: 0, option_value: "" }
+}
+
+pub fn ast_expr_string(text: string): AstExpr
+{
+    return AstExpr{ tag: "string", text: text, int_value: 0, left: "", right: "", option_has_value: 0, option_value: "" }
+}
+
+pub fn ast_expr_identifier(text: string): AstExpr
+{
+    return AstExpr{ tag: "ident", text: text, int_value: 0, left: "", right: "", option_has_value: 0, option_value: "" }
+}
+
+pub fn ast_expr_eq(left: string, right: string): AstExpr
+{
+    return AstExpr{ tag: "eq", text: "", int_value: 0, left: left, right: right, option_has_value: 0, option_value: "" }
+}
+
+pub fn ast_expr_some_string(value: string): AstExpr
+{
+    return AstExpr{ tag: "option", text: "", int_value: 0, left: "", right: "", option_has_value: 1, option_value: value }
+}
+
+pub fn ast_expr_none(): AstExpr
+{
+    return AstExpr{ tag: "option", text: "", int_value: 0, left: "", right: "", option_has_value: 0, option_value: "" }
+}
+
+pub fn ast_stmt_return(value: i32): AstStmt
+{
+    return AstStmt{ tag: "return", value_expr: ast_expr_int(value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: value }
+}
+
+pub fn ast_stmt_if_eq_ret(left: string, right: string, then_ret: i32, else_ret: i32): AstStmt
+{
+    return AstStmt{ tag: "if_eq_return", value_expr: ast_expr_eq(left, right), cond_left: left, cond_right: right, then_ret: then_ret, else_ret: else_ret, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0 }
+}
+
+pub fn ast_stmt_match_some_none(bind: string, option_value: string, compare_right: string, some_then_ret: i32, some_else_ret: i32, none_ret: i32): AstStmt
+{
+    return AstStmt{ tag: "match_option_string", value_expr: ast_expr_some_string(option_value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: bind, match_compare_right: compare_right, match_some_then_ret: some_then_ret, match_some_else_ret: some_else_ret, match_none_ret: none_ret, match_option_value: option_value, direct_ret: 0 }
+}
+
+pub fn ast_function(name: string, ret_ty: string, body: AstStmt): AstFunction
+{
+    return AstFunction{ name: name, ret_ty: ret_ty, body: body }
+}
+
+pub fn ast_program_ok(function: AstFunction): AstProgram
+{
+    return AstProgram{ function: function, ok: 1, error: "" }
+}
+
+pub fn ast_program_err(message: string): AstProgram
+{
+    return AstProgram{ function: ast_function("main", "i32", ast_stmt_return(0)), ok: 0, error: message }
+}
+
+pub fn ast_stmt_debug(stmt: AstStmt): string
+{
+    if (stmt.tag == "return")
+    {
+        return "Return(" + ast_i32(stmt.direct_ret) + ")"
+    }
+    if (stmt.tag == "if_eq_return")
+    {
+        return "IfEq(" + stmt.cond_left + ", \"" + stmt.cond_right + "\", " + ast_i32(stmt.then_ret) + ", " + ast_i32(stmt.else_ret) + ")"
+    }
+    if (stmt.tag == "match_option_string")
+    {
+        return "MatchSome(\"" + stmt.match_option_value + "\", " + stmt.match_bind + ", == \"" + stmt.match_compare_right + "\", " + ast_i32(stmt.match_some_then_ret) + ", " + ast_i32(stmt.match_some_else_ret) + ", " + ast_i32(stmt.match_none_ret) + ")"
+    }
+    return stmt.tag
+}
+
+pub fn ast_program_debug(program: AstProgram): string
+{
+    if (program.ok == 0)
+    {
+        return "ParseError(" + program.error + ")"
+    }
+    return "Program(fn " + program.function.name + ": " + program.function.ret_ty + " => " + ast_stmt_debug(program.function.body) + ")"
+}

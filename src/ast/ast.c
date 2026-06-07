@@ -17,8 +17,18 @@
 #include "../include/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include "../include/compat.h"
+
+static void* checked_realloc(void* ptr, size_t size) {
+    void* resized = realloc(ptr, size);
+    if (!resized && size != 0) {
+        fprintf(stderr, "Failed to reallocate %zu bytes\n", size);
+        exit(1);
+    }
+    return resized;
+}
 
 #ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告
 #include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
@@ -232,7 +242,7 @@ static void remove_program_statement_at(ASTNode* program, int idx) {
         free(program->data.program.statements);
         program->data.program.statements = NULL;
     } else {
-        ASTNode** resized = realloc(program->data.program.statements,
+        ASTNode** resized = checked_realloc(program->data.program.statements,
                                     sizeof(ASTNode*) * program->data.program.statement_count);
         if (resized) {
             program->data.program.statements = resized;
@@ -366,7 +376,7 @@ void add_statement_to_program(ASTNode* program, ASTNode* statement) {
     }
 
     program->data.program.statement_count++;
-    program->data.program.statements = realloc(
+    program->data.program.statements = checked_realloc(
         program->data.program.statements,
         sizeof(ASTNode*) * program->data.program.statement_count
     );
@@ -474,7 +484,7 @@ void add_expression_to_list(ASTNode* list, ASTNode* expr) {
     if (!list || list->type != AST_EXPRESSION_LIST || !expr) return;
     
     list->data.expression_list.expression_count++;
-    list->data.expression_list.expressions = realloc(
+    list->data.expression_list.expressions = checked_realloc(
         list->data.expression_list.expressions,
         sizeof(ASTNode*) * list->data.expression_list.expression_count
     );
@@ -555,11 +565,27 @@ ASTNode* create_assign_node_with_mutability(ASTNode* left, ASTNode* right, Mutab
 }
 
 ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* right, Location location) {
+    if (!left || !right) {
+        ASTNode* node = alloc_ast_node();
+        node->type = AST_BINOP;
+        node->location = location;
+        node->data.binop.op = op;
+        node->data.binop.left = left;
+        node->data.binop.right = right;
+        return node;
+    }
     if (left->type == AST_STRING && right->type == AST_STRING) {// 尝试进行常量折叠优化
         if (op == OP_ADD || op == OP_CONCAT) {//尝试进行字符串拼接
             size_t len1 = strlen(left->data.string.value);
             size_t len2 = strlen(right->data.string.value);
+            if (len1 > SIZE_MAX - len2 - 1) {
+                goto create_regular_binop;
+            }
             char* result = malloc(len1 + len2 + 1);
+            if (!result) {
+                fprintf(stderr, "Failed to allocate string concatenation buffer\n");
+                exit(1);
+            }
             strcpy(result, left->data.string.value);
             strcat(result, right->data.string.value);
             ASTNode* new_node = create_string_node_with_location(result, location);// 创建新的字符串节点并释放临时节点
@@ -585,8 +611,15 @@ ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* r
             if (repeat_times < 0) repeat_times = 0;
             
             size_t str_len = strlen(str_val);
-            size_t total_len = str_len * repeat_times;
+            if (str_len != 0 && (size_t)repeat_times > (SIZE_MAX - 1) / str_len) {
+                goto create_regular_binop;
+            }
+            size_t total_len = str_len * (size_t)repeat_times;
             char* result = malloc(total_len + 1);
+            if (!result) {
+                fprintf(stderr, "Failed to allocate repeated string buffer\n");
+                exit(1);
+            }
             result[0] = '\0';
             
             for (int i = 0; i < repeat_times; i++) {
@@ -794,7 +827,9 @@ ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* r
                 break;
         }
     }
-    ASTNode* node = alloc_ast_node();// 如果不能折叠，则创建正常的二元操作节点
+create_regular_binop:
+    ;// 如果不能折叠，则创建正常的二元操作节点
+    ASTNode* node = alloc_ast_node();
     node->type = AST_BINOP;
     node->location = location;
     node->data.binop.op = op;
@@ -2073,8 +2108,7 @@ static int append_inserted_extern(char*** inserted_externs, int* inserted_extern
         }
     }
 
-    char** resized = realloc(*inserted_externs, sizeof(char*) * (*inserted_extern_count + 1));
-    if (!resized) return 0;
+    char** resized = checked_realloc(*inserted_externs, sizeof(char*) * (*inserted_extern_count + 1));
 
     char* name_copy = strdup(name);
     if (!name_copy) {

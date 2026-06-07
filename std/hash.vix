@@ -85,13 +85,13 @@ pub fn get:[V](map: HashMap:[V], key: string): ?V
 	return None
 }
 
-pub fn contains:[V](map: HashMap:[V], key: string): i32
+pub fn contains:[V](map: HashMap:[V], key: string): bool
 {
 	let found = get:[V](map, key)
 	match found
 	{
-		Some(_) -> return 1
-		None -> return 0
+		Some(_) -> return true
+		None -> return false
 	}
 }
 fn main(): i32

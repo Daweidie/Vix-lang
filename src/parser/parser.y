@@ -19,6 +19,8 @@ static ASTNode* create_default_value_for_type(ASTNode* type_node, YYLTYPE* loc);
 static ASTNode* build_type_alias_enum(const char* type_name, ASTNode* variants);
 static ASTNode* mark_type_alias_public(ASTNode* program);
 static ASTNode* clone_match_scrutinee(ASTNode* scrutinee);
+static ASTNode* clone_lvalue(ASTNode* node);
+static ASTNode* materialize_match_scrutinee(ASTNode* scrutinee, ASTNode** out_ref);
 static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms);
 
 typedef struct {
@@ -341,6 +343,65 @@ static ASTNode* clone_match_scrutinee(ASTNode* scrutinee) {
     }
 }
 
+static ASTNode* clone_lvalue(ASTNode* node) {
+    if (!node) return NULL;
+    switch (node->type) {
+        case AST_IDENTIFIER:
+            if (node->data.identifier.name) {
+                return create_identifier_node_with_location(node->data.identifier.name, node->location);
+            }
+            return NULL;
+        case AST_MEMBER_ACCESS: {
+            ASTNode* object = clone_lvalue(node->data.member_access.object);
+            ASTNode* field = clone_lvalue(node->data.member_access.field);
+            if (!object || !field) return NULL;
+            return create_member_access_node_with_location(object, field, node->location);
+        }
+        case AST_INDEX: {
+            ASTNode* target = clone_lvalue(node->data.index.target);
+            ASTNode* index = clone_match_scrutinee(node->data.index.index);
+            if (!target || !index) return NULL;
+            return create_index_node_with_location(target, index, node->location);
+        }
+        case AST_UNARYOP:
+            if (node->data.unaryop.op == OP_DEREF) {
+                ASTNode* expr = clone_lvalue(node->data.unaryop.expr);
+                if (!expr) return NULL;
+                return create_unaryop_node_with_location(OP_DEREF, expr, node->location);
+            }
+            return NULL;
+        default:
+            return clone_match_scrutinee(node);
+    }
+}
+
+static ASTNode* materialize_match_scrutinee(ASTNode* scrutinee, ASTNode** out_ref) {
+    if (out_ref) *out_ref = NULL;
+    if (!scrutinee) return NULL;
+
+    ASTNode* cloned = clone_match_scrutinee(scrutinee);
+    if (cloned) {
+        if (out_ref) *out_ref = cloned;
+        return NULL;
+    }
+
+    static int match_tmp_counter = 0;
+    char name_buf[64];
+    snprintf(name_buf, sizeof(name_buf), "__match_tmp_%d", match_tmp_counter++);
+
+    ASTNode* temp_ident = create_identifier_node(name_buf);
+    ASTNode* temp_ref = create_identifier_node(name_buf);
+    if (!temp_ident || !temp_ref) return NULL;
+
+    ASTNode* bind_decl = create_assign_node(temp_ident, scrutinee);
+    if (bind_decl) bind_decl->data.assign.is_declaration = 1;
+
+    ASTNode* prelude = create_program_node();
+    add_statement_to_program(prelude, bind_decl);
+    if (out_ref) *out_ref = temp_ref;
+    return prelude;
+}
+
 static void check_match_exhaustiveness(ASTNode* scrutinee, ASTNode* arms) {
     if (!arms || arms->type != AST_EXPRESSION_LIST) return;
 
@@ -444,6 +505,10 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
 
     check_match_exhaustiveness(scrutinee, arms);
 
+    ASTNode* scrutinee_ref = NULL;
+    ASTNode* prelude = materialize_match_scrutinee(scrutinee, &scrutinee_ref);
+    if (!scrutinee_ref) return NULL;
+
     int count = arms->data.expression_list.expression_count;
     ASTNode* chain = NULL;
 
@@ -472,17 +537,17 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             pattern->data.call.func->type == AST_IDENTIFIER &&
             pattern->data.call.func->data.identifier.name) {
             const char* ctor_name = pattern->data.call.func->data.identifier.name;
-            ASTNode* cond_left = clone_match_scrutinee(scrutinee);
+            ASTNode* cond_left = clone_match_scrutinee(scrutinee_ref);
             if (!cond_left) continue;
 
             if (is_builtin_union_ctor_name(ctor_name)) {
                 if (strcmp(ctor_name, "None") == 0) {
                     ASTNode* tag_access = create_member_access_node(
-                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                        clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(1));
                 } else if (strcmp(ctor_name, "Some") == 0) {
                     ASTNode* tag_access = create_member_access_node(
-                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                        clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(0));
                 }
             }
@@ -497,7 +562,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                 if (bind_arg && bind_arg->type == AST_IDENTIFIER && bind_arg->data.identifier.name) {
                     if (is_adt_ctor) {
                         ASTNode* payload_access = create_member_access_node(
-                            clone_match_scrutinee(scrutinee), create_identifier_node("1"));
+                            clone_match_scrutinee(scrutinee_ref), create_identifier_node("1"));
                         ASTNode* bind_left = create_identifier_node(bind_arg->data.identifier.name);
                         ASTNode* bind_decl = create_assign_node(bind_left, payload_access);
                         if (bind_decl) bind_decl->data.assign.is_declaration = 1;
@@ -513,7 +578,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                         }
                         body = wrapped;
                     } else {
-                        body = prepend_binding_to_match_body(body, bind_arg->data.identifier.name, scrutinee);
+                        body = prepend_binding_to_match_body(body, bind_arg->data.identifier.name, scrutinee_ref);
                     }
                 }
             }
@@ -521,7 +586,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             if (!cond) {
                 if (is_adt_ctor) {
                     ASTNode* tag_access = create_member_access_node(
-                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                        clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     ASTNode* cond_right = create_identifier_node(ctor_name);
                     cond = create_binop_node(OP_EQ, tag_access, cond_right);
                 } else {
@@ -533,7 +598,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                 }
             }
         } else {
-            ASTNode* cond_left = clone_match_scrutinee(scrutinee);//克隆 scrutinee 以构建条件表达式，确保不修改原始 scrutinee
+            ASTNode* cond_left = clone_match_scrutinee(scrutinee_ref);//克隆 scrutinee 以构建条件表达式，确保不修改原始 scrutinee
             ASTNode* cond_right = clone_match_scrutinee(pattern);//克隆模式以构建条件表达式，确保不修改原始模式
 
             // Check for builtin ctor names (None/Some) BEFORE falling through
@@ -542,11 +607,11 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                 const char* pname = pattern->data.identifier.name;
                 if (strcmp(pname, "None") == 0) {
                     ASTNode* tag_access = create_member_access_node(
-                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                        clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(1));
                 } else if (strcmp(pname, "Some") == 0) {
                     ASTNode* tag_access = create_member_access_node(
-                        clone_match_scrutinee(scrutinee), create_identifier_node("0"));
+                        clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(0));
                 }
             }
@@ -566,7 +631,14 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
         chain = create_if_node(cond, body, chain);//构建 if-else 链：if (xxxx == xxxxx) { body } else do_something_e
     }
 
-    return chain;
+    if (!prelude) {
+        return chain;
+    }
+
+    if (chain) {
+        add_statement_to_program(prelude, chain);
+    }
+    return prelude;
 }
 /*
 build_type_alias_enum：将枚举类型转换为常量定义
@@ -588,7 +660,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %token STRUCT COLON
 %token TYPE_KW MATCH PIPE
 %token QUESTION
-%token LET MUT
+%token LET MUT REF_KW
 %token IMPORT PUB
 %token <num_int> NUMBER_INT CHAR_LITERAL
 %token <num_float> NUMBER_FLOAT
@@ -812,6 +884,11 @@ enum_variant_list
         add_expression_to_list(list, $1);
         $$ = list;
     }
+    | PIPE enum_variant {
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        add_expression_to_list(list, $2);
+        $$ = list;
+    }
     | enum_variant_list PIPE enum_variant {
         add_expression_to_list($1, $3);
         $$ = $1;
@@ -862,6 +939,14 @@ match_target
     : identifier { $$ = $1; }
     | literal { $$ = $1; }
     | LPAREN expression RPAREN { $$ = $2; }
+    | IDENTIFIER LPAREN RPAREN {
+        ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
+        $$ = create_call_node_with_yyltype(id, NULL, (YYLTYPE*) &@$);
+    }
+    | IDENTIFIER LPAREN expression_list RPAREN {
+        ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
+        $$ = create_call_node_with_yyltype(id, $3, (YYLTYPE*) &@$);
+    }
     ;
 
 match_arms
@@ -896,6 +981,10 @@ match_arm_pattern
 
 match_arm_body
     : block_statement { $$ = $1; }
+    | print_statement { $$ = $1; }
+    | RETURN expression { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
+    | RETURN { $$ = create_return_node_with_yyltype(NULL, (YYLTYPE*) &@$); }
+    | expression { $$ = $1; }
     ;
 
 input_expression
@@ -955,6 +1044,10 @@ type
         | TYPE_PTR LPAREN type RPAREN {
                 $$ = create_type_node(AST_TYPE_POINTER);
                 $$->data.pointer_type.element_type = $3;
+            }
+        | REF_KW type {
+                $$ = create_type_node(AST_TYPE_POINTER);
+                $$->data.pointer_type.element_type = $2;
             }
         | AMPERSAND type {
                 $$ = create_type_node(AST_TYPE_POINTER);
@@ -1234,29 +1327,29 @@ assignment_statement
     ;
 
 compound_assignment_statement
-    : identifier PLUS_ASSIGN expression      { 
-                                               ASTNode* left = create_identifier_node_with_yyltype($1->data.identifier.name, (YYLTYPE*) &@$);
-                                               ASTNode* binop = create_binop_node_with_yyltype(OP_ADD, left, $3, (YYLTYPE*) &@$);
+    : factor_unary PLUS_ASSIGN expression      {
+                                               ASTNode* lhs = clone_lvalue($1);
+                                               ASTNode* binop = create_binop_node_with_yyltype(OP_ADD, lhs ? lhs : create_num_int_node(0), $3, (YYLTYPE*) &@$);
                                                $$ = create_assign_node_with_yyltype($1, binop, (YYLTYPE*) &@$);
                                              }
-    | identifier MINUS_ASSIGN expression     { 
-                                               ASTNode* left = create_identifier_node_with_yyltype($1->data.identifier.name, (YYLTYPE*) &@$);
-                                               ASTNode* binop = create_binop_node_with_yyltype(OP_SUB, left, $3, (YYLTYPE*) &@$);
+    | factor_unary MINUS_ASSIGN expression     {
+                                               ASTNode* lhs = clone_lvalue($1);
+                                               ASTNode* binop = create_binop_node_with_yyltype(OP_SUB, lhs ? lhs : create_num_int_node(0), $3, (YYLTYPE*) &@$);
                                                $$ = create_assign_node_with_yyltype($1, binop, (YYLTYPE*) &@$);
                                              }
-    | identifier MULTIPLY_ASSIGN expression  { 
-                                               ASTNode* left = create_identifier_node_with_yyltype($1->data.identifier.name, (YYLTYPE*) &@$);
-                                               ASTNode* binop = create_binop_node_with_yyltype(OP_MUL, left, $3, (YYLTYPE*) &@$);
+    | factor_unary MULTIPLY_ASSIGN expression  {
+                                               ASTNode* lhs = clone_lvalue($1);
+                                               ASTNode* binop = create_binop_node_with_yyltype(OP_MUL, lhs ? lhs : create_num_int_node(0), $3, (YYLTYPE*) &@$);
                                                $$ = create_assign_node_with_yyltype($1, binop, (YYLTYPE*) &@$);
                                              }
-    | identifier DIVIDE_ASSIGN expression    { 
-                                               ASTNode* left = create_identifier_node_with_yyltype($1->data.identifier.name, (YYLTYPE*) &@$);
-                                               ASTNode* binop = create_binop_node_with_yyltype(OP_DIV, left, $3, (YYLTYPE*) &@$);
+    | factor_unary DIVIDE_ASSIGN expression    {
+                                               ASTNode* lhs = clone_lvalue($1);
+                                               ASTNode* binop = create_binop_node_with_yyltype(OP_DIV, lhs ? lhs : create_num_int_node(0), $3, (YYLTYPE*) &@$);
                                                $$ = create_assign_node_with_yyltype($1, binop, (YYLTYPE*) &@$);
                                              }
-    | identifier MODULO_ASSIGN expression    { 
-                                               ASTNode* left = create_identifier_node_with_yyltype($1->data.identifier.name, (YYLTYPE*) &@$);
-                                               ASTNode* binop = create_binop_node_with_yyltype(OP_MOD, left, $3, (YYLTYPE*) &@$);
+    | factor_unary MODULO_ASSIGN expression    {
+                                               ASTNode* lhs = clone_lvalue($1);
+                                               ASTNode* binop = create_binop_node_with_yyltype(OP_MOD, lhs ? lhs : create_num_int_node(0), $3, (YYLTYPE*) &@$);
                                                $$ = create_assign_node_with_yyltype($1, binop, (YYLTYPE*) &@$);
                                              }
     ;
@@ -1484,12 +1577,17 @@ factor_unary
             $$ = create_if_node_with_yyltype($3, $5, NULL, (YYLTYPE*) &@$);
         }
     }
-    | PLUS factor_unary             { $$ = create_unaryop_node(OP_PLUS, $2); }
-    | MINUS factor_unary            { $$ = create_unaryop_node(OP_MINUS, $2); }
-    | MULTIPLY factor_unary         { $$ = create_unaryop_node(OP_DEREF, $2); }
-    | AMPERSAND factor_unary        { $$ = create_unaryop_node(OP_ADDRESS, $2); }
-    | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
-    | BANG factor_unary             { $$ = create_unaryop_node(OP_NOT, $2); }
+    | PLUS factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_PLUS, $2, (YYLTYPE*) &@$); }
+    | MINUS factor_unary            { $$ = create_unaryop_node_with_yyltype(OP_MINUS, $2, (YYLTYPE*) &@$); }
+    | MULTIPLY factor_unary         { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
+    | REF_KW factor_unary           { $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $2, (YYLTYPE*) &@$); }
+    | MUT REF_KW factor_unary       {
+        $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $3, (YYLTYPE*) &@$);
+        $$->mutability = MUTABILITY_MUTABLE;
+    }
+    | AMPERSAND factor_unary        { $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $2, (YYLTYPE*) &@$); }
+    | AT factor_unary               { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
+    | BANG factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_NOT, $2, (YYLTYPE*) &@$); }
     | LPAREN expression RPAREN      { $$ = $2; }
     | LPAREN RPAREN                 { $$ = create_nil_node_with_yyltype((YYLTYPE*) &@$); }
     | LPAREN expression COMMA expression_list RPAREN {

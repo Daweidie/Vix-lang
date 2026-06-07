@@ -1,0 +1,43 @@
+#ifndef SCOPE_MANAGER_H
+#define SCOPE_MANAGER_H
+
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Function.h>
+#include <map>
+#include <string>
+#include <vector>
+
+class ScopeManager {
+private:
+    std::vector<std::map<std::string, llvm::AllocaInst*>> scopes;
+    llvm::Function* currentFunction;
+
+public:
+    ScopeManager() : currentFunction(nullptr) { enterScope(); }
+
+    void enterScope() { scopes.push_back({}); }
+
+    void exitScope() {
+        if (scopes.size() > 1) scopes.pop_back();
+    }
+
+    void setCurrentFunction(llvm::Function* func) { currentFunction = func; }
+
+    llvm::Function* getCurrentFunction() { return currentFunction; }
+
+    void defineVariable(const std::string& name, llvm::AllocaInst* alloc) {
+        if (!scopes.empty()) scopes.back()[name] = alloc;
+    }
+
+    llvm::AllocaInst* findVariable(const std::string& name) {
+        for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+            auto found = it->find(name);
+            if (found != it->end()) return found->second;
+        }
+        return nullptr;
+    }
+
+    void clear() { scopes.clear(); enterScope(); }
+};
+
+#endif

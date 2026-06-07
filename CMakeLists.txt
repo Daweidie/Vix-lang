@@ -110,23 +110,34 @@ set(C_SOURCES
     ${FLEX_vix_lexer_OUTPUTS}
 )
 set(CXX_SOURCES
-    src/compiler/CodeGen.cpp
+    src/compiler/Codegen.cpp
+    src/compiler/Types.cpp
+    src/compiler/Attrs.cpp
+    src/compiler/Exprs.cpp
+    src/compiler/Stmts.cpp
+    src/compiler/Funcs.cpp
+    src/compiler/Structs.cpp
+    src/compiler/Arrays.cpp
     src/compiler/Passes.cpp
     src/compiler/Llc/Llc.cpp
     src/compiler/Linker/Linker.cpp
     src/Typeck/Typeck.cpp
     src/Typeck/TypeckInfer.cpp
     src/Typeck/LayOut.cpp
+    src/Ownership/Ownership.cpp
 )
 add_executable(vixc ${C_SOURCES} ${CXX_SOURCES})
 
 target_include_directories(vixc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/compiler
     ${CMAKE_CURRENT_BINARY_DIR}/parser
 )
 target_compile_options(vixc PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -fno-stack-protector>
-    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -fno-stack-protector -fexceptions>
+    $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/W4>
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/W4 /EHsc>
+    $<$<AND:$<COMPILE_LANGUAGE:C>,$<NOT:$<C_COMPILER_ID:MSVC>>>:-Wall -Wextra -fstack-protector-strong>
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall -Wextra -fstack-protector-strong -fexceptions>
 )
 
 if(NOT WIN32)
@@ -149,9 +160,11 @@ else()
     )
     target_link_libraries(vixc PRIVATE ${LLVM_LIBS})
 endif()
-target_link_libraries(vixc PRIVATE
-    lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon
-)
+foreach(_lld_target IN ITEMS lldELF lldMachO lldCOFF lldWasm lldMinGW lldCommon)
+    if(TARGET ${_lld_target})
+        target_link_libraries(vixc PRIVATE ${_lld_target})
+    endif()
+endforeach()
 
 foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
     target_link_libraries(vixc PRIVATE ${lib})
