@@ -124,6 +124,7 @@ set(CXX_SOURCES
     src/Typeck/Typeck.cpp
     src/Typeck/TypeckInfer.cpp
     src/Typeck/LayOut.cpp
+    src/Ownership/Ownership.cpp
 )
 add_executable(vixc ${C_SOURCES} ${CXX_SOURCES})
 

@@ -164,6 +164,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "const"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); /* const removed from user syntax */ }
 "let"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return LET; }
 "mut"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return MUT; }
+"ref"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return REF_KW; }
 "->"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return ARROW; }
 "i32"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_I32; }
 "void"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_VOID; }

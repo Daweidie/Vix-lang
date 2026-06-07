@@ -660,7 +660,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %token STRUCT COLON
 %token TYPE_KW MATCH PIPE
 %token QUESTION
-%token LET MUT
+%token LET MUT REF_KW
 %token IMPORT PUB
 %token <num_int> NUMBER_INT CHAR_LITERAL
 %token <num_float> NUMBER_FLOAT
@@ -1044,6 +1044,10 @@ type
         | TYPE_PTR LPAREN type RPAREN {
                 $$ = create_type_node(AST_TYPE_POINTER);
                 $$->data.pointer_type.element_type = $3;
+            }
+        | REF_KW type {
+                $$ = create_type_node(AST_TYPE_POINTER);
+                $$->data.pointer_type.element_type = $2;
             }
         | AMPERSAND type {
                 $$ = create_type_node(AST_TYPE_POINTER);
@@ -1573,12 +1577,17 @@ factor_unary
             $$ = create_if_node_with_yyltype($3, $5, NULL, (YYLTYPE*) &@$);
         }
     }
-    | PLUS factor_unary             { $$ = create_unaryop_node(OP_PLUS, $2); }
-    | MINUS factor_unary            { $$ = create_unaryop_node(OP_MINUS, $2); }
-    | MULTIPLY factor_unary         { $$ = create_unaryop_node(OP_DEREF, $2); }
-    | AMPERSAND factor_unary        { $$ = create_unaryop_node(OP_ADDRESS, $2); }
-    | AT factor_unary               { $$ = create_unaryop_node(OP_DEREF, $2); }
-    | BANG factor_unary             { $$ = create_unaryop_node(OP_NOT, $2); }
+    | PLUS factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_PLUS, $2, (YYLTYPE*) &@$); }
+    | MINUS factor_unary            { $$ = create_unaryop_node_with_yyltype(OP_MINUS, $2, (YYLTYPE*) &@$); }
+    | MULTIPLY factor_unary         { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
+    | REF_KW factor_unary           { $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $2, (YYLTYPE*) &@$); }
+    | MUT REF_KW factor_unary       {
+        $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $3, (YYLTYPE*) &@$);
+        $$->mutability = MUTABILITY_MUTABLE;
+    }
+    | AMPERSAND factor_unary        { $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $2, (YYLTYPE*) &@$); }
+    | AT factor_unary               { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
+    | BANG factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_NOT, $2, (YYLTYPE*) &@$); }
     | LPAREN expression RPAREN      { $$ = $2; }
     | LPAREN RPAREN                 { $$ = create_nil_node_with_yyltype((YYLTYPE*) &@$); }
     | LPAREN expression COMMA expression_list RPAREN {

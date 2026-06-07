@@ -19,6 +19,7 @@
 #include "../include/compat.h"
 #include "../include/compiler.h"
 #include "../include/parser.h"
+#include "../include/ownership.h"
 #include "../include/semantic.h"
 #include "../include/typeck.h"
 #include "compiler/Linker/Linker.h"
@@ -178,7 +179,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.2.10 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
+      printf("Vix Compiler 0.3.0 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       return 0;
     } else if (strcmp(argv[i], "-llvm") == 0) {
       out_llvm = 1;
@@ -430,6 +431,15 @@ int main(int argc, char **argv) {
 
     if (typecheck_program(root) != 0) {
       fprintf(stderr, "Compilation failed with type errors\n");
+      if (root) {
+        free_ast(root);
+      }
+      cleanup_error_handler();
+      fclose(input_file);
+      return 1;
+    }
+    if (ownership_check_program(root) != 0) {
+      fprintf(stderr, "Compilation failed with ownership errors\n");
       if (root) {
         free_ast(root);
       }

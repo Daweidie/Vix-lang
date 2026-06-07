@@ -115,7 +115,7 @@ fn main(): i32 { greet("world") return 0 }'''
 
     def test_pointer_param(self, compiler, tmp_path):
         src = '''fn deref(p: ptr): i32 { return @p }
-fn main(): i32 { let x = 42 print(deref(&x)) return 0 }'''
+fn main(): i32 { let x = 42 print(deref(ref x)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == "42"
@@ -176,7 +176,7 @@ class TestPointerTypes:
     def test_address_of_and_deref(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let x = 42
-    let p = &x
+    let p = ref x
     print(@p)
     return 0
 }'''
@@ -187,7 +187,7 @@ class TestPointerTypes:
     def test_pointer_mutation(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let mut x = 10
-    let mut p = &x
+    let mut p = ref x
     @p = 20
     print(x)
     return 0
@@ -197,7 +197,7 @@ class TestPointerTypes:
         assert run.stdout.strip() == "20"
 
     def test_swap_via_pointers(self, compiler, tmp_path):
-        src = '''fn swap(mut a: &i32, mut b: &i32) {
+        src = '''fn swap(mut a: ref i32, mut b: ref i32) {
     let temp = @a
     @a = @b
     @b = temp
@@ -205,7 +205,7 @@ class TestPointerTypes:
 fn main(): i32 {
     let a = 10
     let b = 20
-    swap(&a, &b)
+    swap(ref a, ref b)
     print(a)
     print(b)
     return 0
@@ -218,7 +218,7 @@ fn main(): i32 {
     def test_ptr_type_annotation(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let x = 99
-    let p: ptr = &x
+    let p: ptr = ref x
     print(@p)
     return 0
 }'''
@@ -818,7 +818,7 @@ class TestPointerErrors:
     def test_pointer_deref_works(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let x = 42
-    let p = &x
+    let p = ref x
     print(@p)
     return 0
 }'''
@@ -1315,7 +1315,7 @@ fn main(): i32 {
     def test_pointer_operations(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let mut x = 10
-    let mut p = &x
+    let mut p = ref x
     @p = 20
     print(x)
     return 0

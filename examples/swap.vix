@@ -1,4 +1,4 @@
-fn swap(mut a: &i32, mut b: &i32) 
+fn swap(mut a: ref i32, mut b: ref i32) 
 {
     let temp = @a
     @a = @b
@@ -8,7 +8,7 @@ fn main(): i32
 {
     let a = 10
     let b = 20
-    swap(&a, &b)
+    swap(ref a, ref b)
     print(a)
     print(b)
     return 0
