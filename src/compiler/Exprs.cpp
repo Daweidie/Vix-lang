@@ -199,6 +199,48 @@ using namespace llvm;
         if (!node || !node->data.binop.left || !node->data.binop.right)
             return VisitResult();
         
+        /* For comparisons involving ADT constructors, use tag value (i32) instead of pointer */
+        BinOpType op = node->data.binop.op;
+        if (op == OP_EQ || op == OP_NE) {
+            ASTNode* left_node = node->data.binop.left;
+            ASTNode* right_node = node->data.binop.right;
+            auto getAdtTagValue = [&](ASTNode* n) -> Value* {
+                if (!n || n->type != AST_IDENTIFIER || !n->data.identifier.name) return nullptr;
+                std::string name(n->data.identifier.name);
+                if (!isRegisteredUnionCtorName(name)) return nullptr;
+                GlobalVariable* gv = module->getGlobalVariable(name, true);
+                int32_t tagVal = 0;
+                if (gv && gv->hasInitializer()) {
+                    if (auto* intInit = dyn_cast<ConstantInt>(gv->getInitializer())) {
+                        tagVal = static_cast<int32_t>(intInit->getSExtValue());
+                    }
+                } else {
+                    int ctor_idx = vix_adt_ctor_index(name.c_str());
+                    tagVal = (ctor_idx >= 0) ? static_cast<int32_t>(ctor_idx) : ctorTagValue(name);
+                }
+                return ConstantInt::get(Type::getInt32Ty(context), tagVal);
+            };
+            Value* leftAdtTag = getAdtTagValue(left_node);
+            Value* rightAdtTag = getAdtTagValue(right_node);
+            if (leftAdtTag || rightAdtTag) {
+                VisitResult leftRes = leftAdtTag ? VisitResult(leftAdtTag, ValueType::INT32) : visit(left_node);
+                VisitResult rightRes = rightAdtTag ? VisitResult(rightAdtTag, ValueType::INT32) : visit(right_node);
+                if (!leftRes.value || !rightRes.value) return VisitResult();
+                Value* lv = leftRes.value;
+                Value* rv = rightRes.value;
+                if (lv->getType() != rv->getType()) {
+                    if (lv->getType()->isIntegerTy() && rv->getType()->isIntegerTy()) {
+                        unsigned maxBits = std::max(lv->getType()->getIntegerBitWidth(),
+                                                    rv->getType()->getIntegerBitWidth());
+                        lv = builder.CreateIntCast(lv, Type::getIntNTy(context, maxBits), true);
+                        rv = builder.CreateIntCast(rv, Type::getIntNTy(context, maxBits), true);
+                    }
+                }
+                if (op == OP_EQ) return VisitResult(builder.CreateICmpEQ(lv, rv, "eqtmp"), ValueType::BOOL);
+                return VisitResult(builder.CreateICmpNE(lv, rv, "netmp"), ValueType::BOOL);
+            }
+        }
+
         VisitResult leftRes = visit(node->data.binop.left);
         VisitResult rightRes = visit(node->data.binop.right);
         if (!leftRes.value || !rightRes.value) {

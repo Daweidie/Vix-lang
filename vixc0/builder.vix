@@ -1,0 +1,207 @@
+#[no_main]
+
+extern "C"
+{
+    fn malloc(size: usize): string
+    fn snprintf(buf: string, size: usize, fmt: string, ...): i32
+}
+
+pub fn i32_to_str(n: i32): string
+{
+    let buf: string = malloc(64)
+    snprintf(buf, 64, "%d", n)
+    return buf
+}
+
+pub type QbeBuilder = struct {
+    code: string,
+    temp_counter: i32,
+    label_counter: i32
+}
+
+pub fn qbe_new(): QbeBuilder
+{
+    return QbeBuilder{ code: "", temp_counter: 0, label_counter: 0 }
+}
+
+pub fn qbe_get_code(b: &QbeBuilder): string
+{
+    return b.code
+}
+
+pub fn qbe_temp(b: &QbeBuilder, prefix: string): string
+{
+    let val = b.temp_counter
+    b.temp_counter = val + 1
+    return "%" + prefix + i32_to_str(val)
+}
+
+pub fn qbe_label_name(b: &QbeBuilder, prefix: string): string
+{
+    let val = b.label_counter
+    b.label_counter = val + 1
+    return prefix + i32_to_str(val)
+}
+
+pub fn qbe_emit(b: &QbeBuilder, code: string)
+{
+    b.code = b.code + code
+}
+
+pub fn qbe_emit_function_header(b: &QbeBuilder, name: string, ret_ty: string)
+{
+    if (ret_ty == "void")
+    {
+        qbe_emit(b, "export function $" + name + "()\n{\n")
+    }
+    else
+    {
+        qbe_emit(b, "export function w $" + name + "()\n{\n")
+    }
+}
+
+pub fn qbe_emit_end_function(b: &QbeBuilder)
+{
+    qbe_emit(b, "}\n")
+}
+
+pub fn qbe_emit_label(b: &QbeBuilder, name: string)
+{
+    qbe_emit(b, "@" + name + "\n")
+}
+
+pub fn qbe_emit_ret_i32(b: &QbeBuilder, value: string)
+{
+    qbe_emit(b, "\tret " + value + "\n")
+}
+
+pub fn qbe_emit_ret_void(b: &QbeBuilder)
+{
+    qbe_emit(b, "\tret\n")
+}
+
+pub fn qbe_emit_copy(b: &QbeBuilder, result: string, value: string)
+{
+    qbe_emit(b, "\t" + result + " =w copy " + value + "\n")
+}
+
+pub fn qbe_emit_copy_i32(b: &QbeBuilder, result: string, value: i32)
+{
+    qbe_emit(b, "\t" + result + " =w copy " + i32_to_str(value) + "\n")
+}
+
+pub fn qbe_emit_add(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w add " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_sub(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w sub " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_mul(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w mul " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_div(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w div " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_mod(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w rem " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_neg(b: &QbeBuilder, result: string, src: string)
+{
+    qbe_emit(b, "\t" + result + " =w sub 0, " + src + "\n")
+}
+
+pub fn qbe_emit_eq(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w ceqw " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_ne(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w cnew " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_lt(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w csltw " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_le(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w cslew " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_gt(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w csgtw " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_ge(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_emit(b, "\t" + result + " =w csgew " + left + ", " + right + "\n")
+}
+
+pub fn qbe_emit_jnz(b: &QbeBuilder, temp: string, then_label: string, else_label: string)
+{
+    qbe_emit(b, "\tjnz " + temp + ", @" + then_label + ", @" + else_label + "\n")
+}
+
+pub fn qbe_emit_jmp(b: &QbeBuilder, label: string)
+{
+    qbe_emit(b, "\tjmp @" + label + "\n")
+}
+
+pub fn qbe_emit_call(b: &QbeBuilder, result: string, func: string, args: [string])
+{
+    let mut call_str = "\t" + result + " =w call $" + func + "("
+    for (i in 0 .. args.length)
+    {
+        if (i > 0) { call_str = call_str + ", " }
+        call_str = call_str + "w " + args[i]
+    }
+    call_str = call_str + ")\n"
+    qbe_emit(b, call_str)
+}
+
+pub fn qbe_emit_call_void(b: &QbeBuilder, func: string, args: [string])
+{
+    let mut call_str = "\tcall $" + func + "("
+    for (i in 0 .. args.length)
+    {
+        if (i > 0) { call_str = call_str + ", " }
+        call_str = call_str + "w " + args[i]
+    }
+    call_str = call_str + ")\n"
+    qbe_emit(b, call_str)
+}
+
+pub fn qbe_emit_call_ptr(b: &QbeBuilder, result: string, func: string, args: [string])
+{
+    let mut call_str = "\t" + result + " =l call $" + func + "("
+    for (i in 0 .. args.length)
+    {
+        if (i > 0) { call_str = call_str + ", " }
+        call_str = call_str + "l " + args[i]
+    }
+    call_str = call_str + ")\n"
+    qbe_emit(b, call_str)
+}
+
+pub fn qbe_emit_eq_string(b: &QbeBuilder, result: string, left: string, right_literal: string)
+{
+    qbe_emit(b, "\t" + result + " =w call $vix_str_eq(l %" + left + ", l $str_" + right_literal + ")\n")
+}
+
+pub fn qbe_emit_data_string(b: &QbeBuilder, label: string, value: string)
+{
+    qbe_emit(b, "data $str_" + label + " = { b \"" + value + "\", b 0 }\n")
+}

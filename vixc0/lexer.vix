@@ -6,27 +6,27 @@ extern "C"
     fn snprintf(buf: string, size: usize, fmt: string, ...): i32
 }
 
+pub fn i32_to_str(n: i32): string
+{
+    let buf: string = malloc(64)
+    snprintf(buf, 64, "%d", n)
+    return buf
+}
+
+pub fn tk_ident(): i32 { return 1 }
+pub fn tk_number(): i32 { return 2 }
+pub fn tk_keyword(): i32 { return 3 }
+pub fn tk_symbol(): i32 { return 4 }
+pub fn tk_string(): i32 { return 5 }
+pub fn tk_eof(): i32 { return 6 }
+pub fn tk_bool(): i32 { return 7 }
+
 pub type TokenStream = struct {
     kinds: [i32],
     texts: [string],
     ints: [i32],
     lines: [i32],
     columns: [i32]
-}
-
-pub fn token_identifier(): i32 { return 1 }
-pub fn token_number(): i32 { return 2 }
-pub fn token_keyword(): i32 { return 3 }
-pub fn token_symbol(): i32 { return 4 }
-pub fn token_string(): i32 { return 5 }
-pub fn token_eof(): i32 { return 6 }
-pub fn token_bool(): i32 { return 7 }
-
-pub fn lexer_i32(n: i32): string
-{
-    let buf: string = malloc(64)
-    snprintf(buf, 64, "%d", n)
-    return buf
 }
 
 pub fn stream_new(): TokenStream
@@ -120,15 +120,6 @@ pub fn is_keyword(text: string): i32
     return 0
 }
 
-pub fn keyword_token_kind(text: string): ?i32
-{
-    if (is_keyword(text) == 1)
-    {
-        return Some(token_keyword())
-    }
-    return None
-}
-
 pub fn tokenize(src: string): TokenStream
 {
     let stream = stream_new()
@@ -152,6 +143,14 @@ pub fn tokenize(src: string): TokenStream
                     line += 1
                     column = 1
                 }
+                elif (c == '/' and pos + 1 < src.length and src[pos + 1] == '/')
+                {
+                    while (pos < src.length and src[pos] != '\n')
+                    {
+                        pos += 1
+                        column += 1
+                    }
+                }
                 elif (is_alpha(c) == 1)
                 {
                     let start_col = column
@@ -162,10 +161,21 @@ pub fn tokenize(src: string): TokenStream
                         pos += 1
                         column += 1
                     }
-                    match keyword_token_kind(text)
+                    if (text == "true")
                     {
-                        Some(kind) -> stream_push(&stream, kind, text, 0, line, start_col)
-                        None -> stream_push(&stream, token_identifier(), text, 0, line, start_col)
+                        stream_push(&stream, tk_bool(), text, 1, line, start_col)
+                    }
+                    elif (text == "false")
+                    {
+                        stream_push(&stream, tk_bool(), text, 0, line, start_col)
+                    }
+                    elif (is_keyword(text) == 1)
+                    {
+                        stream_push(&stream, tk_keyword(), text, 0, line, start_col)
+                    }
+                    else
+                    {
+                        stream_push(&stream, tk_ident(), text, 0, line, start_col)
                     }
                 }
                 elif (is_digit(c) == 1)
@@ -178,7 +188,7 @@ pub fn tokenize(src: string): TokenStream
                         pos += 1
                         column += 1
                     }
-                    stream_push(&stream, token_number(), "", value, line, start_col)
+                    stream_push(&stream, tk_number(), "", value, line, start_col)
                 }
                 elif (c == '"')
                 {
@@ -188,32 +198,94 @@ pub fn tokenize(src: string): TokenStream
                     column += 1
                     while (pos < src.length and src[pos] != '"')
                     {
-                        text = text + char_string(src[pos])
-                        pos += 1
-                        column += 1
+                        if (src[pos] == '\\' and pos + 1 < src.length)
+                        {
+                            let next = src[pos + 1]
+                            if (next == 'n') { text = text + char_string('\n') }
+                            elif (next == 't') { text = text + char_string('\t') }
+                            elif (next == '\\') { text = text + char_string('\\') }
+                            elif (next == '"') { text = text + char_string('"') }
+                            else { text = text + char_string(next) }
+                            pos += 2
+                            column += 2
+                        }
+                        else
+                        {
+                            text = text + char_string(src[pos])
+                            pos += 1
+                            column += 1
+                        }
                     }
                     if (pos < src.length and src[pos] == '"')
                     {
                         pos += 1
                         column += 1
                     }
-                    stream_push(&stream, token_string(), text, 0, line, start_col)
+                    stream_push(&stream, tk_string(), text, 0, line, start_col)
                 }
                 elif (c == '=' and pos + 1 < src.length and src[pos + 1] == '>')
                 {
-                    stream_push(&stream, token_symbol(), "=>", 0, line, column)
+                    stream_push(&stream, tk_symbol(), "=>", 0, line, column)
                     pos += 2
                     column += 2
                 }
                 elif (c == '=' and pos + 1 < src.length and src[pos + 1] == '=')
                 {
-                    stream_push(&stream, token_symbol(), "==", 0, line, column)
+                    stream_push(&stream, tk_symbol(), "==", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '!' and pos + 1 < src.length and src[pos + 1] == '=')
+                {
+                    stream_push(&stream, tk_symbol(), "!=", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '<' and pos + 1 < src.length and src[pos + 1] == '=')
+                {
+                    stream_push(&stream, tk_symbol(), "<=", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '>' and pos + 1 < src.length and src[pos + 1] == '=')
+                {
+                    stream_push(&stream, tk_symbol(), ">=", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '+' and pos + 1 < src.length and src[pos + 1] == '=')
+                {
+                    stream_push(&stream, tk_symbol(), "+=", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '-' and pos + 1 < src.length and src[pos + 1] == '=')
+                {
+                    stream_push(&stream, tk_symbol(), "-=", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '-' and pos + 1 < src.length and src[pos + 1] == '>')
+                {
+                    stream_push(&stream, tk_symbol(), "->", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '*' and pos + 1 < src.length and src[pos + 1] == '*')
+                {
+                    stream_push(&stream, tk_symbol(), "**", 0, line, column)
+                    pos += 2
+                    column += 2
+                }
+                elif (c == '.' and pos + 1 < src.length and src[pos + 1] == '.')
+                {
+                    stream_push(&stream, tk_symbol(), "..", 0, line, column)
                     pos += 2
                     column += 2
                 }
                 else
                 {
-                    stream_push(&stream, token_symbol(), char_string(c), 0, line, column)
+                    stream_push(&stream, tk_symbol(), char_string(c), 0, line, column)
                     pos += 1
                     column += 1
                 }
@@ -222,7 +294,7 @@ pub fn tokenize(src: string): TokenStream
         }
     }
 
-    stream_push(&stream, token_eof(), "", 0, line, column)
+    stream_push(&stream, tk_eof(), "", 0, line, column)
     return stream
 }
 
@@ -232,7 +304,7 @@ pub fn tokenize_debug(src: string): string
     let mut out = ""
     for (i in 0 .. stream_len(stream))
     {
-        out = out + "Token(kind=" + lexer_i32(stream_kind_at(stream, i)) + ", text='" + stream_text_at(stream, i) + "', int=" + lexer_i32(stream_int_at(stream, i)) + ", line=" + lexer_i32(stream_line_at(stream, i)) + ", col=" + lexer_i32(stream_col_at(stream, i)) + ")\n"
+        out = out + "Token(kind=" + i32_to_str(stream_kind_at(stream, i)) + ", text='" + stream_text_at(stream, i) + "', int=" + i32_to_str(stream_int_at(stream, i)) + ")\n"
     }
     return out
 }

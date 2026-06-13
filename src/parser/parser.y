@@ -613,7 +613,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                     ASTNode* tag_access = create_member_access_node(
                         clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     if (is_custom_adt_ctor) {
-                        cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(adt_ctor_tag));
+                        cond = create_binop_node(OP_EQ, tag_access, create_identifier_node(ctor_name));
                     } else {
                         ASTNode* cond_right = create_identifier_node(ctor_name);
                         cond = create_binop_node(OP_EQ, tag_access, cond_right);
@@ -647,10 +647,9 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             // Check for custom ADT constructors (simple identifier, no payload)
             if (!cond && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
                 vix_adt_ctor_index(pattern->data.identifier.name) >= 0) {
-                int ctor_tag = vix_adt_ctor_index(pattern->data.identifier.name);
                 ASTNode* tag_access = create_member_access_node(
                     clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
-                cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(ctor_tag));
+                cond = create_binop_node(OP_EQ, tag_access, create_identifier_node(pattern->data.identifier.name));
             }
 
             if (!cond) {

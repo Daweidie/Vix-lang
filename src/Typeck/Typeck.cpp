@@ -1520,10 +1520,12 @@ struct TypeChecker {
 			ASTNode* ctor_node = nullptr;
 			ASTNode* scrutinee_node = nullptr;
 			bool is_nil_cmp = false;
-			if (lhs && lhs->type == AST_IDENTIFIER && is_builtin_ctor(lhs->data.identifier.name)) {
+			if (lhs && lhs->type == AST_IDENTIFIER && lhs->data.identifier.name &&
+				(is_builtin_ctor(lhs->data.identifier.name) || vix_adt_ctor_index(lhs->data.identifier.name) >= 0)) {
 				ctor_node = lhs;
 				scrutinee_node = rhs;
-			} else if (rhs && rhs->type == AST_IDENTIFIER && is_builtin_ctor(rhs->data.identifier.name)) {
+			} else if (rhs && rhs->type == AST_IDENTIFIER && rhs->data.identifier.name &&
+				(is_builtin_ctor(rhs->data.identifier.name) || vix_adt_ctor_index(rhs->data.identifier.name) >= 0)) {
 				ctor_node = rhs;
 				scrutinee_node = lhs;
 			} else if (lhs && lhs->type == AST_NIL && rhs && rhs->type == AST_IDENTIFIER) {
@@ -1564,15 +1566,21 @@ struct TypeChecker {
 								} else if (!is_ne && strcmp(ctor_name, "None") != 0) {
 									payload_type = resolved->data.app.args[0];
 								}
-							} else if (base == "Result" && resolved->data.app.args.size() == 2) {
-								if (is_ne) {
-									payload_type = resolved->data.app.args[0];
-								} else if (strcmp(ctor_name, "Ok") == 0) {
-									payload_type = resolved->data.app.args[0];
-								} else if (strcmp(ctor_name, "Err") == 0) {
-									payload_type = resolved->data.app.args[1];
-								}
+						} else if (base == "Result" && resolved->data.app.args.size() == 2) {
+							if (is_ne) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Ok") == 0) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Err") == 0) {
+								payload_type = resolved->data.app.args[1];
 							}
+						} else {
+							/* Custom ADT: look up payload type from ADT definition */
+							ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+							if (payload_node) {
+								payload_type = type_from_ast(payload_node);
+							}
+						}
 						}
 					}
 					if (payload_type) {
@@ -1595,11 +1603,13 @@ struct TypeChecker {
 			ASTNode* member_node = nullptr;
 			const char* ctor_name = nullptr;
 			if (lhs && lhs->type == AST_MEMBER_ACCESS && rhs && rhs->type == AST_IDENTIFIER &&
-				rhs->data.identifier.name && is_builtin_ctor(rhs->data.identifier.name)) {
+				rhs->data.identifier.name &&
+				(is_builtin_ctor(rhs->data.identifier.name) || vix_adt_ctor_index(rhs->data.identifier.name) >= 0)) {
 				member_node = lhs;
 				ctor_name = rhs->data.identifier.name;
 			} else if (rhs && rhs->type == AST_MEMBER_ACCESS && lhs && lhs->type == AST_IDENTIFIER &&
-				lhs->data.identifier.name && is_builtin_ctor(lhs->data.identifier.name)) {
+				lhs->data.identifier.name &&
+				(is_builtin_ctor(lhs->data.identifier.name) || vix_adt_ctor_index(lhs->data.identifier.name) >= 0)) {
 				member_node = rhs;
 				ctor_name = lhs->data.identifier.name;
 			}
@@ -1624,6 +1634,12 @@ struct TypeChecker {
 						} else if (base == "Option" && resolved->data.app.args.size() == 1) {
 							if (strcmp(ctor_name, "Some") == 0) {
 								payload_type = resolved->data.app.args[0];
+							}
+						} else {
+							/* Custom ADT: look up payload type from ADT definition */
+							ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+							if (payload_node) {
+								payload_type = type_from_ast(payload_node);
 							}
 						}
 					}
@@ -1808,6 +1824,14 @@ struct TypeChecker {
 					}
 					if (base == "Result" && resolved->data.app.args.size() >= 2) {
 						return node_types[node] = resolved->data.app.args[0];
+					}
+					/* Custom ADT: look up payload type from ADT definition */
+					if (objectNode && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+						/* Try to find the constructor from the match context */
+						ASTNode* payload_node = vix_adt_ctor_payload_type_node(base.c_str());
+						if (payload_node) {
+							return node_types[node] = type_from_ast(payload_node);
+						}
 					}
 				}
 				{

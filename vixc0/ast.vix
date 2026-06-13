@@ -16,16 +16,37 @@ pub type AstExpr = struct {
     tag: string,
     text: string,
     int_value: i32,
-    left: string,
-    right: string,
-    args: [string],
+    left_idx: i32,
+    right_idx: i32,
+    args: [i32],
     option_has_value: i32,
     option_value: string
 }
 
+pub type ExprStore = struct {
+    exprs: [AstExpr]
+}
+
+pub fn expr_store_new(): ExprStore
+{
+    return ExprStore{ exprs: [] }
+}
+
+pub fn expr_store_add(store: &ExprStore, expr: AstExpr): i32
+{
+    let idx = store.exprs.length
+    store.exprs.push(expr)
+    return idx
+}
+
+pub fn expr_store_get(store: &ExprStore, idx: i32): AstExpr
+{
+    return store.exprs[idx]
+}
+
 pub type AstStmt = struct {
     tag: string,
-    value_expr: AstExpr,
+    value_idx: i32,
     cond_left: string,
     cond_right: string,
     then_ret: i32,
@@ -38,10 +59,11 @@ pub type AstStmt = struct {
     match_option_value: string,
     direct_ret: i32,
     assign_name: string,
-    assign_expr: AstExpr,
-    print_expr: AstExpr,
+    assign_idx: i32,
+    print_idx: i32,
     block_start: i32,
-    block_count: i32
+    block_count: i32,
+    body_idx: i32
 }
 
 pub type StmtStore = struct {
@@ -73,156 +95,142 @@ pub fn stmt_store_len(store: &StmtStore): i32
 pub type AstFunction = struct {
     name: string,
     ret_ty: string,
-    body: AstStmt
+    body_idx: i32
 }
 
 pub type AstProgram = struct {
     function: AstFunction,
+    expr_store: ExprStore,
     store: StmtStore,
     ok: i32,
     error: string
 }
 
-pub fn ast_expr_int(value: i32): AstExpr
+pub fn ast_expr_int(store: &ExprStore, value: i32): i32
 {
-    return AstExpr{ tag: "int", text: "", int_value: value, left: "", right: "", args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "int", text: "", int_value: value, left_idx: -1, right_idx: -1, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_bool(value: i32): AstExpr
+pub fn ast_expr_bool(store: &ExprStore, value: i32): i32
 {
-    return AstExpr{ tag: "bool", text: "", int_value: value, left: "", right: "", args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "bool", text: "", int_value: value, left_idx: -1, right_idx: -1, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_string(text: string): AstExpr
+pub fn ast_expr_string(store: &ExprStore, text: string): i32
 {
-    return AstExpr{ tag: "string", text: text, int_value: 0, left: "", right: "", args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "string", text: text, int_value: 0, left_idx: -1, right_idx: -1, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_identifier(text: string): AstExpr
+pub fn ast_expr_identifier(store: &ExprStore, text: string): i32
 {
-    return AstExpr{ tag: "ident", text: text, int_value: 0, left: "", right: "", args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "ident", text: text, int_value: 0, left_idx: -1, right_idx: -1, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_binop(op: string, left: string, right: string): AstExpr
+pub fn ast_expr_binop(store: &ExprStore, op: string, left: i32, right: i32): i32
 {
-    return AstExpr{ tag: "binop", text: op, int_value: 0, left: left, right: right, args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "binop", text: op, int_value: 0, left_idx: left, right_idx: right, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_unaryop(op: string, operand: string): AstExpr
+pub fn ast_expr_unaryop(store: &ExprStore, op: string, operand: i32): i32
 {
-    return AstExpr{ tag: "unaryop", text: op, int_value: 0, left: operand, right: "", args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "unaryop", text: op, int_value: 0, left_idx: operand, right_idx: -1, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_call(name: string, args: [string]): AstExpr
+pub fn ast_expr_call(store: &ExprStore, name: string, args: [i32]): i32
 {
-    return AstExpr{ tag: "call", text: name, int_value: 0, left: "", right: "", args: args, option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "call", text: name, int_value: 0, left_idx: -1, right_idx: -1, args: args, option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_some_string(value: string): AstExpr
+pub fn ast_expr_some_string(store: &ExprStore, value: string): i32
 {
-    return AstExpr{ tag: "option", text: "", int_value: 0, left: "", right: "", args: [], option_has_value: 1, option_value: value }
+    return expr_store_add(store, AstExpr{ tag: "option", text: "", int_value: 0, left_idx: -1, right_idx: -1, args: [], option_has_value: 1, option_value: value })
 }
 
-pub fn ast_expr_none(): AstExpr
+pub fn ast_expr_none(store: &ExprStore): i32
 {
-    return AstExpr{ tag: "option", text: "", int_value: 0, left: "", right: "", args: [], option_has_value: 0, option_value: "" }
+    return expr_store_add(store, AstExpr{ tag: "option", text: "", int_value: 0, left_idx: -1, right_idx: -1, args: [], option_has_value: 0, option_value: "" })
 }
 
-pub fn ast_expr_option_has_value(expr: AstExpr): i32
+pub fn ast_expr_option_has_value(store: &ExprStore, idx: i32): i32
 {
-    return expr.option_has_value
+    return expr_store_get(store, idx).option_has_value
 }
 
-pub fn ast_expr_option_value(expr: AstExpr): string
+pub fn ast_stmt_return(store: &StmtStore, expr_store: &ExprStore, value: i32): i32
 {
-    return expr.option_value
+    let expr_idx = ast_expr_int(expr_store, value)
+    return stmt_store_add(store, AstStmt{ tag: "return", value_idx: expr_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: value, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_return(value: i32): AstStmt
+pub fn ast_stmt_return_expr(store: &StmtStore, expr_idx: i32): i32
 {
-    return AstStmt{ tag: "return", value_expr: ast_expr_int(value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: value, assign_name: "", assign_expr: ast_expr_int(0), print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "return_expr", value_idx: expr_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_return_expr(expr: AstExpr): AstStmt
+pub fn ast_stmt_let(store: &StmtStore, name: string, expr_idx: i32): i32
 {
-    return AstStmt{ tag: "return_expr", value_expr: expr, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_expr: ast_expr_int(0), print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "let", value_idx: -1, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: name, assign_idx: expr_idx, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_let(name: string, expr: AstExpr): AstStmt
+pub fn ast_stmt_assign(store: &StmtStore, name: string, expr_idx: i32): i32
 {
-    return AstStmt{ tag: "let", value_expr: ast_expr_int(0), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: name, assign_expr: expr, print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "assign", value_idx: -1, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: name, assign_idx: expr_idx, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_assign(name: string, expr: AstExpr): AstStmt
+pub fn ast_stmt_print(store: &StmtStore, expr_idx: i32): i32
 {
-    return AstStmt{ tag: "assign", value_expr: ast_expr_int(0), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: name, assign_expr: expr, print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "print", value_idx: -1, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: expr_idx, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_print(expr: AstExpr): AstStmt
+pub fn ast_stmt_expr(store: &StmtStore, expr_idx: i32): i32
 {
-    return AstStmt{ tag: "print", value_expr: ast_expr_int(0), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_expr: ast_expr_int(0), print_expr: expr, block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "expr", value_idx: expr_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_expr(expr: AstExpr): AstStmt
+pub fn ast_stmt_if_eq_ret(store: &StmtStore, left: string, right: string, then_ret: i32, else_ret: i32): i32
 {
-    return AstStmt{ tag: "expr", value_expr: expr, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_expr: ast_expr_int(0), print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "if_eq_return", value_idx: -1, cond_left: left, cond_right: right, then_ret: then_ret, else_ret: else_ret, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_if_eq_ret(left: string, right: string, then_ret: i32, else_ret: i32): AstStmt
+pub fn ast_stmt_match_some_none(store: &StmtStore, es: &ExprStore, bind: string, option_value: string, compare_right: string, some_then_ret: i32, some_else_ret: i32, none_ret: i32): i32
 {
-    return AstStmt{ tag: "if_eq_return", value_expr: ast_expr_binop("==", left, right), cond_left: left, cond_right: right, then_ret: then_ret, else_ret: else_ret, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_expr: ast_expr_int(0), print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    let expr_idx = ast_expr_some_string(es, option_value)
+    return stmt_store_add(store, AstStmt{ tag: "match_option_string", value_idx: expr_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: bind, match_compare_right: compare_right, match_some_then_ret: some_then_ret, match_some_else_ret: some_else_ret, match_none_ret: none_ret, match_option_value: option_value, direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
 
-pub fn ast_stmt_match_some_none(bind: string, option_value: string, compare_right: string, some_then_ret: i32, some_else_ret: i32, none_ret: i32): AstStmt
+pub fn ast_stmt_block(store: &StmtStore, start: i32, count: i32): i32
 {
-    return AstStmt{ tag: "match_option_string", value_expr: ast_expr_some_string(option_value), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: bind, match_compare_right: compare_right, match_some_then_ret: some_then_ret, match_some_else_ret: some_else_ret, match_none_ret: none_ret, match_option_value: option_value, direct_ret: 0, assign_name: "", assign_expr: ast_expr_int(0), print_expr: ast_expr_int(0), block_start: -1, block_count: 0 }
+    return stmt_store_add(store, AstStmt{ tag: "block", value_idx: -1, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: start, block_count: count, body_idx: -1 })
 }
 
-pub fn ast_stmt_block(start: i32, count: i32): AstStmt
+pub fn ast_function(name: string, ret_ty: string, body_idx: i32): AstFunction
 {
-    return AstStmt{ tag: "block", value_expr: ast_expr_int(0), cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_expr: ast_expr_int(0), print_expr: ast_expr_int(0), block_start: start, block_count: count }
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx }
 }
 
-pub fn ast_function(name: string, ret_ty: string, body: AstStmt): AstFunction
+pub fn ast_program_ok(function: AstFunction, expr_store: ExprStore, store: StmtStore): AstProgram
 {
-    return AstFunction{ name: name, ret_ty: ret_ty, body: body }
-}
-
-pub fn ast_program_ok(function: AstFunction, store: StmtStore): AstProgram
-{
-    return AstProgram{ function: function, store: store, ok: 1, error: "" }
+    return AstProgram{ function: function, expr_store: expr_store, store: store, ok: 1, error: "" }
 }
 
 pub fn ast_program_err(message: string): AstProgram
 {
-    return AstProgram{ function: ast_function("main", "i32", ast_stmt_return(0)), store: stmt_store_new(), ok: 0, error: message }
+    return AstProgram{ function: ast_function("main", "i32", -1), expr_store: expr_store_new(), store: stmt_store_new(), ok: 0, error: message }
 }
 
-pub fn ast_expr_debug(expr: AstExpr): string
+pub fn ast_expr_debug(store: &ExprStore, idx: i32): string
 {
+    if (idx < 0) { return "nil" }
+    let expr = expr_store_get(store, idx)
     if (expr.tag == "int") { return ast_i32(expr.int_value) }
     if (expr.tag == "bool") { if (expr.int_value == 1) { return "true" } return "false" }
     if (expr.tag == "string") { return "\"" + expr.text + "\"" }
     if (expr.tag == "ident") { return expr.text }
-    if (expr.tag == "binop") { return "(" + expr.left + " " + expr.text + " " + expr.right + ")" }
-    if (expr.tag == "unaryop") { return "(" + expr.text + expr.left + ")" }
+    if (expr.tag == "binop") { return "(" + ast_expr_debug(store, expr.left_idx) + " " + expr.text + " " + ast_expr_debug(store, expr.right_idx) + ")" }
+    if (expr.tag == "unaryop") { return "(" + expr.text + ast_expr_debug(store, expr.left_idx) + ")" }
     if (expr.tag == "call") { return expr.text + "(...)" }
     if (expr.tag == "option") { if (expr.option_has_value == 1) { return "Some(" + expr.option_value + ")" } return "None" }
     return expr.tag
-}
-
-pub fn ast_stmt_debug(stmt: AstStmt): string
-{
-    if (stmt.tag == "return") { return "Return(" + ast_i32(stmt.direct_ret) + ")" }
-    if (stmt.tag == "return_expr") { return "Return(" + ast_expr_debug(stmt.value_expr) + ")" }
-    if (stmt.tag == "let") { return "let " + stmt.assign_name + " = " + ast_expr_debug(stmt.assign_expr) }
-    if (stmt.tag == "assign") { return stmt.assign_name + " = " + ast_expr_debug(stmt.assign_expr) }
-    if (stmt.tag == "print") { return "print(" + ast_expr_debug(stmt.print_expr) + ")" }
-    if (stmt.tag == "expr") { return ast_expr_debug(stmt.value_expr) }
-    if (stmt.tag == "block") { return "Block(" + ast_i32(stmt.block_count) + " stmts)" }
-    if (stmt.tag == "if_eq_return") { return "IfEq(" + stmt.cond_left + ", \"" + stmt.cond_right + "\", " + ast_i32(stmt.then_ret) + ", " + ast_i32(stmt.else_ret) + ")" }
-    if (stmt.tag == "match_option_string") { return "MatchSome(\"" + stmt.match_option_value + "\", " + stmt.match_bind + ", == \"" + stmt.match_compare_right + "\", " + ast_i32(stmt.match_some_then_ret) + ", " + ast_i32(stmt.match_some_else_ret) + ", " + ast_i32(stmt.match_none_ret) + ")" }
-    return stmt.tag
 }
 
 pub fn ast_program_debug(program: AstProgram): string
@@ -231,5 +239,5 @@ pub fn ast_program_debug(program: AstProgram): string
     {
         return "ParseError(" + program.error + ")"
     }
-    return "Program(fn " + program.function.name + ": " + program.function.ret_ty + " => " + ast_stmt_debug(program.function.body) + ")"
+    return "Program(fn " + program.function.name + ": " + program.function.ret_ty + ")"
 }
