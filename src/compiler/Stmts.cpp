@@ -110,7 +110,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIf(ASTNode* node) {
     
     builder.SetInsertPoint(mergeBB);
     
-    // Create phi node if both branches produce values
+    // Create phi node if both branches produce non-void values
     if (thenResult.value && elseResult.value && !thenTerminated && !elseTerminated) {
         ValueType resultType = thenResult.type;
         if (thenResult.type != elseResult.type) {
@@ -135,7 +135,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIf(ASTNode* node) {
             // Restore insert point to mergeBB
             builder.SetInsertPoint(mergeBB);
         }
-        if (thenResult.value && elseResult.value && thenResult.value->getType() == elseResult.value->getType()) {
+        if (thenResult.value && elseResult.value && thenResult.value->getType() == elseResult.value->getType() &&
+            !thenResult.value->getType()->isVoidTy()) {
             PHINode* phi = builder.CreatePHI(thenResult.value->getType(), 2, "iftmp");
             phi->addIncoming(thenResult.value, thenEndBB);
             phi->addIncoming(elseResult.value, elseEndBB);

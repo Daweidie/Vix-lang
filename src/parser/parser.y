@@ -26,6 +26,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms);
 typedef struct {
     char* name;
     int payload_count;
+    ASTNode* payload_type_node;
 } AdtCtorEntry;
 
 typedef struct {
@@ -37,6 +38,10 @@ typedef struct {
 
 static AdtDefEntry g_adt_defs[128];
 static int g_adt_def_count = 0;
+
+/* Temporary storage for payload type nodes during enum_variant parsing */
+static ASTNode* g_adt_payload_types[256];
+static int g_adt_payload_type_count = 0;
 
 static int is_builtin_union_ctor_name(const char* name) {
     if (!name) return 0;
@@ -71,7 +76,7 @@ static void register_adt_definition(const char* name, int generic_arity, ASTNode
     if (!name) return;
     int idx = find_adt_def_index(name);
     if (idx < 0) {
-        if (g_adt_def_count >= (int)(sizeof(g_adt_defs) / sizeof(g_adt_defs[0]))) return;
+        if (g_adt_def_count >= (int)(sizeof(g_adt_defs) / sizeof(g_adt_defs[0]))) { g_adt_payload_type_count = 0; return; }
         idx = g_adt_def_count++;
         g_adt_defs[idx].name = strdup(name);
         g_adt_defs[idx].ctor_count = 0;
@@ -82,19 +87,25 @@ static void register_adt_definition(const char* name, int generic_arity, ASTNode
         g_adt_defs[idx].ctor_count = 0;
     }
     g_adt_defs[idx].generic_arity = generic_arity;
-    if (!variants || variants->type != AST_EXPRESSION_LIST) return;
+    if (!variants || variants->type != AST_EXPRESSION_LIST) { g_adt_payload_type_count = 0; return; }
 
     int count = variants->data.expression_list.expression_count;
-    if (count <= 0) return;
+    if (count <= 0) { g_adt_payload_type_count = 0; return; }
     g_adt_defs[idx].ctors = (AdtCtorEntry*)calloc((size_t)count, sizeof(AdtCtorEntry));
-    if (!g_adt_defs[idx].ctors) return;
+    if (!g_adt_defs[idx].ctors) { g_adt_payload_type_count = 0; return; }
     g_adt_defs[idx].ctor_count = count;
     for (int i = 0; i < count; i++) {
         ASTNode* variant = variants->data.expression_list.expressions[i];
         if (!variant || variant->type != AST_IDENTIFIER || !variant->data.identifier.name) continue;
         g_adt_defs[idx].ctors[i].name = strdup(variant->data.identifier.name);
         g_adt_defs[idx].ctors[i].payload_count = (variant->mutability == (MutabilityType)1) ? 1 : 0;
+        if (i < g_adt_payload_type_count) {
+            g_adt_defs[idx].ctors[i].payload_type_node = g_adt_payload_types[i];
+        } else {
+            g_adt_defs[idx].ctors[i].payload_type_node = NULL;
+        }
     }
+    g_adt_payload_type_count = 0;
 }
 
 int vix_is_adt_definition(const char* name) {
@@ -111,6 +122,18 @@ int vix_adt_ctor_payload_count(const char* ctor_name) {
     int ctor_index = find_adt_ctor_index(ctor_name, &def_index);
     if (ctor_index < 0 || def_index < 0) return -1;
     return g_adt_defs[def_index].ctors[ctor_index].payload_count;
+}
+
+ASTNode* vix_adt_ctor_payload_type_node(const char* ctor_name) {
+    int def_index = -1;
+    int ctor_index = find_adt_ctor_index(ctor_name, &def_index);
+    if (ctor_index < 0 || def_index < 0) return NULL;
+    return g_adt_defs[def_index].ctors[ctor_index].payload_type_node;
+}
+
+int vix_adt_ctor_index(const char* ctor_name) {
+    int def_index = -1;
+    return find_adt_ctor_index(ctor_name, &def_index);
 }
 
 const char* vix_adt_ctor_base_name(const char* ctor_name) {
@@ -555,12 +578,14 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             int is_adt_ctor = is_builtin_union_ctor_name(ctor_name) &&
                              (strcmp(ctor_name, "Ok") == 0 || strcmp(ctor_name, "Err") == 0 ||
                               strcmp(ctor_name, "Some") == 0);
+            int is_custom_adt_ctor = !is_adt_ctor && vix_adt_ctor_index(ctor_name) >= 0;
+            int adt_ctor_tag = is_custom_adt_ctor ? vix_adt_ctor_index(ctor_name) : -1;
 
             if (pattern->data.call.args && pattern->data.call.args->type == AST_EXPRESSION_LIST &&
                 pattern->data.call.args->data.expression_list.expression_count == 1) {
                 ASTNode* bind_arg = pattern->data.call.args->data.expression_list.expressions[0];
                 if (bind_arg && bind_arg->type == AST_IDENTIFIER && bind_arg->data.identifier.name) {
-                    if (is_adt_ctor) {
+                    if (is_adt_ctor || is_custom_adt_ctor) {
                         ASTNode* payload_access = create_member_access_node(
                             clone_match_scrutinee(scrutinee_ref), create_identifier_node("1"));
                         ASTNode* bind_left = create_identifier_node(bind_arg->data.identifier.name);
@@ -584,11 +609,15 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             }
 
             if (!cond) {
-                if (is_adt_ctor) {
+                if (is_adt_ctor || is_custom_adt_ctor) {
                     ASTNode* tag_access = create_member_access_node(
                         clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
-                    ASTNode* cond_right = create_identifier_node(ctor_name);
-                    cond = create_binop_node(OP_EQ, tag_access, cond_right);
+                    if (is_custom_adt_ctor) {
+                        cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(adt_ctor_tag));
+                    } else {
+                        ASTNode* cond_right = create_identifier_node(ctor_name);
+                        cond = create_binop_node(OP_EQ, tag_access, cond_right);
+                    }
                 } else {
                     ASTNode* cond_right = create_identifier_node(ctor_name);
                     if (is_builtin_union_ctor_name(ctor_name) && strcmp(ctor_name, "None") == 0) {
@@ -614,6 +643,14 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                         clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(0));
                 }
+            }
+            // Check for custom ADT constructors (simple identifier, no payload)
+            if (!cond && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
+                vix_adt_ctor_index(pattern->data.identifier.name) >= 0) {
+                int ctor_tag = vix_adt_ctor_index(pattern->data.identifier.name);
+                ASTNode* tag_access = create_member_access_node(
+                    clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
+                cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(ctor_tag));
             }
 
             if (!cond) {
@@ -898,10 +935,12 @@ enum_variant_list
 enum_variant
     : IDENTIFIER {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
+        g_adt_payload_types[g_adt_payload_type_count++] = NULL;
     }
     | IDENTIFIER LPAREN type RPAREN {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
         $$->mutability = (MutabilityType)1;
+        g_adt_payload_types[g_adt_payload_type_count++] = $3;
     }
     ;
 

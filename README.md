@@ -53,11 +53,13 @@ fn main(): i32
 
 - LearnVix:[GitHub Link](https://github.com/vixlang/LearnVix)
 - VixDocs:[GitHub Link](https://github.com/vixlang/LearnVix)
+- VixDocs for ZRead:[Link](https://zread.ai/vixlang/Vix-lang)
 
 ## Getting Help
 
 - Open a discussion in [GitHub Issues](https://github.com/Daweidie/vix-lang/issues).
 - Contact: [popolk1871@outlook.com](mailto:popolk1871@outlook.com)
+- QQ Group: 130577506
 
 ## Contributing
 

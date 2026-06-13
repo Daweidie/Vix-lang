@@ -55,8 +55,19 @@ char* process_escape_sequences(const char* input, size_t input_len) {
                     i++;
                     break;
                 case '0':
-                    result[result_idx++] = '\0';
-                    i++;
+                    // Check for octal escape sequence like \033
+                    if (i + 3 < input_len && 
+                        input[i + 2] >= '0' && input[i + 2] <= '7' &&
+                        input[i + 3] >= '0' && input[i + 3] <= '7') {
+                        int octal_val = (input[i + 1] - '0') * 64 + 
+                                        (input[i + 2] - '0') * 8 +
+                                        (input[i + 3] - '0');
+                        result[result_idx++] = (char)octal_val;
+                        i += 3;
+                    } else {
+                        result[result_idx++] = '\0';
+                        i++;
+                    }
                     break;
                 default:
                     result[result_idx++] = input[i];

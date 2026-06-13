@@ -95,12 +95,29 @@ using namespace llvm;
         }
         if (isRegisteredUnionCtorName(name)) {
             GlobalVariable* gv = module->getGlobalVariable(name, true);
+            int32_t tagVal = 0;
             if (gv && gv->hasInitializer()) {
                 if (auto* intInit = dyn_cast<ConstantInt>(gv->getInitializer())) {
-                    return VisitResult(ConstantInt::get(Type::getInt32Ty(context), intInit->getSExtValue(), true), ValueType::INT32);
+                    tagVal = static_cast<int32_t>(intInit->getSExtValue());
                 }
+            } else {
+                int ctor_idx = vix_adt_ctor_index(name.c_str());
+                tagVal = (ctor_idx >= 0) ? static_cast<int32_t>(ctor_idx) : ctorTagValue(name);
             }
-            return VisitResult(ConstantInt::get(Type::getInt32Ty(context), ctorTagValue(name), true), ValueType::INT32);
+            /* Create tagged struct for no-payload constructor */
+            Type* i32Ty = Type::getInt32Ty(context);
+            Type* i8PtrTy = PointerType::get(context, 0);
+            StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+            Function* reallocFn = getOrCreateReallocFunction();
+            Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), 16);
+            Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+            Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+            Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+            builder.CreateStore(ConstantInt::get(i32Ty, tagVal), tagPtr);
+            Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+            builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+            pointerElementHints[adtPtr] = adtStructTy;
+            return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
         }
         AllocaInst* alloc = scopeManager.findVariable(name);
         Function* curFnForScope = getCurrentFunction();

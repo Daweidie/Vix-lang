@@ -1,0 +1,8 @@
+ls
+:d-+ls
+lc
+ear:l
+hello world
+
+ls
+clear

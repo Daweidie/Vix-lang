@@ -20,6 +20,7 @@ pub fn token_keyword(): i32 { return 3 }
 pub fn token_symbol(): i32 { return 4 }
 pub fn token_string(): i32 { return 5 }
 pub fn token_eof(): i32 { return 6 }
+pub fn token_bool(): i32 { return 7 }
 
 pub fn lexer_i32(n: i32): string
 {
@@ -109,10 +110,13 @@ pub fn char_string(c: i8): string
 
 pub fn is_keyword(text: string): i32
 {
-    if (text == "fn" or text == "return" or text == "i32" or text == "match" or text == "if" or text == "Some" or text == "None")
-    {
-        return 1
-    }
+    if (text == "fn" or text == "return" or text == "let" or text == "mut") { return 1 }
+    if (text == "if" or text == "elif" or text == "else" or text == "while" or text == "for" or text == "in") { return 1 }
+    if (text == "match" or text == "struct" or text == "type" or text == "pub") { return 1 }
+    if (text == "import" or text == "extern" or text == "break" or text == "continue") { return 1 }
+    if (text == "i32" or text == "i64" or text == "i8" or text == "f32" or text == "f64") { return 1 }
+    if (text == "string" or text == "void" or text == "nil" or text == "true" or text == "false") { return 1 }
+    if (text == "and" or text == "or" or text == "Some" or text == "None" or text == "print") { return 1 }
     return 0
 }
 

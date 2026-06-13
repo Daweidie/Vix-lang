@@ -24,8 +24,12 @@ pub fn qbe_copy_i32(result_temp: string, value: i32): string
     return "\t" + result_temp + " =w copy " + qbe_i32(value) + "\n"
 }
 
-pub fn qbe_function_header(name: string): string
+pub fn qbe_function_header(name: string, ret_ty: string): string
 {
+    if (ret_ty == "void")
+    {
+        return "export function $" + name + "()\n{\n"
+    }
     return "export function w $" + name + "()\n{\n"
 }
 
@@ -34,14 +38,24 @@ pub fn qbe_label(name: string): string
     return "@" + name + "\n"
 }
 
-pub fn qbe_ret_i32(value: i32): string
+pub fn qbe_ret_i32(value: string): string
 {
-    return "\tret " + qbe_i32(value) + "\n"
+    return "\tret " + value + "\n"
+}
+
+pub fn qbe_ret_void(): string
+{
+    return "\tret\n"
 }
 
 pub fn qbe_jnz(temp: string, then_label: string, else_label: string): string
 {
     return "\tjnz " + temp + ", @" + then_label + ", @" + else_label + "\n"
+}
+
+pub fn qbe_jmp(label: string): string
+{
+    return "\tjmp @" + label + "\n"
 }
 
 pub fn qbe_eq_string(result_temp: string, left_name: string, right_literal: string): string
@@ -52,4 +66,9 @@ pub fn qbe_eq_string(result_temp: string, left_name: string, right_literal: stri
 pub fn qbe_end_function(): string
 {
     return "}\n"
+}
+
+pub fn qbe_data_string(label: string, value: string): string
+{
+    return "data $str_" + label + " = { b \"" + value + "\", b 0 }\n"
 }

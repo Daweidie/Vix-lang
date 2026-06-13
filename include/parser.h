@@ -12,6 +12,8 @@ int vix_is_adt_definition(const char* name);
 int vix_adt_generic_arity(const char* name);
 int vix_adt_ctor_payload_count(const char* ctor_name);
 const char* vix_adt_ctor_base_name(const char* ctor_name);
+ASTNode* vix_adt_ctor_payload_type_node(const char* ctor_name);
+int vix_adt_ctor_index(const char* ctor_name);
 #ifdef __cplusplus
 }
 #endif

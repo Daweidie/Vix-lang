@@ -5,7 +5,7 @@ import "codegen.vix"
 
 fn main(argc: i32, argv: ptr): i32
 {
-    let mut src = "fn test(): i32 { return 0 }"
+    let mut src = "fn main():i32 { return 0 }"
     let mut mode = "codegen"
 
     if (argc > 1)

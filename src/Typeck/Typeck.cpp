@@ -836,7 +836,7 @@ struct TypeChecker {
 				}
 				if (all_extern && stmt->data.program.statement_count > 0) {
 					for (int j = 0; j < stmt->data.program.statement_count; j++) {
-						last = check_expr(stmt->data.program.statements[j]);
+						check_expr(stmt->data.program.statements[j]);
 					}
 					continue;
 				}
@@ -1009,7 +1009,14 @@ struct TypeChecker {
 				args.push_back(unify.fresh());
 			}
 			if (payload_count > 0) {
-				TypePtr payload = unify.fresh();
+				ASTNode* payload_type_node = vix_adt_ctor_payload_type_node(name);
+				TypePtr payload;
+				if (payload_type_node) {
+					payload = type_from_ast(payload_type_node);
+				}
+				if (!payload) {
+					payload = unify.fresh();
+				}
 				TypePtr result = Type::make_app(Type::make_struct(base_name ? base_name : "<anon>"), std::move(args));
 				env.register_ctor(name, Type::make_fn({payload}, result));
 			} else {
@@ -1332,10 +1339,14 @@ struct TypeChecker {
 			const char* ctor_name = nullptr;
 			ASTNode* left_node = node->data.binop.left;
 			ASTNode* right_node = node->data.binop.right;
-			if (left_node && left_node->type == AST_IDENTIFIER && is_builtin_ctor(left_node->data.identifier.name)) {
+			if (left_node && left_node->type == AST_IDENTIFIER &&
+				(is_builtin_ctor(left_node->data.identifier.name) ||
+				 vix_adt_ctor_index(left_node->data.identifier.name) >= 0)) {
 				ctor_name = left_node->data.identifier.name;
 				skip_unify = true;
-			} else if (right_node && right_node->type == AST_IDENTIFIER && is_builtin_ctor(right_node->data.identifier.name)) {
+			} else if (right_node && right_node->type == AST_IDENTIFIER &&
+				(is_builtin_ctor(right_node->data.identifier.name) ||
+				 vix_adt_ctor_index(right_node->data.identifier.name) >= 0)) {
 				ctor_name = right_node->data.identifier.name;
 				skip_unify = true;
 			}
@@ -2393,6 +2404,12 @@ struct TypeChecker {
 			}
 		}
 
+		if (node->data.function.is_extern) {
+			generic_bindings = std::move(saved_generics);
+			env.exit_scope();
+			return node_types[node] = fn_type;
+		}
+
 		if (node->data.function.params && node->data.function.params->type == AST_EXPRESSION_LIST) {
 			int count = node->data.function.params->data.expression_list.expression_count;
 			for (int i = 0; i < count; i++) {
@@ -2416,33 +2433,44 @@ struct TypeChecker {
 		warn_array_parameter_value_semantics(node);
 		TypePtr ret_type = type_from_ast(node->data.function.return_type);
 		if (!(node->data.function.is_extern && node->data.function.body == nullptr)) {
-			try {
-				unify.unify(ret_type, body_type);
-			} catch (const std::exception& ex) {
-				/* Try auto-deref: if body_type is Ptr[T] and ret_type is T, allow it */
-				TypePtr resolved_body = unify.apply(body_type);
-				TypePtr resolved_ret = unify.apply(ret_type);
-				bool auto_deref_ok = false;
-				if (resolved_body->kind == TypeKind::Ptr && resolved_body->data.ptr.pointee) {
-					try {
-						unify.unify(resolved_ret, resolved_body->data.ptr.pointee);
-						auto_deref_ok = true;
-					} catch (...) {}
+			TypePtr resolved_ret = unify.apply(ret_type);
+			TypePtr resolved_body = unify.apply(body_type);
+			/* For void functions, don't fail on implicit body type (e.g. last statement is a non-void call) */
+			bool skip_unify = false;
+			if (resolved_ret->kind == TypeKind::Void && resolved_body->kind != TypeKind::Void) {
+				/* Check if the body has explicit return statements with values */
+				bool has_explicit_return = find_return_node(node->data.function.body) != nullptr;
+				if (!has_explicit_return) {
+					skip_unify = true;
 				}
-				if (!auto_deref_ok && resolved_ret->kind == TypeKind::Ptr && resolved_ret->data.ptr.pointee) {
-					try {
-						unify.unify(resolved_body, resolved_ret->data.ptr.pointee);
-						auto_deref_ok = true;
-					} catch (...) {}
-				}
-				if (!auto_deref_ok) {
-					ASTNode* ret_node = find_return_node(node->data.function.body);
-					if (ret_node && ret_node->data.return_stmt.expr) {
-						report_type_error(ret_node->data.return_stmt.expr, ex.what());
-					} else if (ret_node) {
-						report_type_error(ret_node, ex.what());
-					} else {
-						report_type_error(node, ex.what());
+			}
+			if (!skip_unify) {
+				try {
+					unify.unify(ret_type, body_type);
+				} catch (const std::exception& ex) {
+					/* Try auto-deref: if body_type is Ptr[T] and ret_type is T, allow it */
+					bool auto_deref_ok = false;
+					if (resolved_body->kind == TypeKind::Ptr && resolved_body->data.ptr.pointee) {
+						try {
+							unify.unify(resolved_ret, resolved_body->data.ptr.pointee);
+							auto_deref_ok = true;
+						} catch (...) {}
+					}
+					if (!auto_deref_ok && resolved_ret->kind == TypeKind::Ptr && resolved_ret->data.ptr.pointee) {
+						try {
+							unify.unify(resolved_body, resolved_ret->data.ptr.pointee);
+							auto_deref_ok = true;
+						} catch (...) {}
+					}
+					if (!auto_deref_ok) {
+						ASTNode* ret_node = find_return_node(node->data.function.body);
+						if (ret_node && ret_node->data.return_stmt.expr) {
+							report_type_error(ret_node->data.return_stmt.expr, ex.what());
+						} else if (ret_node) {
+							report_type_error(ret_node, ex.what());
+						} else {
+							report_type_error(node, ex.what());
+						}
 					}
 				}
 			}

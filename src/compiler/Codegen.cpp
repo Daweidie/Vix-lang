@@ -56,7 +56,7 @@ std::unique_ptr<Module> LLVMCodeGenerator::generate(ASTNode* ast_root) {
     raw_string_ostream errorStream(error);
     if (verifyModule(*module, &errorStream)) {
         llvm::errs() << ";Module verification failed: " << error << "\n";
-        module->print(llvm::errs(), nullptr);
+        return nullptr;
     }
     return std::move(module);
 }

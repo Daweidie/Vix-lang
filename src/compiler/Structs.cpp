@@ -52,7 +52,10 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitStructDef(ASTNode* node) 
         }
     }
     
-    if (fieldTypes.empty()) return VisitResult();
+    if (fieldTypes.empty()) {
+        fieldTypes.push_back(Type::getInt8Ty(context));
+        fieldInfo.push_back({"__empty", Type::getInt8Ty(context)});
+    }
     structType->setBody(fieldTypes, false);
     typeHelper.registerStructType(structName, structType, fieldInfo);
     return VisitResult(nullptr, ValueType::VOID);

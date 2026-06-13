@@ -604,7 +604,7 @@ using namespace llvm;
                 Value* isOldNull = builder.CreateIsNull(oldPtrI8);
                 Value* baseNonNullI8 = builder.CreateIntToPtr(baseInt, i8PtrTy);
                 Value* baseI8 = builder.CreateSelect(isOldNull,
-                    ConstantPointerNull::get(i8PtrTy),
+                    ConstantPointerNull::get(cast<PointerType>(i8PtrTy)),
                     baseNonNullI8, "push_base_ptr");
 
                 Value* headerSizeVal = ConstantInt::get(Type::getInt64Ty(context), ARRAY_HEADER_BYTES);
@@ -746,8 +746,8 @@ using namespace llvm;
                     return VisitResult();
                 }
                 Type* i32Ty = Type::getInt32Ty(context);
-                Type* i8PtrTy = PointerType::get(context, 0);
-                StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+                Type* i64Ty = Type::getInt64Ty(context);
+                StructType* adtStructTy = StructType::get(context, {i32Ty, i64Ty});
 
                 Function* reallocFn = getOrCreateReallocFunction();
                 uint64_t structSize = 16;
@@ -759,7 +759,7 @@ using namespace llvm;
                 builder.CreateStore(ConstantInt::get(i32Ty, 1), tagPtr);
 
                 Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
-                builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+                builder.CreateStore(ConstantInt::get(i64Ty, 0), payloadPtr);
 
                 pointerElementHints[adtPtr] = adtStructTy;
                 return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
@@ -773,6 +773,16 @@ using namespace llvm;
                     if (!argRes.value) return VisitResult();
 
                     int32_t tagValue = ctorTagValue(calleeName);
+                    /* Try to use the const value from the global variable instead of hash */
+                    GlobalVariable* ctorGv = module->getGlobalVariable(calleeName, true);
+                    if (ctorGv && ctorGv->hasInitializer()) {
+                        if (auto* intInit = dyn_cast<ConstantInt>(ctorGv->getInitializer())) {
+                            tagValue = static_cast<int32_t>(intInit->getSExtValue());
+                        }
+                    } else {
+                        int ctor_idx = vix_adt_ctor_index(calleeName.c_str());
+                        if (ctor_idx >= 0) tagValue = static_cast<int32_t>(ctor_idx);
+                    }
                     Type* i32Ty = Type::getInt32Ty(context);
                     Type* i8PtrTy = PointerType::get(context, 0);
                     StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
@@ -804,7 +814,32 @@ using namespace llvm;
                     llvm::errs() << "Error: " << calleeName << "() does not accept arguments\n";
                     return VisitResult();
                 }
-                return VisitResult(ConstantInt::get(Type::getInt32Ty(context), ctorTagValue(calleeName), true), ValueType::INT32);
+                int32_t noArgTag = ctorTagValue(calleeName);
+                GlobalVariable* noArgGv = module->getGlobalVariable(calleeName, true);
+                if (noArgGv && noArgGv->hasInitializer()) {
+                    if (auto* intInit = dyn_cast<ConstantInt>(noArgGv->getInitializer())) {
+                        noArgTag = static_cast<int32_t>(intInit->getSExtValue());
+                    }
+                } else {
+                    int ctor_idx = vix_adt_ctor_index(calleeName.c_str());
+                    if (ctor_idx >= 0) noArgTag = static_cast<int32_t>(ctor_idx);
+                }
+                /* Create tagged struct for no-payload constructor */
+                {
+                    Type* i32Ty = Type::getInt32Ty(context);
+                    Type* i8PtrTy = PointerType::get(context, 0);
+                    StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), 16);
+                    Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                    Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+                    Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+                    builder.CreateStore(ConstantInt::get(i32Ty, noArgTag), tagPtr);
+                    Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+                    builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+                    pointerElementHints[adtPtr] = adtStructTy;
+                    return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
+                }
             }
 
             if (argCount != 1 || !node->data.call.args || node->data.call.args->type != AST_EXPRESSION_LIST) {
@@ -817,29 +852,29 @@ using namespace llvm;
 
             if (calleeName == "Ok" || calleeName == "Err" || calleeName == "Some") {
                 int32_t tagValue = (calleeName == "Err") ? 1 : 0;
-                Type* i32Ty = Type::getInt32Ty(context);
-                Type* i8PtrTy = PointerType::get(context, 0);
-                StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+                    Type* i32Ty = Type::getInt32Ty(context);
+                    Type* i8PtrTy = PointerType::get(context, 0);
+                    StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
 
-                Function* reallocFn = getOrCreateReallocFunction();
-                uint64_t structSize = 16;
-                Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
-                Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
-                Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    uint64_t structSize = 16;
+                    Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
+                    Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                    Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
 
-                Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
-                builder.CreateStore(ConstantInt::get(i32Ty, tagValue), tagPtr);
+                    Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+                    builder.CreateStore(ConstantInt::get(i32Ty, tagValue), tagPtr);
 
-                Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
-                Value* payload = argRes.value;
-                if (!payload->getType()->isPointerTy()) {
-                    payload = builder.CreateIntToPtr(
-                        builder.CreateIntCast(payload, Type::getInt64Ty(context), true, "adt_payload_cast"),
-                        i8PtrTy);
-                } else if (payload->getType() != i8PtrTy) {
-                    payload = builder.CreateBitCast(payload, i8PtrTy, "adt_payload_bcast");
-                }
-                builder.CreateStore(payload, payloadPtr);
+                    Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+                    Value* payload = argRes.value;
+                    if (!payload->getType()->isPointerTy()) {
+                        payload = builder.CreateIntToPtr(
+                            builder.CreateIntCast(payload, Type::getInt64Ty(context), true, "adt_payload_cast"),
+                            i8PtrTy);
+                    } else if (payload->getType() != i8PtrTy) {
+                        payload = builder.CreateBitCast(payload, i8PtrTy, "adt_payload_bcast");
+                    }
+                    builder.CreateStore(payload, payloadPtr);
 
                 pointerElementHints[adtPtr] = adtStructTy;
                 return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
