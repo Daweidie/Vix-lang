@@ -45,7 +45,7 @@ fn main(): i32
 - `src/`: Compiler source code and build scripts.
 - `include/`: Public/internal headers for parser, type system, codegen, and semantic analysis.
 - `examples/`: Language examples and sample programs.
-- `Docs/en/` and `Docs/zh_CN/`: English and Chinese documentation.
+- `docs/` : RELEASE NOTES.
 - `test/`: Language regression and behavior tests.
 - `CMakeLists.txt`: Top-level CMake entry for project builds.
 
@@ -76,9 +76,9 @@ See [LICENSE](LICENSE) for details.
 
 ## Ecosystem
 
-| Project | Description | Status |
-| --- | --- | --- |
-| **Vix Compiler** | Core compiler with LLVM-focused backend implementation | In active development |
-| **Very** | Package manager for Vix | Community contribution [Very](https://github.com/vixlang/Very)|
-| **Standard Library** | Common APIs and utilities | Community contribution |
-| **VS Code Extension** | Editor support for Vix | Published [Link](https://github.com/vixlang/ext-VixLangAnalyzer) |
+| Project               | Description                                            | Status                                                           |
+| -----------------------| --------------------------------------------------------| ------------------------------------------------------------------|
+| **Vix Compiler**      | Core compiler with LLVM-focused backend implementation | In active development                                            |
+| **Very**              | Package manager for Vix                                | Community contribution [Very](https://github.com/vixlang/Very)   |
+| **Standard Library**  | Common APIs and utilities                              | Community contribution                                           |
+| **VS Code Extension** | Editor support for Vix                                 | Published [Link](https://github.com/vixlang/ext-VixLangAnalyzer) |
