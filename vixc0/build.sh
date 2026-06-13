@@ -1,1 +1,1 @@
-vixc main.vix -o vixc0 -opt=l2 --time --debug
+vixc main.vix -o vixc0 -opt=l0 --time --debug

@@ -161,6 +161,7 @@ typedef struct ASTNode {
             MutabilityType mutability;
             int is_declaration;
             int is_public;
+            int is_multi_pattern;
             struct ASTNode* declared_type;
         } assign;
         struct {

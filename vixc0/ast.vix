@@ -186,7 +186,6 @@ pub fn ast_stmt_expr(store: &StmtStore, expr_idx: i32): i32
 {
     return stmt_store_add(store, AstStmt{ tag: "expr", value_idx: expr_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
 }
-
 pub fn ast_stmt_if_eq_ret(store: &StmtStore, left: string, right: string, then_ret: i32, else_ret: i32): i32
 {
     return stmt_store_add(store, AstStmt{ tag: "if_eq_return", value_idx: -1, cond_left: left, cond_right: right, then_ret: then_ret, else_ret: else_ret, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1 })
@@ -222,17 +221,19 @@ pub fn ast_expr_debug(store: &ExprStore, idx: i32): string
 {
     if (idx < 0) { return "nil" }
     let expr = expr_store_get(store, idx)
-    if (expr.tag == "int") { return ast_i32(expr.int_value) }
-    if (expr.tag == "bool") { if (expr.int_value == 1) { return "true" } return "false" }
-    if (expr.tag == "string") { return "\"" + expr.text + "\"" }
-    if (expr.tag == "ident") { return expr.text }
-    if (expr.tag == "binop") { return "(" + ast_expr_debug(store, expr.left_idx) + " " + expr.text + " " + ast_expr_debug(store, expr.right_idx) + ")" }
-    if (expr.tag == "unaryop") { return "(" + expr.text + ast_expr_debug(store, expr.left_idx) + ")" }
-    if (expr.tag == "call") { return expr.text + "(...)" }
-    if (expr.tag == "option") { if (expr.option_has_value == 1) { return "Some(" + expr.option_value + ")" } return "None" }
-    return expr.tag
+    return match expr.tag
+    {
+        "int" -> ast_i32(expr.int_value)
+        "bool" -> if (expr.int_value == 1) { "true" } else { "false" }
+        "string" -> "\"" + expr.text + "\""
+        "ident" -> expr.text
+        "binop" -> "(" + ast_expr_debug(store, expr.left_idx) + " " + expr.text + " " + ast_expr_debug(store, expr.right_idx) + ")"
+        "unaryop" -> "(" + expr.text + ast_expr_debug(store, expr.left_idx) + ")"
+        "call" -> expr.text + "(...)"
+        "option" -> if (expr.option_has_value == 1) { "Some(" + expr.option_value + ")" } else { "None" }
+        _ -> expr.tag
+    }
 }
-
 pub fn ast_program_debug(program: AstProgram): string
 {
     if (program.ok == 0)
@@ -240,4 +241,188 @@ pub fn ast_program_debug(program: AstProgram): string
         return "ParseError(" + program.error + ")"
     }
     return "Program(fn " + program.function.name + ": " + program.function.ret_ty + ")"
+}
+
+pub fn yaml_indent(depth: i32): string
+{
+    let mut out = ""
+    for (_ in 0 .. depth)
+    {
+        out = out + "  "
+    }
+    return out
+}
+
+pub fn expr_tag_to_type(tag: string): string
+{
+    return match tag {
+        "int" | "bool" | "string" -> "Literal"
+        "ident" -> "Identifier"
+        "binop" -> "BinaryExpression"
+        "unaryop" -> "UnaryExpression"
+        "call" -> "CallExpression"
+        "option" -> "OptionExpression"
+        _ -> tag
+    }
+}
+
+pub fn ast_expr_yaml(store: &ExprStore, idx: i32, depth: i32): string
+{
+    if (idx < 0) { return yaml_indent(depth) + "null\n" }
+    let expr = expr_store_get(store, idx)
+    let indent = yaml_indent(depth)
+    let indent1 = yaml_indent(depth + 1)
+    return match expr.tag
+    {
+        "int" -> indent + "type: Literal\n" + indent1 + "value: " + ast_i32(expr.int_value) + "\n"
+        "bool" -> indent + "type: Literal\n" + indent1 + "value: " + (if (expr.int_value == 1) { "true" } else { "false" }) + "\n"
+        "string" -> indent + "type: Literal\n" + indent1 + "value: \"" + expr.text + "\"\n"
+        "ident" -> indent + "type: Identifier\n" + indent1 + "name: " + expr.text + "\n"
+        "binop" ->
+        {
+            let mut out = indent + "type: BinaryExpression\n"
+            out = out + indent1 + "operator: \"" + expr.text + "\"\n"
+            out = out + indent1 + "left:\n"
+            out = out + ast_expr_yaml(store, expr.left_idx, depth + 2)
+            out = out + indent1 + "right:\n"
+            out = out + ast_expr_yaml(store, expr.right_idx, depth + 2)
+            out
+        }
+        "unaryop" ->
+        {
+            let mut out = indent + "type: UnaryExpression\n"
+            out = out + indent1 + "operator: \"" + expr.text + "\"\n"
+            out = out + indent1 + "operand:\n"
+            out = out + ast_expr_yaml(store, expr.left_idx, depth + 2)
+            out
+        }
+        "call" ->
+        {
+            let mut out = indent + "type: CallExpression\n"
+            out = out + indent1 + "name: " + expr.text + "\n"
+            out = out + indent1 + "arguments:\n"
+            for (i in 0 .. expr.args.length)
+            {
+                out = out + ast_expr_yaml(store, expr.args[i], depth + 2)
+            }
+            out
+        }
+        "option" -> if (expr.option_has_value == 1)
+        {
+            indent + "type: OptionExpression\n" + indent1 + "some: \"" + expr.option_value + "\"\n"
+        } else
+        {
+            indent + "type: OptionExpression\n" + indent1 + "none: true\n"
+        }
+        _ -> indent + "type: " + expr.tag + "\n"
+    }
+}
+
+pub fn stmt_tag_to_type(tag: string): string
+{
+    return match tag
+    {
+        "return" | "return_expr" -> "ReturnStatement"
+        "let" -> "LetStatement"
+        "assign" -> "AssignStatement"
+        "print" -> "PrintStatement"
+        "expr" -> "ExpressionStatement"
+        "block" -> "BlockStatement"
+        "if_eq_return" -> "IfEqReturnStatement"
+        "match_option_string" -> "MatchOptionStringStatement"
+        _ -> tag
+    }
+}
+
+pub fn ast_stmt_yaml(es: &ExprStore, store: &StmtStore, idx: i32, depth: i32): string
+{
+    let stmt = stmt_store_get(store, idx)
+    let indent = yaml_indent(depth)
+    let indent1 = yaml_indent(depth + 1)
+    return match stmt.tag {
+        "return" -> indent + "type: ReturnStatement\n" + indent1 + "value: " + ast_i32(stmt.direct_ret) + "\n"
+        "return_expr" -> {
+            let mut out = indent + "type: ReturnStatement\n"
+            out = out + indent1 + "value:\n"
+            out = out + ast_expr_yaml(es, stmt.value_idx, depth + 2)
+            out
+        }
+        "let" -> {
+            let mut out = indent + "type: LetStatement\n"
+            out = out + indent1 + "name: " + stmt.assign_name + "\n"
+            out = out + indent1 + "value:\n"
+            out = out + ast_expr_yaml(es, stmt.assign_idx, depth + 2)
+            out
+        }
+        "assign" -> {
+            let mut out = indent + "type: AssignStatement\n"
+            out = out + indent1 + "name: " + stmt.assign_name + "\n"
+            out = out + indent1 + "value:\n"
+            out = out + ast_expr_yaml(es, stmt.assign_idx, depth + 2)
+            out
+        }
+        "print" -> {
+            let mut out = indent + "type: PrintStatement\n"
+            out = out + indent1 + "value:\n"
+            out = out + ast_expr_yaml(es, stmt.print_idx, depth + 2)
+            out
+        }
+        "expr" -> {
+            let mut out = indent + "type: ExpressionStatement\n"
+            out = out + indent1 + "expression:\n"
+            out = out + ast_expr_yaml(es, stmt.value_idx, depth + 2)
+            out
+        }
+        "block" -> {
+            let mut out = indent + "type: BlockStatement\n"
+            out = out + indent1 + "body:\n"
+            for (i in 0 .. stmt.block_count)
+            {
+                out = out + ast_stmt_yaml(es, store, stmt.block_start + i, depth + 2)
+            }
+            out
+        }
+        "if_eq_return" -> {
+            let mut out = indent + "type: IfEqReturnStatement\n"
+            out = out + indent1 + "condition_left: \"" + stmt.cond_left + "\"\n"
+            out = out + indent1 + "condition_right: \"" + stmt.cond_right + "\"\n"
+            out = out + indent1 + "then_return: " + ast_i32(stmt.then_ret) + "\n"
+            out = out + indent1 + "else_return: " + ast_i32(stmt.else_ret) + "\n"
+            out
+        }
+        "match_option_string" -> {
+            let mut out = indent + "type: MatchOptionStringStatement\n"
+            out = out + indent1 + "bind: " + stmt.match_bind + "\n"
+            out = out + indent1 + "compare_right: \"" + stmt.match_compare_right + "\"\n"
+            out = out + indent1 + "some_then_return: " + ast_i32(stmt.match_some_then_ret) + "\n"
+            out = out + indent1 + "some_else_return: " + ast_i32(stmt.match_some_else_ret) + "\n"
+            out = out + indent1 + "none_return: " + ast_i32(stmt.match_none_ret) + "\n"
+            out
+        }
+        _ -> indent + "type: " + stmt.tag + "\n"
+    }
+}
+
+pub fn ast_function_yaml(func: AstFunction, es: &ExprStore, store: &StmtStore, depth: i32): string
+{
+    let indent = yaml_indent(depth)
+    let indent1 = yaml_indent(depth + 1)
+    let mut out = indent + "type: Function\n"
+    out = out + indent1 + "name: " + func.name + "\n"
+    out = out + indent1 + "return_type: " + func.ret_ty + "\n"
+    out = out + indent1 + "body:\n"
+    out = out + ast_stmt_yaml(es, store, func.body_idx, depth + 2)
+    return out
+}
+
+pub fn ast(program: AstProgram): string
+{
+    if (program.ok == 0)
+    {
+        return "type: ParseError\nmessage: \"" + program.error + "\"\n"
+    }
+    let mut out = "type: Program\n"
+    out = out + "function:\n"
+    out = out + ast_function_yaml(program.function, program.expr_store, program.store, 1)
+    return out
 }

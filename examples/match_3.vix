@@ -1,29 +1,19 @@
-/*
- * Match Expression Enhancements - v0.3.3
- *
- * 1. match as expression: match can return values
- * 2. member access scrutinee: match expr.tag { ... }
- * 3. multi-pattern arms: "a" | "b" | "c" -> ...
- */
-
 fn classify(tag: string): string
 {
-    /* match as expression - assign result directly */
-    let result = match tag {
-        /* multi-pattern: combine multiple patterns with | */
+    return match tag
+    {
         "int" | "bool" | "string" -> "Literal"
         "ident" -> "Identifier"
         "binop" -> "BinaryExpression"
         "unaryop" -> "UnaryExpression"
         "call" -> "CallExpression"
         "option" -> "OptionExpression"
-        /* wildcard fallback */
         _ -> "Unknown"
     }
-    return result
 }
 
-type AstExpr = struct {
+type AstExpr = struct
+{
     tag: string,
     text: string,
     value: i32
@@ -31,14 +21,13 @@ type AstExpr = struct {
 
 fn expr_debug(expr: AstExpr): string
 {
-    /* member access scrutinee: match expr.tag { ... } */
-    let result = match expr.tag {
+    return match expr.tag
+    {
         "int" -> "int"
         "bool" -> "bool"
         "string" -> "string"
         _ -> "other"
     }
-    return result
 }
 
 fn main(): i32

@@ -5,7 +5,7 @@ import "codegen.vix"
 
 fn main(argc: i32, argv: ptr): i32
 {
-    let mut src = "fn main():i32 { return 0 }"
+    let mut src = "fn main():i32 { let a = 10 let b = 20 let c = 30 return 0 }"
     let mut mode = "codegen"
 
     if (argc > 1)
@@ -25,12 +25,18 @@ fn main(argc: i32, argv: ptr): i32
 
     let program = parse_program(src)
 
-    if (mode == "--parser" or mode == "--ast")
+    if (mode == "--parser")
     {
         print(ast_program_debug(program))
         return 0
     }
 
+    if (mode == "--ast")
+    {
+        print(ast(program))
+        return 0
+    }
+    
     let qbe = codegen_program(program)
     print(qbe)
     return 0

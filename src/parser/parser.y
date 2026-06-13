@@ -346,8 +346,14 @@ static ASTNode* clone_match_scrutinee(ASTNode* scrutinee) {
         case AST_IDENTIFIER:
             if (scrutinee->data.identifier.name) {
                 return create_identifier_node(scrutinee->data.identifier.name);
-            }//如果 scrutinee 或 arms 为空，或者 arms 不是表达式列表，返回 NULL
+            }
             return NULL;
+        case AST_MEMBER_ACCESS: {
+            ASTNode* object = clone_match_scrutinee(scrutinee->data.member_access.object);
+            ASTNode* field = clone_match_scrutinee(scrutinee->data.member_access.field);
+            if (!object || !field) return NULL;
+            return create_member_access_node(object, field);
+        }
         case AST_NUM_INT:
             return create_num_int_node(scrutinee->data.num_int.value);
         case AST_NUM_FLOAT:
@@ -541,7 +547,10 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
 
         ASTNode* pattern = arm->data.assign.left;
         ASTNode* body = arm->data.assign.right;
-        if (pattern && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
+        int is_multi = arm->data.assign.is_multi_pattern;
+
+        // Handle wildcard pattern
+        if (!is_multi && pattern && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
             strcmp(pattern->data.identifier.name, "_") == 0) {
             if (i != count - 1) {
                 int line = pattern->location.first_line > 0 ? pattern->location.first_line : yylineno;
@@ -551,6 +560,35 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                     "'_' match arm should be the last arm!");
             }
             chain = body;
+            continue;
+        }
+
+        // Handle multi-pattern arms (e.g., "int" | "bool" | "string" -> ...)
+        if (is_multi && pattern && pattern->type == AST_EXPRESSION_LIST) {
+            int pat_count = pattern->data.expression_list.expression_count;
+            ASTNode* combined_cond = NULL;
+
+            for (int j = 0; j < pat_count; j++) {
+                ASTNode* single_pattern = pattern->data.expression_list.expressions[j];
+                if (!single_pattern) continue;
+
+                ASTNode* cond_left = clone_match_scrutinee(scrutinee_ref);
+                ASTNode* cond_right = clone_match_scrutinee(single_pattern);
+                if (!cond_left || !cond_right) continue;
+
+                ASTNode* single_cond = create_binop_node(OP_EQ, cond_left, cond_right);
+                if (!single_cond) continue;
+
+                if (!combined_cond) {
+                    combined_cond = single_cond;
+                } else {
+                    combined_cond = create_binop_node(OP_OR, combined_cond, single_cond);
+                }
+            }
+
+            if (combined_cond) {
+                chain = create_if_node(combined_cond, body, chain);
+            }
             continue;
         }
 
@@ -727,7 +765,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %type <node> literal identifier input_expression
 %type <node> block_statement if_rest expression_list
 
-%type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern
+%type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern match_arm_patterns
 %type <node> generic_param_list generic_type_args enum_variant
 %type <node> type_list
 
@@ -975,6 +1013,9 @@ match_statement
 
 match_target
     : identifier { $$ = $1; }
+    | identifier DOT IDENTIFIER {
+        $$ = create_member_access_node_with_yyltype($1, create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$), (YYLTYPE*) &@$);
+    }
     | literal { $$ = $1; }
     | LPAREN expression RPAREN { $$ = $2; }
     | IDENTIFIER LPAREN RPAREN {
@@ -1002,6 +1043,26 @@ match_arms
 match_arm
     : match_arm_pattern ARROW match_arm_body {
         $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$);
+    }
+    | match_arm_patterns PIPE match_arm_pattern ARROW match_arm_body {
+        // Multiple patterns: duplicate body for each pattern
+        // Store all patterns in $1, add $3
+        add_expression_to_list($1, $3);
+        $$ = create_assign_node_with_yyltype($1, $5, (YYLTYPE*) &@$);
+        // Mark this as a multi-pattern arm
+        $$->data.assign.is_multi_pattern = 1;
+    }
+    ;
+
+match_arm_patterns
+    : match_arm_pattern {
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        add_expression_to_list(list, $1);
+        $$ = list;
+    }
+    | match_arm_patterns PIPE match_arm_pattern {
+        add_expression_to_list($1, $3);
+        $$ = $1;
     }
     ;
 
@@ -1614,6 +1675,9 @@ factor_unary
         } else {
             $$ = create_if_node_with_yyltype($3, $5, NULL, (YYLTYPE*) &@$);
         }
+    }
+    | MATCH match_target LBRACE match_arms RBRACE {
+        $$ = build_match_desugared($2, $4);
     }
     | PLUS factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_PLUS, $2, (YYLTYPE*) &@$); }
     | MINUS factor_unary            { $$ = create_unaryop_node_with_yyltype(OP_MINUS, $2, (YYLTYPE*) &@$); }
