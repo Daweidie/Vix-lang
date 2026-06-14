@@ -8,7 +8,7 @@
       width="50%">
   </picture>
 
-[Website][Vix] | [Getting Started][Getting Started] | [Learn][Learn] | [Documentation][Documentation] | [Contributing][Contributing] 
+[Website][Vix] | [Getting Started][Getting Started] | [Learn][Learn] | [Documentation][Documentation] | [Contributing][Contributing]
 </div>
 This is the main source repository for [Vix]. It contains the compiler,
 runtime-related components, examples, and language documentation.
@@ -18,7 +18,6 @@ runtime-related components, examples, and language documentation.
 [Learn]: Docs/en/what-is-vix.md
 [Documentation]: Docs/en/syntax.md
 [Contributing]: https://github.com/vixlang/Vix-lang/issues
-[Chinese README]: README-zh_CN.md
 
 ## Why Vix?
 
@@ -28,9 +27,9 @@ runtime-related components, examples, and language documentation.
 
 - **Simplicity:** The language keeps syntax concise while still supporting practical features like functions, modules, structs, pointers, generics, and control flow.
 
-## Hello world!
+## Hello world
 
-``` vix 
+``` vix
 import "std/io.vix"
 fn main(): i32
 {
@@ -81,3 +80,4 @@ See [LICENSE](LICENSE) for details.
 | **Very**              | Package manager for Vix                                | Community contribution [Very](https://github.com/vixlang/Very)   |
 | **Standard Library**  | Common APIs and utilities                              | Community contribution                                           |
 | **VS Code Extension** | Editor support for Vix                                 | Published [Link](https://github.com/vixlang/ext-VixLangAnalyzer) |
+

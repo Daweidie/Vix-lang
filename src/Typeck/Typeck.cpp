@@ -1057,7 +1057,11 @@ struct TypeChecker {
 				result = check_block(node, true);
 				break;
 			case AST_NUM_INT:
-				result = builtin_i32;
+				if (node->inferred_type && node->inferred_type->kind == TYPEINFO_BOOL) {
+					result = builtin_bool;
+				} else {
+					result = builtin_i32;
+				}
 				break;
 			case AST_NUM_FLOAT:
 				result = builtin_f64;

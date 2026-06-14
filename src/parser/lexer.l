@@ -196,8 +196,8 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "pub"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return PUB; }
 "type"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_KW; }
 "match"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return MATCH; }
-"true"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 1; return NUMBER_INT; }
-"false"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 0; return NUMBER_INT; }
+"true"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 1; return BOOL_LITERAL; }
+"false"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 0; return BOOL_LITERAL; }
 
 "="                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return ASSIGN; }
 "+="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); return PLUS_ASSIGN; }

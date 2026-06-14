@@ -7,7 +7,11 @@ using namespace llvm;
         int64_t val = node->data.num_int.value;
         ValueType type;
         Value* value;
-        if (val >= -2147483648LL && val <= 2147483647LL) {
+        
+        if (node->inferred_type && node->inferred_type->kind == TYPEINFO_BOOL) {
+            type = ValueType::BOOL;
+            value = ConstantInt::get(Type::getInt1Ty(context), val, true);
+        } else if (val >= -2147483648LL && val <= 2147483647LL) {
             type = ValueType::INT32;
             value = ConstantInt::get(Type::getInt32Ty(context), val, true);
         } else {
@@ -163,9 +167,12 @@ using namespace llvm;
         // 检查是否是字符串变量
         bool isStringVar = typeHelper.isStringVariable(name);
         
-        if (allocatedType && allocatedType->isStructTy()) {
-            StructType* st = cast<StructType>(allocatedType);
-            return VisitResult(alloc, ValueType::POINTER, st);
+        if (allocatedType && (allocatedType->isStructTy() || allocatedType->isArrayTy())) {
+            if (allocatedType->isStructTy()) {
+                StructType* st = cast<StructType>(allocatedType);
+                return VisitResult(alloc, ValueType::POINTER, st);
+            }
+            return VisitResult(alloc, ValueType::POINTER);
         }
         
         // 如果是字符串变量，需要正确处理
@@ -491,7 +498,23 @@ using namespace llvm;
                 if (isFloat) return VisitResult(builder.CreateFDiv(leftVal, rightVal, "divtmp"), resultType);
                 else return VisitResult(builder.CreateSDiv(leftVal, rightVal, "divtmp"), resultType);
             case OP_MOD:
-                if (isFloat) return VisitResult();
+                if (isFloat) {
+                    Type* dblTy = Type::getDoubleTy(context);
+                    Value* lhs = (resultType == ValueType::FLOAT32)
+                        ? builder.CreateFPExt(leftVal, dblTy, "mod_lhs") : leftVal;
+                    Value* rhs = (resultType == ValueType::FLOAT32)
+                        ? builder.CreateFPExt(rightVal, dblTy, "mod_rhs") : rightVal;
+                    Function* fmodFn = module->getFunction("fmod");
+                    if (!fmodFn) {
+                        FunctionType* fmodTy = FunctionType::get(dblTy, {dblTy, dblTy}, false);
+                        fmodFn = Function::Create(fmodTy, Function::ExternalLinkage, "fmod", module.get());
+                    }
+                    Value* fmodResult = builder.CreateCall(fmodFn, {lhs, rhs}, "modtmp");
+                    if (resultType == ValueType::FLOAT32) {
+                        return VisitResult(builder.CreateFPTrunc(fmodResult, Type::getFloatTy(context), "mod_f32"), resultType);
+                    }
+                    return VisitResult(fmodResult, resultType);
+                }
                 else return VisitResult(builder.CreateSRem(leftVal, rightVal, "modtmp"), resultType);
             case OP_POW:
                 {

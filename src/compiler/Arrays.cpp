@@ -313,7 +313,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
                 {ConstantInt::get(Type::getInt32Ty(context),0), idxVal}, "arr_index_ptr");
             Value* loaded = builder.CreateLoad(elemType, gep, "arr_index_load");
             ValueType vt = typeHelper.getValueTypeFromType(elemType);
-            return VisitResult(loaded, vt);
+            StructType* st = elemType->isStructTy() ? cast<StructType>(elemType) : nullptr;
+            return VisitResult(loaded, vt, st);
         }
         
         if (allocatedType && allocatedType->isPointerTy()) {
@@ -366,7 +367,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
                 {ConstantInt::get(Type::getInt32Ty(context),0), idxVal}, "arr_index_ptr2");
             Value* loaded = builder.CreateLoad(elemType, gep, "arr_index_load2");
             ValueType vt = typeHelper.getValueTypeFromType(elemType);
-            return VisitResult(loaded, vt);
+            StructType* st = elemType->isStructTy() ? cast<StructType>(elemType) : nullptr;
+            return VisitResult(loaded, vt, st);
         }
     }
 

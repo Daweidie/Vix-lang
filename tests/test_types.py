@@ -46,8 +46,8 @@ class TestTypeAnnotations:
         src = 'fn main(): i32 { let t = true let f = false print(t) print(f) return 0 }'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
-        assert "1" in run.stdout
-        assert "0" in run.stdout
+        assert "true" in run.stdout
+        assert "false" in run.stdout
 
 
 # ============================================================

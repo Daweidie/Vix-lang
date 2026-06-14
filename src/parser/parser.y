@@ -736,7 +736,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %token QUESTION
 %token LET MUT REF_KW
 %token IMPORT PUB
-%token <num_int> NUMBER_INT CHAR_LITERAL
+%token <num_int> NUMBER_INT CHAR_LITERAL BOOL_LITERAL
 %token <num_float> NUMBER_FLOAT
 %token PRINT INPUT TYPE_I32 TYPE_I64 TYPE_I8 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID NIL EXTERN DOTDOTDOT
 %token AND OR
@@ -1723,6 +1723,7 @@ factor_unary
 
 literal
     : NUMBER_INT                    { $$ = create_num_int_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | BOOL_LITERAL                  { $$ = create_bool_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | NUMBER_FLOAT                  { $$ = create_num_float_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | STRING                        { $$ = create_string_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | CHAR_LITERAL                  { $$ = create_char_node_with_yyltype((char)$1, (YYLTYPE*) &@$); }

@@ -1,0 +1,7 @@
+import "../std/String.vix"
+fn main(): i32
+{
+    let a = 10
+    print(true)
+    return 0
+}

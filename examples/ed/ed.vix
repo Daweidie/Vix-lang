@@ -552,7 +552,7 @@ fn main(argc: i32, argv: ptr): i32
         cy: 0,
         mode: MODE_NORMAL,
         running: 1,
-        rows: 40,
+        rows: 50,
         cols: 105,
         status: "",
         cmd: "",
