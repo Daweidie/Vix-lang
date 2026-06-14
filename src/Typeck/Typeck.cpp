@@ -457,6 +457,18 @@ struct TypeChecker {
 				if (!info) return nullptr;
 				const std::string& name = resolved->data.struct_data.name;
 				info->name = name.empty() ? nullptr : strdup(name.c_str());
+				if (!name.empty()) {
+					const StructInfo* si = env.lookup_struct(name);
+					if (si && !si->fields.empty()) {
+						info->param_count = static_cast<int>(si->fields.size());
+						info->params = (TypeInfo**)calloc(info->param_count, sizeof(TypeInfo*));
+						if (info->params) {
+							for (int i = 0; i < info->param_count; i++) {
+								info->params[i] = make_type_info(si->fields[i].type);
+							}
+						}
+					}
+				}
 				return info;
 			}
 			case TypeKind::Array: {

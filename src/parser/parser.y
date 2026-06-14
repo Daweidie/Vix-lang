@@ -1688,6 +1688,10 @@ factor_unary
         $$->mutability = MUTABILITY_MUTABLE;
     }
     | AMPERSAND factor_unary        { $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $2, (YYLTYPE*) &@$); }
+    | MUT AMPERSAND factor_unary   {
+        $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $3, (YYLTYPE*) &@$);
+        $$->mutability = MUTABILITY_MUTABLE;
+    }
     | AT factor_unary               { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
     | BANG factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_NOT, $2, (YYLTYPE*) &@$); }
     | LPAREN expression RPAREN      { $$ = $2; }

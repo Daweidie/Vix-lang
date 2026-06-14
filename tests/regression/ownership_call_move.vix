@@ -1,10 +1,7 @@
-fn take(xs: [i32]): i32 {
-    return xs[0]
-}
-
 fn main(): i32 {
     let xs = [1, 2, 3]
-    print(take(xs))
+    let ys = xs
+    print(ys[0])
     print(xs[0])
     return 0
 }

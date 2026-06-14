@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <cctype>
@@ -73,8 +74,15 @@ private:
             case TYPEINFO_PTR:
             case TYPEINFO_FN:
             case TYPEINFO_VAR:
+                return true;
             case TYPEINFO_STRING:
+                return false;
             case TYPEINFO_STRUCT:
+                if (t->params && t->param_count > 0) {
+                    for (int i = 0; i < t->param_count; i++) {
+                        if (!is_copy_type(t->params[i])) return false;
+                    }
+                }
                 return true;
             case TYPEINFO_FIXED_ARRAY:
                 return t->size <= 16 && is_copy_type(t->element);
@@ -126,10 +134,22 @@ private:
     }
 
     void end_statement() {
+        // Collect all active borrow sources from variables still in scope
+        std::unordered_set<std::string> active_borrow_sources;
         for (auto& scope : scopes) {
             for (auto& entry : scope.vars) {
-                entry.second.borrowed_shared = false;
-                entry.second.borrowed_mut = false;
+                if (!entry.second.borrow_source.empty()) {
+                    active_borrow_sources.insert(entry.second.borrow_source);
+                }
+            }
+        }
+        // Only clear borrow flags for variables NOT currently borrowed by live variables
+        for (auto& scope : scopes) {
+            for (auto& entry : scope.vars) {
+                if (active_borrow_sources.find(entry.first) == active_borrow_sources.end()) {
+                    entry.second.borrowed_shared = false;
+                    entry.second.borrowed_mut = false;
+                }
             }
         }
     }
@@ -450,9 +470,14 @@ private:
         info.copy = is_copy_type(node->inferred_type);
         check_expr(node->data.call.func, ExprUse::Read);
         ASTNode* args = node->data.call.args;
+        bool returns_ref = node->inferred_type && node->inferred_type->kind == TYPEINFO_PTR;
         if (args && args->type == AST_EXPRESSION_LIST) {
             for (int i = 0; i < args->data.expression_list.expression_count; i++) {
-                check_expr(args->data.expression_list.expressions[i], ExprUse::Read);
+                ExprInfo arg_info = check_expr(args->data.expression_list.expressions[i], ExprUse::Read);
+                // Propagate borrow_source from reference arguments only when function returns a pointer
+                if (returns_ref && info.borrow_source.empty() && !arg_info.borrow_source.empty()) {
+                    info.borrow_source = arg_info.borrow_source;
+                }
             }
         }
         return info;
