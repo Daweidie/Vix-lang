@@ -26,9 +26,9 @@ fn main(): i32
 	let x = id:[i32](b.value)
     let y = add:[i32](4,6)
     let z = add:[f64](2.5, 3.5)
-    printf("b = %d\n", b.value);
-    printf("x = %d\n", x);
-	printf("y = %d\n", y);
+    printf("b = %d\n", b.value)
+    printf("x = %d\n", x)
+	printf("y = %d\n", y)
 	printf("z = %f\n", z)
     match x
     {
