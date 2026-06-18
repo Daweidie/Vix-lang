@@ -1,6 +1,6 @@
-struct Box:[T]
+struct Box<T>
 {
-    next: Box:[T],
+    next: Box<T>,
     value: T
 }
 fn main(): i32

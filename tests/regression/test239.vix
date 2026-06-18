@@ -1,4 +1,4 @@
-type Pair:[A, B] = struct { first: A, second: B }
+type Pair<A, B> = struct { first: A, second: B }
 fn main(): i32 {
     let p = Pair:[i32, string]{ first: 42, second: "hello" }
     print(p.first)

@@ -1,9 +1,9 @@
-type Result:[T, E] = Ok(T) | Err(E)
+type Result<T, E> = Ok(T) | Err(E)
 
 fn main(): i32
 {
-    let ok = Ok(42) : Result[i32, string]
-    let bad = Err("division by zero") : Result[i32, string]
+    let ok = Ok(42) : Result<i32, string>
+    let bad = Err("division by zero") : Result<i32, string>
 
     match ok
     {

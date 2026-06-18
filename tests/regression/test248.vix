@@ -1,6 +1,6 @@
 fn main(): i32 {
-    let r1 = Ok(1) : Result[i32, string]
-    let r2 = Err("not a digit") : Result[i32, string]
+    let r1 = Ok(1) : Result<i32, string>
+    let r2 = Err("not a digit") : Result<i32, string>
     match r1 {
         Ok(v) -> print(v)
         Err(e) -> print(-1)

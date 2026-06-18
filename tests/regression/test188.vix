@@ -1,4 +1,4 @@
-struct Stack:[T] {
+struct Stack<T> {
 	items: [T]
 }
 
