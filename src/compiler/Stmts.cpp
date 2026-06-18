@@ -382,11 +382,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitFor(ASTNode* node) {
     builder.CreateBr(condBB);
     builder.SetInsertPoint(condBB);
     Value* cur_val = builder.CreateLoad(Type::getInt32Ty(context), var_alloc, var_name);
-    Value* descending = builder.CreateICmpSGT(start_val_casted, end_val_casted, "for_desc");
-    Value* ascCond = builder.CreateICmpSLT(cur_val, end_val_casted, "forcond_asc");
-    Value* descCond = builder.CreateICmpSGT(cur_val, end_val_casted, "forcond_desc");
-    Value* cond = builder.CreateSelect(descending, descCond, ascCond, "forcond");
-    VIX_DEBUG_LOG << "[DEBUG] for cond direction-aware (ascending/descending)\n";
+    Value* cond = builder.CreateICmpSLT(cur_val, end_val_casted, "forcond");
+    VIX_DEBUG_LOG << "[DEBUG] for cond half-open ascending range\n";
     func->insert(func->end(), loopBB);
     func->insert(func->end(), incBB);
     func->insert(func->end(), afterBB);
@@ -404,10 +401,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitFor(ASTNode* node) {
     }
     builder.SetInsertPoint(incBB);
     Value* cur_val_for_inc = builder.CreateLoad(Type::getInt32Ty(context), var_alloc, var_name);
-    Value* one_val = ConstantInt::get(Type::getInt32Ty(context), 1);
-    Value* neg_one_val = ConstantInt::get(Type::getInt32Ty(context), -1);
-    Value* step_val = builder.CreateSelect(descending, neg_one_val, one_val, "for_step");
-    Value* new_val = builder.CreateAdd(cur_val_for_inc, step_val, "inc");
+    Value* new_val = builder.CreateAdd(cur_val_for_inc, ConstantInt::get(Type::getInt32Ty(context), 1), "inc");
     builder.CreateStore(new_val, var_alloc);
     builder.CreateBr(condBB);
     

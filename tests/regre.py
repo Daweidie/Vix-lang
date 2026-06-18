@@ -416,6 +416,7 @@ class TestExistingRegression:
         "test401.vix": (True, ["10", "30", "40"]),
         "test402.vix": (True, ["503"]),
         "test403.vix": (True, ["5", "7", "edge"]),
+        "test404.vix": (True, ["1"]),
     }
 
     @pytest.mark.integration
