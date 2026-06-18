@@ -1,4 +1,4 @@
-type HashMap:[V] = struct
+type HashMap<V> = struct
 {
 	buckets: [ [ (string, V) ] ]
 	size: i32
@@ -27,7 +27,7 @@ fn bucket_index(key: string, capacity: i32): i32
 	return h % capacity
 }
 
-pub fn new_hashmap:[V](capacity: i32): HashMap:[V]
+pub fn new_hashmap<V>(capacity: i32): HashMap<V>
 {
 	let cap = normalize_capacity(capacity)
 	let buckets: [ [ (string, V) ] ] = []
@@ -35,20 +35,20 @@ pub fn new_hashmap:[V](capacity: i32): HashMap:[V]
 	{
 		buckets.push([])
 	}
-	return HashMap:[V]{ buckets: buckets, size: 0 }
+	return HashMap<V>{ buckets: buckets, size: 0 }
 }
 
-pub fn len:[V](map: HashMap:[V]): i32
+pub fn len<V>(map: HashMap<V>): i32
 {
 	return map.size
 }
 
-pub fn capacity:[V](map: HashMap:[V]): i32
+pub fn capacity<V>(map: HashMap<V>): i32
 {
 	return map.buckets.length
 }
 
-pub fn put:[V](map: &HashMap:[V], key: string, value: V)
+pub fn put<V>(map: &HashMap<V>, key: string, value: V)
 {
     let cap = map.buckets.length
     if (cap == 0) { return }
@@ -68,7 +68,7 @@ pub fn put:[V](map: &HashMap:[V], key: string, value: V)
     map.size = map.size + 1
 }
 
-pub fn get:[V](map: HashMap:[V], key: string): ?V
+pub fn get<V>(map: HashMap<V>, key: string): ?V
 {
 	let cap = map.buckets.length
 	if (cap == 0) { return None }
@@ -85,9 +85,9 @@ pub fn get:[V](map: HashMap:[V], key: string): ?V
 	return None
 }
 
-pub fn contains:[V](map: HashMap:[V], key: string): bool
+pub fn contains<V>(map: HashMap<V>, key: string): bool
 {
-	let found = get:[V](map, key)
+	let found = get<V>(map, key)
 	match found
 	{
 		Some(_) -> return true
@@ -96,15 +96,15 @@ pub fn contains:[V](map: HashMap:[V], key: string): bool
 }
 fn main(): i32
 {
-    let mut map = new_hashmap:[i32](10)
-    put:[i32](&map, "one", 1)
-    put:[i32](&map, "two", 2)
-    put:[i32](&map, "three", 3)
+    let mut map = new_hashmap<i32>(10)
+    put<i32>(&map, "one", 1)
+    put<i32>(&map, "two", 2)
+    put<i32>(&map, "three", 3)
 
-    let c1 = contains:[i32](map, "one")
-    let c2 = contains:[i32](map, "two")
-    let c3 = contains:[i32](map, "three")
-    let c4 = contains:[i32](map, "four")
+    let c1 = contains<i32>(map, "one")
+    let c2 = contains<i32>(map, "two")
+    let c3 = contains<i32>(map, "three")
+    let c4 = contains<i32>(map, "four")
 
     print(c1)
     print(c2)

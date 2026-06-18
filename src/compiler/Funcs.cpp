@@ -146,6 +146,11 @@ using namespace llvm;
                                     paramType = ValueType::POINTER;
                                     paramTypes.push_back(PointerType::get(context, 0));
                                     paramStructTypes[paramName] = structTy;
+                                } else if (vix_is_adt_definition(typeName.c_str())) {
+                                    paramType = ValueType::POINTER;
+                                    paramTypes.push_back(PointerType::get(context, 0));
+                                    StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                                    paramStructTypes[paramName] = adtStructTy;
                                 } else if (typeName == "ptr") {
                                     if (funcName == "main" && paramName == "argv") {
                                         paramType = ValueType::POINTER;
@@ -434,6 +439,135 @@ using namespace llvm;
             }
 
             std::string methodName(fieldNode->data.identifier.name);
+
+            /* Try impl method resolution first */
+            {
+                std::string typeName;
+                /* Get type name from the object's inferred_type */
+                VIX_DEBUG_LOG << "[DEBUG] impl method lookup: object has inferred_type=" 
+                              << (objectNode->inferred_type ? "yes" : "no")
+                              << " methodName=" << methodName << "\n";
+                if (objectNode->inferred_type) {
+                    const TypeInfo* ti = objectNode->inferred_type;
+                    VIX_DEBUG_LOG << "[DEBUG] impl method lookup: object kind=" << ti->kind 
+                                  << " methodName=" << methodName << "\n";
+                    if (ti->kind == TYPEINFO_APP && ti->app_ctor && ti->app_ctor->name) {
+                        typeName = ti->app_ctor->name;
+                    } else if (ti->kind == TYPEINFO_STRUCT && ti->name) {
+                        typeName = ti->name;
+                    } else if (ti->kind == TYPEINFO_STRING) {
+                        typeName = "string";
+                    } else if (ti->kind == TYPEINFO_I32) {
+                        typeName = "i32";
+                    } else if (ti->kind == TYPEINFO_I64) {
+                        typeName = "i64";
+                    } else if (ti->kind == TYPEINFO_F64) {
+                        typeName = "f64";
+                    } else if (ti->kind == TYPEINFO_F32) {
+                        typeName = "f32";
+                    } else if (ti->kind == TYPEINFO_I8) {
+                        typeName = "i8";
+                    }
+                }
+                /* Check if object is a type name (static method call) */
+                if (typeName.empty() && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+                    std::string objName(objectNode->data.identifier.name);
+                    if (typeHelper.getStructType(objName) || vix_is_adt_definition(objName.c_str())) {
+                        typeName = objName;
+                    }
+                }
+                /* Fallback: get type name from struct type */
+                if (typeName.empty()) {
+                    VisitResult objRes = visit(objectNode);
+                    if (objRes.structType) {
+                        typeName = objRes.structType->getName().str();
+                    } else if (objRes.type == ValueType::STRING) {
+                        typeName = "string";
+                    }
+                }
+                if (!typeName.empty()) {
+                    const char* mangledFunc = vix_lookup_impl_method(typeName.c_str(), methodName.c_str());
+                    if (mangledFunc) {
+                        /* Check if object is a type name (static method call) */
+                        bool isStaticCall = false;
+                        if (objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+                            std::string objName(objectNode->data.identifier.name);
+                            if (typeHelper.getStructType(objName) || vix_is_adt_definition(objName.c_str())) {
+                                isStaticCall = true;
+                            }
+                        }
+
+                        /* Look up the function in the module */
+                        Function* implFunc = module->getFunction(mangledFunc);
+                        if (!implFunc) {
+                            /* Try generic instantiation */
+                            auto fit = genericFunctionTemplates.find(mangledFunc);
+                            if (fit != genericFunctionTemplates.end() && node->data.call.type_args) {
+                                implFunc = instantiateGenericFunction(mangledFunc, node->data.call.type_args);
+                            }
+                        }
+                        if (implFunc) {
+                            /* Build call arguments */
+                            std::vector<Value*> callArgs;
+                            FunctionType* fnTy = implFunc->getFunctionType();
+                            unsigned paramIdx = 0;
+                            /* Check if the function has a 'self' parameter */
+                            bool hasSelf = false;
+                            if (implFunc->arg_begin() != implFunc->arg_end()) {
+                                auto firstArg = implFunc->arg_begin();
+                                if (firstArg->hasName() && firstArg->getName() == "self") {
+                                    hasSelf = true;
+                                }
+                            }
+                            /* If not static call, first arg is the object */
+                            if (!isStaticCall) {
+                                VisitResult objRes = visit(objectNode);
+                                if (!objRes.value) return VisitResult();
+                                if (paramIdx < fnTy->getNumParams()) {
+                                    Type* expectedTy = fnTy->getParamType(paramIdx);
+                                    Value* argVal = objRes.value;
+                                    if (argVal->getType() != expectedTy) {
+                                        if (expectedTy->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                            argVal = builder.CreateBitCast(argVal, expectedTy, "impl_self_cast");
+                                        } else if (expectedTy->isIntegerTy() && argVal->getType()->isIntegerTy()) {
+                                            argVal = builder.CreateIntCast(argVal, expectedTy, true, "impl_self_intcast");
+                                        }
+                                    }
+                                    callArgs.push_back(argVal);
+                                    paramIdx++;
+                                }
+                            }
+                            /* Remaining args */
+                            ASTNode* callArgs_node = node->data.call.args;
+                            if (callArgs_node && callArgs_node->type == AST_EXPRESSION_LIST) {
+                                for (int i = 0; i < callArgs_node->data.expression_list.expression_count; i++) {
+                                    VisitResult argRes = visit(callArgs_node->data.expression_list.expressions[i]);
+                                    if (!argRes.value) return VisitResult();
+                                    if (paramIdx < fnTy->getNumParams()) {
+                                        Type* expectedTy = fnTy->getParamType(paramIdx);
+                                        Value* argVal = argRes.value;
+                                        if (argVal->getType() != expectedTy) {
+                                            if (expectedTy->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                                argVal = builder.CreateBitCast(argVal, expectedTy, "impl_arg_cast");
+                                            } else if (expectedTy->isIntegerTy() && argVal->getType()->isIntegerTy()) {
+                                                argVal = builder.CreateIntCast(argVal, expectedTy, true, "impl_arg_intcast");
+                                            }
+                                        }
+                                        callArgs.push_back(argVal);
+                                    }
+                                    paramIdx++;
+                                }
+                            }
+                            CallInst* call = builder.CreateCall(implFunc, callArgs);
+                            if (!implFunc->getReturnType()->isVoidTy())
+                                call->setName("impl_calltmp");
+                            ValueType retType = typeHelper.getValueTypeFromType(implFunc->getReturnType());
+                            return VisitResult(call, retType);
+                        }
+                    }
+                }
+            }
+
             if (methodName == "push") {
                 if (!node->data.call.args || node->data.call.args->type != AST_EXPRESSION_LIST ||
                     node->data.call.args->data.expression_list.expression_count != 1) {

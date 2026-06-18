@@ -94,6 +94,15 @@ public:
 								  b->kind == TypeKind::F32 || b->kind == TypeKind::F64);
 				compatible = a_numeric && b_numeric;
 			}
+			// Struct vs App with empty args: treat Struct("X") as App(Struct("X"), [])
+			if (!compatible && a->kind == TypeKind::Struct && b->kind == TypeKind::App && b->data.app.args.empty()) {
+				unify(a, b->data.app.ctor);
+				return;
+			}
+			if (!compatible && b->kind == TypeKind::Struct && a->kind == TypeKind::App && a->data.app.args.empty()) {
+				unify(a->data.app.ctor, b);
+				return;
+			}
 			if (!compatible) {
 				throw std::runtime_error("expected type '" + pretty(a) + "', but got '" + pretty(b) + "'");
 			}

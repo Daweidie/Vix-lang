@@ -194,6 +194,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "or"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return OR; }
 "import"           { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return IMPORT; }
 "pub"               { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return PUB; }
+"impl"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return IMPL; }
 "type"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return TYPE_KW; }
 "match"             { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.str = strdup(yytext); return MATCH; }
 "true"              { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); yylval.num_int = 1; return BOOL_LITERAL; }

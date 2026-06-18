@@ -230,6 +230,7 @@ pub fn parse_primary(parser: &Parser): i32
         }
         return ast_expr_identifier(parser.expr_store, name)
     }
+    
     if (parser_text(parser) == "nil")
     {
         parser_advance(parser)

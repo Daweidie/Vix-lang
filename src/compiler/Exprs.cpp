@@ -192,6 +192,31 @@ using namespace llvm;
                 pointerElementHints[val] = elemType;
             }
         }
+        if (node->inferred_type && node->inferred_type->kind == TYPEINFO_STRUCT && node->inferred_type->name) {
+            if (vix_is_adt_definition(node->inferred_type->name)) {
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                pointerElementHints[val] = adtStructTy;
+            } else {
+                StructType* st = typeHelper.getStructType(node->inferred_type->name);
+                if (st) {
+                    pointerElementHints[val] = st;
+                }
+            }
+        }
+        if (node->inferred_type && node->inferred_type->kind == TYPEINFO_APP) {
+            if (node->inferred_type->app_ctor && node->inferred_type->app_ctor->kind == TYPEINFO_STRUCT &&
+                node->inferred_type->app_ctor->name) {
+                if (vix_is_adt_definition(node->inferred_type->app_ctor->name)) {
+                    StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                    pointerElementHints[val] = adtStructTy;
+                } else {
+                    StructType* st = typeHelper.getStructType(node->inferred_type->app_ctor->name);
+                    if (st) {
+                        pointerElementHints[val] = st;
+                    }
+                }
+            }
+        }
         // Propagate pointerElementHints from the alloca to the loaded value
         // This ensures ADT struct types (Option/Result/Custom) are tracked through variables
         auto allocHintIt = pointerElementHints.find(alloc);

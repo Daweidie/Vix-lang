@@ -1,6 +1,6 @@
 import "mem.vix"
 
-pub type Result:[T, E] = Ok(T) | Err(E)
+pub type Result<T, E> = Ok(T) | Err(E)
 
 pub fn length(s: ptr): i32
 {
@@ -490,4 +490,31 @@ pub fn is_empty(s: ptr): bool
         return true
     }
     return 0
+}
+impl String
+{
+    pub fn length(self: ptr): i32
+    {
+        return length(self)
+    }
+    pub fn char_at(self: ptr, index: i32): i32
+    {
+        return char_at(self, index)
+    }
+    pub fn contains(self: ptr, needle: ptr): i32
+    {
+        return contains(self, needle)
+    }
+    pub fn starts_with(self: ptr, prefix: ptr): i32
+    {
+        return starts_with(self, prefix)
+    }
+    pub fn ends_with(self: ptr, suffix: ptr): i32
+    {
+        return ends_with(self, suffix)
+    }
+    pub fn index_of(self: ptr, needle: ptr): i32
+    {
+        return index_of(self, needle)
+    }
 }

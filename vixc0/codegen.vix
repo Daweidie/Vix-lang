@@ -11,7 +11,7 @@ pub fn codegen_expr(b: &QbeBuilder, es: &ExprStore, expr: AstExpr): string
         }
         "ident" -> {
             let tmp = qbe_temp(b, "t")
-            qbe_emit(b, "\t" + tmp + " =w loadw %" + expr.text + "\n")
+            qbe_emit_loadw(b, tmp, expr.text)
             tmp
         }
         "string" -> "$str_" + expr.text
@@ -86,18 +86,18 @@ pub fn codegen_stmt(b: &QbeBuilder, es: &ExprStore, store: &StmtStore, stmt_idx:
         "let" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.assign_idx))
             let offset = qbe_temp(b, "t")
-            qbe_emit(b, "\t" + offset + " =w alloc4 4\n")
-            qbe_emit(b, "\tstorew " + val + ", " + offset + "\n")
+            qbe_emit_alloc4(b, offset)
+            qbe_emit_storew(b, val, offset)
         }
         "assign" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.assign_idx))
             let offset = qbe_temp(b, "t")
-            qbe_emit(b, "\t" + offset + " =w alloc4 4\n")
-            qbe_emit(b, "\tstorew " + val + ", " + offset + "\n")
+            qbe_emit_alloc4(b, offset)
+            qbe_emit_storew(b, val, offset)
         }
         "print" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.print_idx))
-            qbe_emit(b, "\tcall $printf(l $str_fmt, w " + val + ")\n")
+            qbe_emit_printf_i32(b, val)
         }
         "expr" -> {
             let _ = codegen_expr(b, es, expr_store_get(es, stmt.value_idx))
@@ -125,7 +125,7 @@ pub fn codegen_stmt(b: &QbeBuilder, es: &ExprStore, store: &StmtStore, stmt_idx:
             qbe_emit_copy_i32(b, "%has", opt_expr.option_has_value)
             qbe_emit_jnz(b, "%has", some_label, none_label)
             qbe_emit_label(b, some_label)
-            qbe_emit(b, "\t# bound string value available as %" + stmt.match_bind + "\n")
+            qbe_emit_comment(b, "bound string value available as %" + stmt.match_bind)
             qbe_emit_eq_string(b, "%strcmp_res", stmt.match_bind, stmt.match_compare_right)
             qbe_emit_jnz(b, "%strcmp_res", then_label, else_label)
             qbe_emit_label(b, then_label)

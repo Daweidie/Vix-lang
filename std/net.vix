@@ -27,7 +27,7 @@ extern "C"
     fn free(ptr: ptr): void
 }
 
-pub type Result:[T, E] = Ok(T) | Err(E)
+pub type Result<T, E> = Ok(T) | Err(E)
 
 pub type sockaddr_in = struct
 {

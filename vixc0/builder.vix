@@ -13,20 +13,48 @@ pub fn i32_to_str(n: i32): string
     return buf
 }
 
+pub type QbeDataString = struct {
+    label: string,
+    value: string
+}
+
+pub type QbeCallArg = struct {
+    ty: string,
+    value: string
+}
+
+pub type QbeInstr = struct {
+    tag: string,
+    result: string,
+    ty: string,
+    func: string,
+    op: string,
+    left: string,
+    right: string,
+    value: string,
+    label: string,
+    then_label: string,
+    else_label: string,
+    comment: string,
+    args: [QbeCallArg],
+    int_value: i32
+}
+
 pub type QbeBuilder = struct {
-    code: string,
+    data_defs: [QbeDataString],
+    instrs: [QbeInstr],
     temp_counter: i32,
     label_counter: i32
 }
 
 pub fn qbe_new(): QbeBuilder
 {
-    return QbeBuilder{ code: "", temp_counter: 0, label_counter: 0 }
+    return QbeBuilder{ data_defs: [], instrs: [], temp_counter: 0, label_counter: 0 }
 }
 
 pub fn qbe_get_code(b: &QbeBuilder): string
 {
-    return b.code
+    return qbe_render(b)
 }
 
 pub fn qbe_temp(b: &QbeBuilder, prefix: string): string
@@ -43,165 +71,286 @@ pub fn qbe_label_name(b: &QbeBuilder, prefix: string): string
     return prefix + i32_to_str(val)
 }
 
-pub fn qbe_emit(b: &QbeBuilder, code: string)
+pub fn qbe_push_instr(b: &QbeBuilder, instr: QbeInstr)
 {
-    b.code = b.code + code
+    b.instrs.push(instr)
 }
 
-pub fn qbe_emit_function_header(b: &QbeBuilder, name: string, ret_ty: string)
+pub fn qbe_push_call_args_from_strings(values: [string]): [QbeCallArg]
 {
-    if (ret_ty == "void")
+    let mut args: [QbeCallArg] = []
+    for (i in 0 .. values.length)
     {
-        qbe_emit(b, "export function $" + name + "()\n{\n")
+        args.push(QbeCallArg{ ty: "w", value: values[i] })
     }
-    else
-    {
-        qbe_emit(b, "export function w $" + name + "()\n{\n")
-    }
-}
-
-pub fn qbe_emit_end_function(b: &QbeBuilder)
-{
-    qbe_emit(b, "}\n")
-}
-
-pub fn qbe_emit_label(b: &QbeBuilder, name: string)
-{
-    qbe_emit(b, "@" + name + "\n")
-}
-
-pub fn qbe_emit_ret_i32(b: &QbeBuilder, value: string)
-{
-    qbe_emit(b, "\tret " + value + "\n")
-}
-
-pub fn qbe_emit_ret_void(b: &QbeBuilder)
-{
-    qbe_emit(b, "\tret\n")
-}
-
-pub fn qbe_emit_copy(b: &QbeBuilder, result: string, value: string)
-{
-    qbe_emit(b, "\t" + result + " =w copy " + value + "\n")
-}
-
-pub fn qbe_emit_copy_i32(b: &QbeBuilder, result: string, value: i32)
-{
-    qbe_emit(b, "\t" + result + " =w copy " + i32_to_str(value) + "\n")
-}
-
-pub fn qbe_emit_add(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w add " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_sub(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w sub " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_mul(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w mul " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_div(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w div " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_mod(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w rem " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_neg(b: &QbeBuilder, result: string, src: string)
-{
-    qbe_emit(b, "\t" + result + " =w sub 0, " + src + "\n")
-}
-
-pub fn qbe_emit_eq(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w ceqw " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_ne(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w cnew " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_lt(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w csltw " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_le(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w cslew " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_gt(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w csgtw " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_ge(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_emit(b, "\t" + result + " =w csgew " + left + ", " + right + "\n")
-}
-
-pub fn qbe_emit_jnz(b: &QbeBuilder, temp: string, then_label: string, else_label: string)
-{
-    qbe_emit(b, "\tjnz " + temp + ", @" + then_label + ", @" + else_label + "\n")
-}
-
-pub fn qbe_emit_jmp(b: &QbeBuilder, label: string)
-{
-    qbe_emit(b, "\tjmp @" + label + "\n")
-}
-
-pub fn qbe_emit_call(b: &QbeBuilder, result: string, func: string, args: [string])
-{
-    let mut call_str = "\t" + result + " =w call $" + func + "("
-    for (i in 0 .. args.length)
-    {
-        if (i > 0) { call_str = call_str + ", " }
-        call_str = call_str + "w " + args[i]
-    }
-    call_str = call_str + ")\n"
-    qbe_emit(b, call_str)
-}
-
-pub fn qbe_emit_call_void(b: &QbeBuilder, func: string, args: [string])
-{
-    let mut call_str = "\tcall $" + func + "("
-    for (i in 0 .. args.length)
-    {
-        if (i > 0) { call_str = call_str + ", " }
-        call_str = call_str + "w " + args[i]
-    }
-    call_str = call_str + ")\n"
-    qbe_emit(b, call_str)
-}
-
-pub fn qbe_emit_call_ptr(b: &QbeBuilder, result: string, func: string, args: [string])
-{
-    let mut call_str = "\t" + result + " =l call $" + func + "("
-    for (i in 0 .. args.length)
-    {
-        if (i > 0) { call_str = call_str + ", " }
-        call_str = call_str + "l " + args[i]
-    }
-    call_str = call_str + ")\n"
-    qbe_emit(b, call_str)
-}
-
-pub fn qbe_emit_eq_string(b: &QbeBuilder, result: string, left: string, right_literal: string)
-{
-    qbe_emit(b, "\t" + result + " =w call $vix_str_eq(l %" + left + ", l $str_" + right_literal + ")\n")
+    return args
 }
 
 pub fn qbe_emit_data_string(b: &QbeBuilder, label: string, value: string)
 {
-    qbe_emit(b, "data $str_" + label + " = { b \"" + value + "\", b 0 }\n")
+    b.data_defs.push(QbeDataString{ label: label, value: value })
+}
+
+pub fn qbe_emit_function_header(b: &QbeBuilder, name: string, ret_ty: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "function_header", result: "", ty: ret_ty, func: name, op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_end_function(b: &QbeBuilder)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "function_end", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_label(b: &QbeBuilder, name: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "label", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: name, then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_ret_i32(b: &QbeBuilder, value: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "ret_i32", result: "", ty: "", func: "", op: "", left: "", right: "", value: value, label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_ret_void(b: &QbeBuilder)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "ret_void", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_copy(b: &QbeBuilder, result: string, value: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "copy", result: result, ty: "", func: "", op: "", left: "", right: "", value: value, label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_copy_i32(b: &QbeBuilder, result: string, value: i32)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "copy_i32", result: result, ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: value })
+}
+
+pub fn qbe_emit_add(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "add", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_sub(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "sub", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_mul(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "mul", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_div(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "div", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_mod(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "rem", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_neg(b: &QbeBuilder, result: string, src: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "neg", result: result, ty: "", func: "", op: "", left: src, right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_eq(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "ceqw", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_ne(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "cnew", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_lt(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "csltw", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_le(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "cslew", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_gt(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "csgtw", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_ge(b: &QbeBuilder, result: string, left: string, right: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "csgew", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_jnz(b: &QbeBuilder, temp: string, then_label: string, else_label: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "jnz", result: "", ty: "", func: "", op: "", left: "", right: "", value: temp, label: "", then_label: then_label, else_label: else_label, comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_jmp(b: &QbeBuilder, label: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "jmp", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: label, then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_alloc4(b: &QbeBuilder, result: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "alloc4", result: result, ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_storew(b: &QbeBuilder, value: string, target: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "storew", result: "", ty: "", func: "", op: "", left: value, right: target, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_loadw(b: &QbeBuilder, result: string, source: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "loadw", result: result, ty: "", func: "", op: "", left: "", right: "", value: source, label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_comment(b: &QbeBuilder, text: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "comment", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: text, args: [], int_value: 0 })
+}
+
+pub fn qbe_emit_call_typed(b: &QbeBuilder, result_ty: string, result: string, func: string, args: [QbeCallArg])
+{
+    qbe_push_instr(b, QbeInstr{ tag: "call", result: result, ty: result_ty, func: func, op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: args, int_value: 0 })
+}
+
+pub fn qbe_emit_call(b: &QbeBuilder, result: string, func: string, args: [string])
+{
+    qbe_emit_call_typed(b, "w", result, func, qbe_push_call_args_from_strings(args))
+}
+
+pub fn qbe_emit_call_void(b: &QbeBuilder, func: string, args: [string])
+{
+    qbe_emit_call_typed(b, "", "", func, qbe_push_call_args_from_strings(args))
+}
+
+pub fn qbe_emit_printf_i32(b: &QbeBuilder, value: string)
+{
+    qbe_emit_call_typed(b, "", "", "printf", [QbeCallArg{ ty: "l", value: "$str_fmt" }, QbeCallArg{ ty: "w", value: value }])
+}
+
+pub fn qbe_emit_call_ptr(b: &QbeBuilder, result: string, func: string, args: [string])
+{
+    let mut typed_args: [QbeCallArg] = []
+    for (i in 0 .. args.length)
+    {
+        typed_args.push(QbeCallArg{ ty: "l", value: args[i] })
+    }
+    qbe_emit_call_typed(b, "l", result, func, typed_args)
+}
+
+pub fn qbe_emit_eq_string(b: &QbeBuilder, result: string, left: string, right_literal: string)
+{
+    qbe_push_instr(b, QbeInstr{ tag: "eq_string", result: result, ty: "", func: "", op: "", left: left, right: right_literal, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+}
+
+pub fn qbe_render(b: &QbeBuilder): string
+{
+    let mut out = ""
+    for (i in 0 .. b.data_defs.length)
+    {
+        let item = b.data_defs[i]
+        out = out + "data $str_" + item.label + " = { b \"" + item.value + "\", b 0 }\n"
+    }
+    for (i in 0 .. b.instrs.length)
+    {
+        let instr = b.instrs[i]
+        if (instr.tag == "function_header")
+        {
+            if (instr.ty == "void")
+            {
+                out = out + "export function $" + instr.func + "()\n{\n"
+            }
+            else
+            {
+                out = out + "export function w $" + instr.func + "()\n{\n"
+            }
+        }
+        else if (instr.tag == "function_end")
+        {
+            out = out + "}\n"
+        }
+        else if (instr.tag == "label")
+        {
+            out = out + "@" + instr.label + "\n"
+        }
+        else if (instr.tag == "ret_i32")
+        {
+            out = out + "\tret " + instr.value + "\n"
+        }
+        else if (instr.tag == "ret_void")
+        {
+            out = out + "\tret\n"
+        }
+        else if (instr.tag == "copy")
+        {
+            out = out + "\t" + instr.result + " =w copy " + instr.value + "\n"
+        }
+        else if (instr.tag == "copy_i32")
+        {
+            out = out + "\t" + instr.result + " =w copy " + i32_to_str(instr.int_value) + "\n"
+        }
+        else if (instr.tag == "binary")
+        {
+            out = out + "\t" + instr.result + " =w " + instr.op + " " + instr.left + ", " + instr.right + "\n"
+        }
+        else if (instr.tag == "neg")
+        {
+            out = out + "\t" + instr.result + " =w sub 0, " + instr.left + "\n"
+        }
+        else if (instr.tag == "jnz")
+        {
+            out = out + "\tjnz " + instr.value + ", @" + instr.then_label + ", @" + instr.else_label + "\n"
+        }
+        else if (instr.tag == "jmp")
+        {
+            out = out + "\tjmp @" + instr.label + "\n"
+        }
+        else if (instr.tag == "alloc4")
+        {
+            out = out + "\t" + instr.result + " =w alloc4 4\n"
+        }
+        else if (instr.tag == "storew")
+        {
+            out = out + "\tstorew " + instr.left + ", " + instr.right + "\n"
+        }
+        else if (instr.tag == "loadw")
+        {
+            out = out + "\t" + instr.result + " =w loadw %" + instr.value + "\n"
+        }
+        else if (instr.tag == "comment")
+        {
+            out = out + "\t# " + instr.comment + "\n"
+        }
+        else if (instr.tag == "eq_string")
+        {
+            out = out + "\t" + instr.result + " =w call $vix_str_eq(l %" + instr.left + ", l $str_" + instr.right + ")\n"
+        }
+        else if (instr.tag == "call")
+        {
+            let mut call_args = ""
+            for (j in 0 .. instr.args.length)
+            {
+                if (j > 0) { call_args = call_args + ", " }
+                let call_arg = instr.args[j]
+                call_args = call_args + call_arg.ty + " " + call_arg.value
+            }
+            if (instr.result == "")
+            {
+                out = out + "\tcall $" + instr.func + "(" + call_args + ")\n"
+            }
+            else
+            {
+                out = out + "\t" + instr.result + " =" + instr.ty + " call $" + instr.func + "(" + call_args + ")\n"
+            }
+        }
+    }
+    return out
 }

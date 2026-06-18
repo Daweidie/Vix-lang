@@ -269,8 +269,24 @@ private:
             case AST_IF:
                 check_expr(stmt->data.if_stmt.condition, ExprUse::Read);
                 end_statement();
-                check_block(stmt->data.if_stmt.then_body, true);
-                if (stmt->data.if_stmt.else_body) check_block(stmt->data.if_stmt.else_body, true);
+                {
+                    std::unordered_map<std::string, bool> saved_moved;
+                    for (auto& scope : scopes) {
+                        for (auto& entry : scope.vars) {
+                            saved_moved[entry.first] = entry.second.moved;
+                        }
+                    }
+                    check_block(stmt->data.if_stmt.then_body, true);
+                    if (stmt->data.if_stmt.else_body) check_block(stmt->data.if_stmt.else_body, true);
+                    for (auto& scope : scopes) {
+                        for (auto& entry : scope.vars) {
+                            auto it = saved_moved.find(entry.first);
+                            if (it != saved_moved.end()) {
+                                entry.second.moved = it->second;
+                            }
+                        }
+                    }
+                }
                 return;
             case AST_WHILE:
                 check_expr(stmt->data.while_stmt.condition, ExprUse::Read);
@@ -281,14 +297,33 @@ private:
                 check_expr(stmt->data.for_stmt.start, ExprUse::Read);
                 check_expr(stmt->data.for_stmt.end, ExprUse::Read);
                 end_statement();
-                push_scope();
-                if (stmt->data.for_stmt.var && stmt->data.for_stmt.var->type == AST_IDENTIFIER &&
-                    stmt->data.for_stmt.var->data.identifier.name) {
-                    declare_var(stmt->data.for_stmt.var->data.identifier.name,
-                                stmt->data.for_stmt.var->inferred_type, false, false);
+                {
+                    // Save moved state of all variables before loop body
+                    // (loop might not execute, so we need to restore after)
+                    std::unordered_map<std::string, bool> saved_moved;
+                    for (auto& scope : scopes) {
+                        for (auto& entry : scope.vars) {
+                            saved_moved[entry.first] = entry.second.moved;
+                        }
+                    }
+                    push_scope();
+                    if (stmt->data.for_stmt.var && stmt->data.for_stmt.var->type == AST_IDENTIFIER &&
+                        stmt->data.for_stmt.var->data.identifier.name) {
+                        declare_var(stmt->data.for_stmt.var->data.identifier.name,
+                                    stmt->data.for_stmt.var->inferred_type, false, false);
+                    }
+                    check_block(stmt->data.for_stmt.body, false);
+                    pop_scope();
+                    // Restore moved state (loop body might not have executed)
+                    for (auto& scope : scopes) {
+                        for (auto& entry : scope.vars) {
+                            auto it = saved_moved.find(entry.first);
+                            if (it != saved_moved.end()) {
+                                entry.second.moved = it->second;
+                            }
+                        }
+                    }
                 }
-                check_block(stmt->data.for_stmt.body, false);
-                pop_scope();
                 return;
             case AST_BREAK:
             case AST_CONTINUE:
@@ -366,7 +401,7 @@ private:
             case AST_CALL:
                 return check_call(node);
             case AST_EXPRESSION_LIST:
-                return check_expression_list(node);
+                return check_expression_list(node, use);
             case AST_INDEX:
                 check_expr(node->data.index.target, ExprUse::Read);
                 check_expr(node->data.index.index, ExprUse::Read);
@@ -483,12 +518,12 @@ private:
         return info;
     }
 
-    ExprInfo check_expression_list(ASTNode* node) {
+    ExprInfo check_expression_list(ASTNode* node, ExprUse use = ExprUse::Move) {
         ExprInfo info;
         info.type = node->inferred_type;
         info.copy = is_copy_type(node->inferred_type);
         for (int i = 0; i < node->data.expression_list.expression_count; i++) {
-            check_expr(node->data.expression_list.expressions[i], ExprUse::Move);
+            check_expr(node->data.expression_list.expressions[i], use);
         }
         return info;
     }
