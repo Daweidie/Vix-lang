@@ -1,5 +1,5 @@
-type Pair<T> = struct { first: T, second: T }
-fn swap_pair<T>(p: Pair<T>): Pair<T> {
+type Pair:[T] = struct { first: T, second: T }
+fn swap_pair:[T](p: Pair:[T]): Pair:[T] {
     return Pair:[T]{ first: p.second, second: p.first }
 }
 fn main(): i32 {

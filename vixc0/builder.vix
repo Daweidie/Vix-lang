@@ -4,6 +4,54 @@ extern "C"
 {
     fn malloc(size: usize): string
     fn snprintf(buf: string, size: usize, fmt: string, ...): i32
+
+    fn LLVMModuleCreateWithName(module_id: string): ptr
+    fn LLVMCreateBuilder(): ptr
+    fn LLVMDisposeModule(module: ptr)
+    fn LLVMDisposeBuilder(builder: ptr)
+    fn LLVMPrintModuleToString(module: ptr): string
+    fn LLVMVoidType(): ptr
+    fn LLVMInt1Type(): ptr
+    fn LLVMInt32Type(): ptr
+    fn LLVMInt64Type(): ptr
+    fn LLVMInt8Type(): ptr
+    fn LLVMPointerType(element_ty: ptr, address_space: i32): ptr
+
+    fn vix_LLVMFunctionType0(ret_ty: ptr, is_var_arg: i32): ptr
+    fn vix_LLVMFunctionType1(ret_ty: ptr, p0: ptr, is_var_arg: i32): ptr
+    fn vix_LLVMFunctionType2(ret_ty: ptr, p0: ptr, p1: ptr, is_var_arg: i32): ptr
+    fn vix_LLVMConstInt(ty: ptr, val: i64, sign_extend: i32): ptr
+    fn vix_LLVMAddFunction(module: ptr, name: string, ty: ptr): ptr
+    fn vix_LLVMGetNamedFunction(module: ptr, name: string): ptr
+    fn vix_LLVMGetNamedGlobal(module: ptr, name: string): ptr
+    fn vix_LLVMAddGlobal(module: ptr, ty: ptr, name: string): ptr
+    fn vix_LLVMConstString(str: string, length: i32, dont_null_terminate: i32): ptr
+    fn vix_LLVMArrayType(element_ty: ptr, count: i32): ptr
+    fn vix_LLVMAppendBasicBlock(fn_ref: ptr, name: string): ptr
+    fn vix_LLVMPositionBuilderAtEnd(builder: ptr, block: ptr)
+    fn vix_LLVMBuildAdd(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildSub(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildMul(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildSDiv(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildSRem(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildNeg(builder: ptr, val: ptr, name: string): ptr
+    fn vix_LLVMBuildRet(builder: ptr, val: ptr): ptr
+    fn vix_LLVMBuildRetVoid(builder: ptr): ptr
+    fn vix_LLVMBuildCall2(builder: ptr, ty: ptr, fn_ref: ptr, args: ptr, arg_count: i32, name: string): ptr
+    fn vix_LLVMBuildAlloca(builder: ptr, ty: ptr, name: string): ptr
+    fn vix_LLVMBuildStore(builder: ptr, val: ptr, ptr_val: ptr): ptr
+    fn vix_LLVMBuildLoad2(builder: ptr, ty: ptr, ptr_val: ptr, name: string): ptr
+    fn vix_LLVMBuildICmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildBr(builder: ptr, block: ptr): ptr
+    fn vix_LLVMBuildCondBr(builder: ptr, cond: ptr, then_block: ptr, else_block: ptr): ptr
+    fn vix_LLVMBuildGEP2(builder: ptr, ty: ptr, pointer: ptr, indices: ptr, num_indices: i32, name: string): ptr
+    fn vix_LLVMSetInitializer(global: ptr, val: ptr)
+    fn vix_LLVMSetGlobalConstant(global: ptr, is_constant: i32)
+    fn vix_LLVMSetLinkage(global: ptr, linkage: i32)
+
+    fn vix_reset_vars()
+    fn vix_set_var(name: string, value: ptr)
+    fn vix_get_var(name: string): ptr
 }
 
 pub fn i32_to_str(n: i32): string
@@ -13,344 +61,371 @@ pub fn i32_to_str(n: i32): string
     return buf
 }
 
-pub type QbeDataString = struct {
-    label: string,
-    value: string
+pub fn i32_to_i64(n: i32): i64
+{
+    return n
 }
 
-pub type QbeCallArg = struct {
-    ty: string,
-    value: string
+pub fn str_to_i64(s: string): i64
+{
+    let mut result: i64 = 0
+    let mut negative: i32 = 0
+    let mut i: i32 = 0
+    if (s.length > 0 and s[0] == 45)
+    {
+        negative = 1
+        i = 1
+    }
+    while (i < s.length)
+    {
+        result = result * 10 + i32_to_i64(s[i] - 48)
+        i = i + 1
+    }
+    if (negative == 1)
+    {
+        result = -result
+    }
+    return result
 }
 
-pub type QbeInstr = struct {
-    tag: string,
-    result: string,
-    ty: string,
-    func: string,
-    op: string,
-    left: string,
-    right: string,
-    value: string,
-    label: string,
-    then_label: string,
-    else_label: string,
-    comment: string,
-    args: [QbeCallArg],
-    int_value: i32
+pub type LlvmVarEntry = struct {
+    name: string,
+    value: ptr
 }
 
-pub type QbeBuilder = struct {
-    data_defs: [QbeDataString],
-    instrs: [QbeInstr],
+pub type LlvmBuilder = struct {
+    module: ptr,
+    builder: ptr,
+    current_fn: ptr,
+    current_block: ptr,
     temp_counter: i32,
-    label_counter: i32
+    label_counter: i32,
+    printf_fn: ptr,
+    malloc_fn: ptr
 }
 
-pub fn qbe_new(): QbeBuilder
+pub fn get_var(b: &LlvmBuilder, name: string): ptr
 {
-    return QbeBuilder{ data_defs: [], instrs: [], temp_counter: 0, label_counter: 0 }
+    let var = vix_get_var(name)
+    if (var != nil)
+    {
+        return var
+    }
+    return vix_LLVMGetNamedFunction(b.module, name)
 }
 
-pub fn qbe_get_code(b: &QbeBuilder): string
+pub fn set_var(b: &LlvmBuilder, name: string, value: ptr)
 {
-    return qbe_render(b)
+    vix_set_var(name, value)
 }
 
-pub fn qbe_temp(b: &QbeBuilder, prefix: string): string
+pub fn get_fmt_string(b: &LlvmBuilder): ptr
+{
+    let mut global = vix_LLVMGetNamedGlobal(b.module, ".str")
+    if (global == nil)
+    {
+        let str_val = vix_LLVMConstString("%d\n", 3, 0)
+        let str_ty = vix_LLVMArrayType(LLVMInt8Type(), 4)
+        global = vix_LLVMAddGlobal(b.module, str_ty, ".str")
+        vix_LLVMSetInitializer(global, str_val)
+        vix_LLVMSetGlobalConstant(global, 1)
+        vix_LLVMSetLinkage(global, 8)
+    }
+    let indices = [vix_LLVMConstInt(LLVMInt32Type(), 0, 0), vix_LLVMConstInt(LLVMInt32Type(), 0, 0)]
+    return vix_LLVMBuildGEP2(b.builder, vix_LLVMArrayType(LLVMInt8Type(), 4), global, indices, 2, "fmt_ptr")
+}
+
+pub fn llvm_new(): LlvmBuilder
+{
+    vix_reset_vars()
+    let module = LLVMModuleCreateWithName("vixc0")
+    let builder = LLVMCreateBuilder()
+    let printf_ty = vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1)
+    let printf_fn = vix_LLVMAddFunction(module, "printf", printf_ty)
+    let malloc_ty = vix_LLVMFunctionType1(LLVMPointerType(LLVMInt8Type(), 0), LLVMInt64Type(), 0)
+    let malloc_fn = vix_LLVMAddFunction(module, "malloc", malloc_ty)
+    return LlvmBuilder{ module: module, builder: builder, current_fn: nil, current_block: nil, temp_counter: 0, label_counter: 0, printf_fn: printf_fn, malloc_fn: malloc_fn }
+}
+
+pub fn llvm_get_code(b: &LlvmBuilder): string
+{
+    return LLVMPrintModuleToString(b.module)
+}
+
+pub fn llvm_temp(b: &LlvmBuilder, prefix: string): string
 {
     let val = b.temp_counter
     b.temp_counter = val + 1
-    return "%" + prefix + i32_to_str(val)
+    return prefix + i32_to_str(val)
 }
 
-pub fn qbe_label_name(b: &QbeBuilder, prefix: string): string
+pub fn llvm_label_name(b: &LlvmBuilder, prefix: string): string
 {
     let val = b.label_counter
     b.label_counter = val + 1
     return prefix + i32_to_str(val)
 }
 
-pub fn qbe_push_instr(b: &QbeBuilder, instr: QbeInstr)
+pub fn llvm_emit_function_header(b: &LlvmBuilder, name: string, ret_ty: string)
 {
-    b.instrs.push(instr)
+    let llvm_ret_ty = if (ret_ty == "void") { LLVMVoidType() } else { LLVMInt32Type() }
+    let fn_ty = vix_LLVMFunctionType0(llvm_ret_ty, 0)
+    b.current_fn = vix_LLVMAddFunction(b.module, name, fn_ty)
+    let entry = vix_LLVMAppendBasicBlock(b.current_fn, "entry")
+    vix_LLVMPositionBuilderAtEnd(b.builder, entry)
+    b.current_block = entry
 }
 
-pub fn qbe_push_call_args_from_strings(values: [string]): [QbeCallArg]
+pub fn llvm_emit_end_function(b: &LlvmBuilder)
 {
-    let mut args: [QbeCallArg] = []
-    for (i in 0 .. values.length)
+    b.current_fn = nil
+    b.current_block = nil
+}
+
+pub fn llvm_emit_label(b: &LlvmBuilder, name: string)
+{
+    let block = vix_LLVMAppendBasicBlock(b.current_fn, name)
+    vix_LLVMPositionBuilderAtEnd(b.builder, block)
+    b.current_block = block
+}
+
+pub fn llvm_emit_ret_i32(b: &LlvmBuilder, value: string)
+{
+    let val_ptr = get_var(b, value)
+    if (val_ptr != nil)
     {
-        args.push(QbeCallArg{ ty: "w", value: values[i] })
+        let val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), val_ptr, "load_ret_val")
+        vix_LLVMBuildRet(b.builder, val)
     }
-    return args
-}
-
-pub fn qbe_emit_data_string(b: &QbeBuilder, label: string, value: string)
-{
-    b.data_defs.push(QbeDataString{ label: label, value: value })
-}
-
-pub fn qbe_emit_function_header(b: &QbeBuilder, name: string, ret_ty: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "function_header", result: "", ty: ret_ty, func: name, op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_end_function(b: &QbeBuilder)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "function_end", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_label(b: &QbeBuilder, name: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "label", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: name, then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_ret_i32(b: &QbeBuilder, value: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "ret_i32", result: "", ty: "", func: "", op: "", left: "", right: "", value: value, label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_ret_void(b: &QbeBuilder)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "ret_void", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_copy(b: &QbeBuilder, result: string, value: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "copy", result: result, ty: "", func: "", op: "", left: "", right: "", value: value, label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_copy_i32(b: &QbeBuilder, result: string, value: i32)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "copy_i32", result: result, ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: value })
-}
-
-pub fn qbe_emit_add(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "add", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_sub(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "sub", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_mul(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "mul", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_div(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "div", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_mod(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "rem", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_neg(b: &QbeBuilder, result: string, src: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "neg", result: result, ty: "", func: "", op: "", left: src, right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_eq(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "ceqw", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_ne(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "cnew", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_lt(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "csltw", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_le(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "cslew", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_gt(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "csgtw", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_ge(b: &QbeBuilder, result: string, left: string, right: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "binary", result: result, ty: "", func: "", op: "csgew", left: left, right: right, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_jnz(b: &QbeBuilder, temp: string, then_label: string, else_label: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "jnz", result: "", ty: "", func: "", op: "", left: "", right: "", value: temp, label: "", then_label: then_label, else_label: else_label, comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_jmp(b: &QbeBuilder, label: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "jmp", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: label, then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_alloc4(b: &QbeBuilder, result: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "alloc4", result: result, ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_storew(b: &QbeBuilder, value: string, target: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "storew", result: "", ty: "", func: "", op: "", left: value, right: target, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_loadw(b: &QbeBuilder, result: string, source: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "loadw", result: result, ty: "", func: "", op: "", left: "", right: "", value: source, label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_comment(b: &QbeBuilder, text: string)
-{
-    qbe_push_instr(b, QbeInstr{ tag: "comment", result: "", ty: "", func: "", op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: text, args: [], int_value: 0 })
-}
-
-pub fn qbe_emit_call_typed(b: &QbeBuilder, result_ty: string, result: string, func: string, args: [QbeCallArg])
-{
-    qbe_push_instr(b, QbeInstr{ tag: "call", result: result, ty: result_ty, func: func, op: "", left: "", right: "", value: "", label: "", then_label: "", else_label: "", comment: "", args: args, int_value: 0 })
-}
-
-pub fn qbe_emit_call(b: &QbeBuilder, result: string, func: string, args: [string])
-{
-    qbe_emit_call_typed(b, "w", result, func, qbe_push_call_args_from_strings(args))
-}
-
-pub fn qbe_emit_call_void(b: &QbeBuilder, func: string, args: [string])
-{
-    qbe_emit_call_typed(b, "", "", func, qbe_push_call_args_from_strings(args))
-}
-
-pub fn qbe_emit_printf_i32(b: &QbeBuilder, value: string)
-{
-    qbe_emit_call_typed(b, "", "", "printf", [QbeCallArg{ ty: "l", value: "$str_fmt" }, QbeCallArg{ ty: "w", value: value }])
-}
-
-pub fn qbe_emit_call_ptr(b: &QbeBuilder, result: string, func: string, args: [string])
-{
-    let mut typed_args: [QbeCallArg] = []
-    for (i in 0 .. args.length)
+    else
     {
-        typed_args.push(QbeCallArg{ ty: "l", value: args[i] })
+        let val = vix_LLVMConstInt(LLVMInt32Type(), str_to_i64(value), 0)
+        vix_LLVMBuildRet(b.builder, val)
     }
-    qbe_emit_call_typed(b, "l", result, func, typed_args)
 }
 
-pub fn qbe_emit_eq_string(b: &QbeBuilder, result: string, left: string, right_literal: string)
+pub fn llvm_emit_ret_void(b: &LlvmBuilder)
 {
-    qbe_push_instr(b, QbeInstr{ tag: "eq_string", result: result, ty: "", func: "", op: "", left: left, right: right_literal, value: "", label: "", then_label: "", else_label: "", comment: "", args: [], int_value: 0 })
+    vix_LLVMBuildRetVoid(b.builder)
 }
 
-pub fn qbe_render(b: &QbeBuilder): string
+pub fn llvm_emit_copy(b: &LlvmBuilder, result: string, value: string)
 {
-    let mut out = ""
-    for (i in 0 .. b.data_defs.length)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    let val = vix_LLVMConstInt(LLVMInt32Type(), str_to_i64(value), 0)
+    vix_LLVMBuildStore(b.builder, val, alloca)
+}
+
+pub fn llvm_emit_copy_i32(b: &LlvmBuilder, result: string, value: i32)
+{
+    let val = vix_LLVMConstInt(LLVMInt32Type(), i32_to_i64(value), 0)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, val, alloca)
+}
+
+pub fn llvm_emit_add(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let res = vix_LLVMBuildAdd(b.builder, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, res, alloca)
+}
+
+pub fn llvm_emit_sub(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let res = vix_LLVMBuildSub(b.builder, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, res, alloca)
+}
+
+pub fn llvm_emit_mul(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let res = vix_LLVMBuildMul(b.builder, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, res, alloca)
+}
+
+pub fn llvm_emit_div(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let res = vix_LLVMBuildSDiv(b.builder, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, res, alloca)
+}
+
+pub fn llvm_emit_mod(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let res = vix_LLVMBuildSRem(b.builder, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, res, alloca)
+}
+
+pub fn llvm_emit_neg(b: &LlvmBuilder, result: string, src: string)
+{
+    let src_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, src), "load_src")
+    let res = vix_LLVMBuildNeg(b.builder, src_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, res, alloca)
+}
+
+pub fn llvm_emit_eq(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let cmp = vix_LLVMBuildICmp(b.builder, 32, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
+}
+
+pub fn llvm_emit_ne(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let cmp = vix_LLVMBuildICmp(b.builder, 33, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
+}
+
+pub fn llvm_emit_lt(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let cmp = vix_LLVMBuildICmp(b.builder, 40, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
+}
+
+pub fn llvm_emit_le(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let cmp = vix_LLVMBuildICmp(b.builder, 41, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
+}
+
+pub fn llvm_emit_gt(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let cmp = vix_LLVMBuildICmp(b.builder, 42, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
+}
+
+pub fn llvm_emit_ge(b: &LlvmBuilder, result: string, left: string, right: string)
+{
+    let left_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, left), "load_left")
+    let right_val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, right), "load_right")
+    let cmp = vix_LLVMBuildICmp(b.builder, 43, left_val, right_val, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
+}
+
+pub fn llvm_emit_jnz(b: &LlvmBuilder, temp: string, then_label: string, else_label: string)
+{
+    let cond = vix_LLVMBuildLoad2(b.builder, LLVMInt1Type(), get_var(b, temp), "load_cond")
+    let then_block = vix_LLVMAppendBasicBlock(b.current_fn, then_label)
+    let else_block = vix_LLVMAppendBasicBlock(b.current_fn, else_label)
+    vix_LLVMBuildCondBr(b.builder, cond, then_block, else_block)
+}
+
+pub fn llvm_emit_jmp(b: &LlvmBuilder, label: string)
+{
+    let block = vix_LLVMAppendBasicBlock(b.current_fn, label)
+    vix_LLVMBuildBr(b.builder, block)
+}
+
+pub fn llvm_emit_alloc4(b: &LlvmBuilder, result: string)
+{
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+}
+
+pub fn llvm_emit_storew(b: &LlvmBuilder, value: string, target: string)
+{
+    let val_ptr = get_var(b, value)
+    let val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), val_ptr, "load_storew_val")
+    let ptr = get_var(b, target)
+    vix_LLVMBuildStore(b.builder, val, ptr)
+}
+
+pub fn llvm_emit_loadw(b: &LlvmBuilder, result: string, source: string)
+{
+    let ptr = get_var(b, source)
+    let val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), ptr, result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, val, alloca)
+}
+
+pub fn llvm_emit_comment(b: &LlvmBuilder, text: string)
+{
+    let _ = text
+}
+
+pub fn llvm_emit_call(b: &LlvmBuilder, result: string, func: string, args: [string])
+{
+    let mut fn_ref = vix_LLVMGetNamedFunction(b.module, func)
+    if (fn_ref == nil)
     {
-        let item = b.data_defs[i]
-        out = out + "data $str_" + item.label + " = { b \"" + item.value + "\", b 0 }\n"
+        let fn_ty = vix_LLVMFunctionType0(LLVMInt32Type(), 0)
+        fn_ref = vix_LLVMAddFunction(b.module, func, fn_ty)
     }
-    for (i in 0 .. b.instrs.length)
+    let call_val = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType0(LLVMInt32Type(), 0), fn_ref, 0, 0, result)
+    if (result != "")
     {
-        let instr = b.instrs[i]
-        if (instr.tag == "function_header")
-        {
-            if (instr.ty == "void")
-            {
-                out = out + "export function $" + instr.func + "()\n{\n"
-            }
-            else
-            {
-                out = out + "export function w $" + instr.func + "()\n{\n"
-            }
-        }
-        else if (instr.tag == "function_end")
-        {
-            out = out + "}\n"
-        }
-        else if (instr.tag == "label")
-        {
-            out = out + "@" + instr.label + "\n"
-        }
-        else if (instr.tag == "ret_i32")
-        {
-            out = out + "\tret " + instr.value + "\n"
-        }
-        else if (instr.tag == "ret_void")
-        {
-            out = out + "\tret\n"
-        }
-        else if (instr.tag == "copy")
-        {
-            out = out + "\t" + instr.result + " =w copy " + instr.value + "\n"
-        }
-        else if (instr.tag == "copy_i32")
-        {
-            out = out + "\t" + instr.result + " =w copy " + i32_to_str(instr.int_value) + "\n"
-        }
-        else if (instr.tag == "binary")
-        {
-            out = out + "\t" + instr.result + " =w " + instr.op + " " + instr.left + ", " + instr.right + "\n"
-        }
-        else if (instr.tag == "neg")
-        {
-            out = out + "\t" + instr.result + " =w sub 0, " + instr.left + "\n"
-        }
-        else if (instr.tag == "jnz")
-        {
-            out = out + "\tjnz " + instr.value + ", @" + instr.then_label + ", @" + instr.else_label + "\n"
-        }
-        else if (instr.tag == "jmp")
-        {
-            out = out + "\tjmp @" + instr.label + "\n"
-        }
-        else if (instr.tag == "alloc4")
-        {
-            out = out + "\t" + instr.result + " =w alloc4 4\n"
-        }
-        else if (instr.tag == "storew")
-        {
-            out = out + "\tstorew " + instr.left + ", " + instr.right + "\n"
-        }
-        else if (instr.tag == "loadw")
-        {
-            out = out + "\t" + instr.result + " =w loadw %" + instr.value + "\n"
-        }
-        else if (instr.tag == "comment")
-        {
-            out = out + "\t# " + instr.comment + "\n"
-        }
-        else if (instr.tag == "eq_string")
-        {
-            out = out + "\t" + instr.result + " =w call $vix_str_eq(l %" + instr.left + ", l $str_" + instr.right + ")\n"
-        }
-        else if (instr.tag == "call")
-        {
-            let mut call_args = ""
-            for (j in 0 .. instr.args.length)
-            {
-                if (j > 0) { call_args = call_args + ", " }
-                let call_arg = instr.args[j]
-                call_args = call_args + call_arg.ty + " " + call_arg.value
-            }
-            if (instr.result == "")
-            {
-                out = out + "\tcall $" + instr.func + "(" + call_args + ")\n"
-            }
-            else
-            {
-                out = out + "\t" + instr.result + " =" + instr.ty + " call $" + instr.func + "(" + call_args + ")\n"
-            }
-        }
+        let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), result)
+        set_var(b, result, alloca)
+        vix_LLVMBuildStore(b.builder, call_val, alloca)
     }
-    return out
+}
+
+pub fn llvm_emit_call_void(b: &LlvmBuilder, func: string, args: [string])
+{
+    let mut fn_ref = vix_LLVMGetNamedFunction(b.module, func)
+    if (fn_ref == nil)
+    {
+        let fn_ty = vix_LLVMFunctionType0(LLVMVoidType(), 0)
+        fn_ref = vix_LLVMAddFunction(b.module, func, fn_ty)
+    }
+    let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType0(LLVMVoidType(), 0), fn_ref, 0, 0, "")
+}
+
+pub fn llvm_emit_printf_i32(b: &LlvmBuilder, value: string)
+{
+    let fmt_ptr = get_fmt_string(b)
+    let val = vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, value), "load_val")
+    let args = [fmt_ptr, val]
+    let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
+}
+
+pub fn llvm_emit_eq_string(b: &LlvmBuilder, result: string, left: string, right_literal: string)
+{
+    let cmp = vix_LLVMBuildICmp(b.builder, 32, vix_LLVMConstInt(LLVMInt32Type(), 0, 0), vix_LLVMConstInt(LLVMInt32Type(), 0, 0), result)
+    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt1Type(), result)
+    set_var(b, result, alloca)
+    vix_LLVMBuildStore(b.builder, cmp, alloca)
 }

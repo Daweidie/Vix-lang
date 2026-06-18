@@ -1,19 +1,19 @@
-struct SymbolTable<T>
+struct SymbolTable:[T]
 {
     scopes: [ [ (string, T) ] ]
 }
 
-fn new_table:[T](): SymbolTable<T>
+fn new_table:[T](): SymbolTable:[T]
 {
     SymbolTable:[T]{ scopes: [ [] ] }
 }
 
-fn declare:[T](table: SymbolTable<T>, name: string, val: T)
+fn declare:[T](table: SymbolTable:[T], name: string, val: T)
 {
     table.scopes[table.scopes.length - 1].push((name, val))
 }
 
-fn lookup:[T](table: SymbolTable<T>, name: string): ?T
+fn lookup:[T](table: SymbolTable:[T], name: string): ?T
 {
     for (scope in table.scopes)
     {

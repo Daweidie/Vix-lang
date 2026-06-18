@@ -1,4 +1,4 @@
-struct Pair<A, B>
+struct Pair:[A, B]
 {
     first: A,
     second: B

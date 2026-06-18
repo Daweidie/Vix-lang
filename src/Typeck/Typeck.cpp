@@ -2424,6 +2424,14 @@ struct TypeChecker {
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::String) {
 					continue;
 				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::FixedArray) {
+					// Allow passing array to ptr parameter (array decays to pointer)
+					continue;
+				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::Array) {
+					// Allow passing array to ptr parameter (array decays to pointer)
+					continue;
+				}
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind != TypeKind::Ptr) {
 					// Allow passing non-pointer to pointer parameter (implicit address-of)
 					try {

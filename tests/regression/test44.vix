@@ -1,6 +1,6 @@
-type Result<T, E> = Ok(T) | Err(E)
+type Result:[T, E] = Ok(T) | Err(E)
 
-fn unwrap_or(r: Result<i32, string>, default: i32): i32
+fn unwrap_or(r: Result:[i32, string], default: i32): i32
 {
     match r
     {
@@ -12,8 +12,8 @@ fn unwrap_or(r: Result<i32, string>, default: i32): i32
 
 fn main(): i32
 {
-    let a = Ok(42) : Result<i32, string>
-    let b = Err("fail") : Result<i32, string>
+    let a = Ok(42) : Result:[i32, string]
+    let b = Err("fail") : Result:[i32, string]
 
     let x = unwrap_or(a, 0)
     let y = unwrap_or(b, -1)

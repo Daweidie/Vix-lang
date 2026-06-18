@@ -1,4 +1,4 @@
-type HashMap<V> = struct {
+type HashMap:[V] = struct {
     buckets: [ [ (string, V) ] ]
     size: i32
 }
@@ -27,7 +27,7 @@ fn bucket_index(key: string, capacity: i32): i32
     return h % capacity
 }
 
-pub fn new_hashmap<V>(capacity: i32): HashMap<V>
+pub fn new_hashmap:[V](capacity: i32): HashMap:[V]
 {
     let cap = normalize_capacity(capacity)
     let buckets: [ [ (string, V) ] ] = []
@@ -38,7 +38,7 @@ pub fn new_hashmap<V>(capacity: i32): HashMap<V>
     return HashMap:[V]{ buckets: buckets, size: 0 }
 }
 
-pub fn put<V>(map: &HashMap<V>, key: string, value: V)
+pub fn put:[V](map: &HashMap:[V], key: string, value: V)
 {
     let cap = map.buckets.length
     if (cap == 0) { return }
@@ -58,7 +58,7 @@ pub fn put<V>(map: &HashMap<V>, key: string, value: V)
     map.size = map.size + 1
 }
 
-pub fn get<V>(map: HashMap<V>, key: string): ?V
+pub fn get:[V](map: HashMap:[V], key: string): ?V
 {
     let cap = map.buckets.length
     if (cap == 0) { return None }
@@ -75,7 +75,7 @@ pub fn get<V>(map: HashMap<V>, key: string): ?V
     return None
 }
 
-pub fn contains<V>(map: HashMap<V>, key: string): i32
+pub fn contains:[V](map: HashMap:[V], key: string): i32
 {
     let found = get:[V](map, key)
     match found

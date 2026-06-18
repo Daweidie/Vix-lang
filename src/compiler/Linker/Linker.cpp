@@ -603,6 +603,13 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
             args.push_back(elfSysPaths.sysLibDir + "/crtn.o");
     }
 
+    // ── Extra libraries from -l flags ─────────────────────────
+    if (options && options->extra_libs && options->extra_lib_count > 0) {
+        for (int i = 0; i < options->extra_lib_count; i++) {
+            args.push_back(std::string("-l") + options->extra_libs[i]);
+        }
+    }
+
     // ── Convert to const char* array for LLD API ──────────────
     std::vector<const char *> rawArgs;
     rawArgs.reserve(args.size());
@@ -768,6 +775,13 @@ extern "C" int vix_link_multi(const char **obj_files, int obj_count,
             args.push_back(elfSysPaths.gccDir + "/crtend.o");
         if (!elfSysPaths.sysLibDir.empty() && fileExists(elfSysPaths.sysLibDir + "/crtn.o"))
             args.push_back(elfSysPaths.sysLibDir + "/crtn.o");
+    }
+
+    // ── Extra libraries from -l flags ─────────────────────────
+    if (options && options->extra_libs && options->extra_lib_count > 0) {
+        for (int i = 0; i < options->extra_lib_count; i++) {
+            args.push_back(std::string("-l") + options->extra_libs[i]);
+        }
     }
 
     std::vector<const char *> rawArgs;

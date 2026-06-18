@@ -1,12 +1,15 @@
 import "net.vix"
 
-pub type Result<T, E> = Ok(T) | Err(E)
+pub type Result:[T, E] = Ok(T) | Err(E)
 
 pub type TcpStream = struct
 {
     fd: i32
 }
-
+pub type Socket = struct
+{
+    fd: i32
+}
 pub type TcpListener = struct
 {
     fd: i32
@@ -19,7 +22,7 @@ extern "C"
     fn accept(sockfd: i32, addr: ptr, addrlen: ptr): i32
 }
 
-pub fn connect(ip: string, port: i32): Result[TcpStream, string]
+pub fn connect(ip: string, port: i32): Result:[TcpStream, string]
 {
     let r = new_tcp()
     match r
@@ -42,7 +45,7 @@ pub fn connect(ip: string, port: i32): Result[TcpStream, string]
     }
 }
 
-pub fn send_data(stream: TcpStream, data: ptr, len: i32): Result[i32, string]
+pub fn send_data(stream: TcpStream, data: ptr, len: i32): Result:[i32, string]
 {
     let sock = Socket{ fd: stream.fd }
     let sent = sock_send(sock, data, len)
@@ -53,7 +56,7 @@ pub fn send_data(stream: TcpStream, data: ptr, len: i32): Result[i32, string]
     return Ok(sent)
 }
 
-pub fn recv_data(stream: TcpStream, buf: ptr, len: i32): Result[i32, string]
+pub fn recv_data(stream: TcpStream, buf: ptr, len: i32): Result:[i32, string]
 {
     let sock = Socket{ fd: stream.fd }
     let received = sock_recv(sock, buf, len)
@@ -70,7 +73,7 @@ pub fn close_stream(stream: TcpStream)
     close(stream.fd)
 }
 
-pub fn bind(ip: string, port: i32): Result[TcpListener, string]
+pub fn bind(ip: string, port: i32): Result:[TcpListener, string]
 {
     let fd = socket(2, 1, 0)
     if (fd < 0)
@@ -90,7 +93,7 @@ pub fn bind(ip: string, port: i32): Result[TcpListener, string]
     return Ok(TcpListener{ fd: fd })
 }
 
-pub fn start_listen(listener: TcpListener, backlog: i32): Result[i32, string]
+pub fn start_listen(listener: TcpListener, backlog: i32): Result:[i32, string]
 {
     let sock = Socket{ fd: listener.fd }
     let res = sock_listen(sock, backlog)
@@ -101,7 +104,7 @@ pub fn start_listen(listener: TcpListener, backlog: i32): Result[i32, string]
     return Ok(0)
 }
 
-pub fn accept_conn(listener: TcpListener): Result[TcpStream, string]
+pub fn accept_conn(listener: TcpListener): Result:[TcpStream, string]
 {
     let client_fd = accept(listener.fd, 0, 0)
     if (client_fd < 0)
@@ -116,7 +119,7 @@ pub fn close_listener(listener: TcpListener)
     close(listener.fd)
 }
 
-pub fn send_all(stream: TcpStream, data: ptr, len: i32): Result[i32, string]
+pub fn send_all(stream: TcpStream, data: ptr, len: i32): Result:[i32, string]
 {
     let mut sent = 0
     while (sent < len)
@@ -132,7 +135,7 @@ pub fn send_all(stream: TcpStream, data: ptr, len: i32): Result[i32, string]
     return Ok(sent)
 }
 
-pub fn recv_all(stream: TcpStream, buf: ptr, len: i32): Result[i32, string]
+pub fn recv_all(stream: TcpStream, buf: ptr, len: i32): Result:[i32, string]
 {
     let mut received = 0
     while (received < len)
@@ -148,7 +151,7 @@ pub fn recv_all(stream: TcpStream, buf: ptr, len: i32): Result[i32, string]
     return Ok(received)
 }
 
-pub fn send_string(stream: TcpStream, msg: string): Result[i32, string]
+pub fn send_string(stream: TcpStream, msg: string): Result:[i32, string]
 {
     let mut len = 0
     while (msg[len] != 0)

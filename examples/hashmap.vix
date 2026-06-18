@@ -1,9 +1,9 @@
-type HashMap<V> = struct
+type HashMap:[V] = struct
 {
 	buckets: [ [ (string, V) ] ]
 	size: i32
 }
-type Option<T> = Some(T) | None
+type Option:[T] = Some(T) | None
 fn nor_cap(capacity: i32): i32
 {
 	if (capacity <= 0)
@@ -39,7 +39,7 @@ fn bucket_index(key: string, capacity: i32): i32
 	return h % capacity
 }
 
-pub fn new_hashmap<V>(capacity: i32): HashMap<V>
+pub fn new_hashmap:[V](capacity: i32): HashMap:[V]
 {
 	let cap = nor_cap(capacity)
 	let buckets: [ [ (string, V) ] ] = []
@@ -51,12 +51,12 @@ pub fn new_hashmap<V>(capacity: i32): HashMap<V>
 	}
 	return HashMap:[V]{ buckets: buckets, size: 0 }
 }
-pub fn len<V>(map: HashMap<V>): i32
+pub fn len:[V](map: HashMap:[V]): i32
 {
 	return map.size
 }
 
-pub fn capacity<V>(map: HashMap<V>): i32
+pub fn capacity:[V](map: HashMap:[V]): i32
 {
 	return map.buckets.length
 }

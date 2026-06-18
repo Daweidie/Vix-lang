@@ -14,6 +14,8 @@ typedef struct {
     const char* libc_dir;     /* directory containing bundled libc (CRT objects, DLLs, static libs) */
     const char** lib_paths;   /* additional library search paths from -L */
     int lib_path_count;       /* number of library search paths */
+    const char** extra_libs;  /* additional libraries from -l */
+    int extra_lib_count;      /* number of additional libraries */
 } VixLinkOptions;
 
 int vix_link(const char* obj_file, const char* output_file,

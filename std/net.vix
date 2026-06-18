@@ -27,7 +27,7 @@ extern "C"
     fn free(ptr: ptr): void
 }
 
-pub type Result<T, E> = Ok(T) | Err(E)
+pub type Result:[T, E] = Ok(T) | Err(E)
 
 pub type sockaddr_in = struct
 {
@@ -42,7 +42,7 @@ pub type Socket = struct
     fd: i32
 }
 
-pub fn new_tcp(): Result[Socket, string]
+pub fn new_tcp(): Result:[Socket, string]
 {
     let fd = socket(2, 1, 0)
     if (fd < 0)
@@ -52,7 +52,7 @@ pub fn new_tcp(): Result[Socket, string]
     return Ok(Socket{ fd: fd })
 }
 
-pub fn new_udp(): Result[Socket, string]
+pub fn new_udp(): Result:[Socket, string]
 {
     let fd = socket(2, 2, 0)
     if (fd < 0)
@@ -62,7 +62,7 @@ pub fn new_udp(): Result[Socket, string]
     return Ok(Socket{ fd: fd })
 }
 
-pub fn connect_tcp(sock: Socket, address: sockaddr_in): Result[i32, string]
+pub fn connect_tcp(sock: Socket, address: sockaddr_in): Result:[i32, string]
 {
     let res = connect(sock.fd, &address, 16)
     if (res < 0)
@@ -72,7 +72,7 @@ pub fn connect_tcp(sock: Socket, address: sockaddr_in): Result[i32, string]
     return Ok(0)
 }
 
-pub fn sock_bind(sock: Socket, address: sockaddr_in): Result[i32, string]
+pub fn sock_bind(sock: Socket, address: sockaddr_in): Result:[i32, string]
 {
     let res = bind(sock.fd, &address, 16)
     if (res < 0)
@@ -82,7 +82,7 @@ pub fn sock_bind(sock: Socket, address: sockaddr_in): Result[i32, string]
     return Ok(0)
 }
 
-pub fn sock_listen(sock: Socket, backlog: i32): Result[i32, string]
+pub fn sock_listen(sock: Socket, backlog: i32): Result:[i32, string]
 {
     let res = listen(sock.fd, backlog)
     if (res < 0)
@@ -92,7 +92,7 @@ pub fn sock_listen(sock: Socket, backlog: i32): Result[i32, string]
     return Ok(0)
 }
 
-pub fn sock_accept(sock: Socket): Result[Socket, string]
+pub fn sock_accept(sock: Socket): Result:[Socket, string]
 {
     let client_fd = accept(sock.fd, 0, 0)
     if (client_fd < 0)

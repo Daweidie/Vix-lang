@@ -43,19 +43,31 @@ fn read_source_file(path: ptr): string
 
 fn main(argc: i32, argv: ptr): i32
 {
-    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; printf(a); if (a < 100) { printf(a); } return 0 }"
+    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30;  return 0 }"
     let mut mode = "codegen"
 
     if (argc > 1)
     {
-        mode = argv[1]
-    }
-    if (argc > 2)
-    {
-        src = argv[2]
-        if (string_ends_with(src, ".vix") == 1)
+        let arg1 = argv[1]
+        if (string_ends_with(arg1, ".vix") == 1)
         {
-            src = read_source_file(argv[2])
+            src = read_source_file(arg1)
+        }
+        else
+        {
+            mode = arg1
+            if (argc > 2)
+            {
+                let arg2 = argv[2]
+                if (string_ends_with(arg2, ".vix") == 1)
+                {
+                    src = read_source_file(arg2)
+                }
+                else
+                {
+                    src = arg2
+                }
+            }
         }
     }
 

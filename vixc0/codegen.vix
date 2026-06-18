@@ -1,43 +1,43 @@
 #[no_main]
 import "ast.vix"
 import "builder.vix"
-pub fn codegen_expr(b: &QbeBuilder, es: &ExprStore, expr: AstExpr): string
+pub fn codegen_expr(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
 {
     return match expr.tag {
         "int" | "bool" -> {
-            let tmp = qbe_temp(b, "t")
-            qbe_emit_copy_i32(b, tmp, expr.int_value)
+            let tmp = llvm_temp(b, "t")
+            llvm_emit_copy_i32(b, tmp, expr.int_value)
             tmp
         }
         "ident" -> {
-            let tmp = qbe_temp(b, "t")
-            qbe_emit_loadw(b, tmp, expr.text)
+            let tmp = llvm_temp(b, "t")
+            llvm_emit_loadw(b, tmp, expr.text)
             tmp
         }
-        "string" -> "$str_" + expr.text
+        "string" -> "@str_" + expr.text
         "binop" -> {
             let left = codegen_expr(b, es, expr_store_get(es, expr.left_idx))
             let right = codegen_expr(b, es, expr_store_get(es, expr.right_idx))
-            let result = qbe_temp(b, "t")
+            let result = llvm_temp(b, "t")
             match expr.text {
-                "+" -> { qbe_emit_add(b, result, left, right) result }
-                "-" -> { qbe_emit_sub(b, result, left, right) result }
-                "*" -> { qbe_emit_mul(b, result, left, right) result }
-                "/" -> { qbe_emit_div(b, result, left, right) result }
-                "%" -> { qbe_emit_mod(b, result, left, right) result }
-                "==" -> { qbe_emit_eq(b, result, left, right) result }
-                "!=" -> { qbe_emit_ne(b, result, left, right) result }
-                "<" -> { qbe_emit_lt(b, result, left, right) result }
-                "<=" -> { qbe_emit_le(b, result, left, right) result }
-                ">" -> { qbe_emit_gt(b, result, left, right) result }
-                ">=" -> { qbe_emit_ge(b, result, left, right) result }
-                "and" -> { qbe_emit_mul(b, result, left, right) result }
+                "+" -> { llvm_emit_add(b, result, left, right) result }
+                "-" -> { llvm_emit_sub(b, result, left, right) result }
+                "*" -> { llvm_emit_mul(b, result, left, right) result }
+                "/" -> { llvm_emit_div(b, result, left, right) result }
+                "%" -> { llvm_emit_mod(b, result, left, right) result }
+                "==" -> { llvm_emit_eq(b, result, left, right) result }
+                "!=" -> { llvm_emit_ne(b, result, left, right) result }
+                "<" -> { llvm_emit_lt(b, result, left, right) result }
+                "<=" -> { llvm_emit_le(b, result, left, right) result }
+                ">" -> { llvm_emit_gt(b, result, left, right) result }
+                ">=" -> { llvm_emit_ge(b, result, left, right) result }
+                "and" -> { llvm_emit_mul(b, result, left, right) result }
                 "or" -> {
-                    let sum = qbe_temp(b, "t")
-                    qbe_emit_add(b, sum, left, right)
-                    let cmp = qbe_temp(b, "t")
-                    qbe_emit_ne(b, cmp, sum, "0")
-                    qbe_emit_copy(b, result, cmp)
+                    let sum = llvm_temp(b, "t")
+                    llvm_emit_add(b, sum, left, right)
+                    let cmp = llvm_temp(b, "t")
+                    llvm_emit_ne(b, cmp, sum, "0")
+                    llvm_emit_copy(b, result, cmp)
                     result
                 }
                 _ -> "0"
@@ -46,14 +46,14 @@ pub fn codegen_expr(b: &QbeBuilder, es: &ExprStore, expr: AstExpr): string
         "unaryop" -> match expr.text {
             "-" -> {
                 let operand = codegen_expr(b, es, expr_store_get(es, expr.left_idx))
-                let result = qbe_temp(b, "t")
-                qbe_emit_neg(b, result, operand)
+                let result = llvm_temp(b, "t")
+                llvm_emit_neg(b, result, operand)
                 result
             }
             "!" -> {
                 let operand = codegen_expr(b, es, expr_store_get(es, expr.left_idx))
-                let result = qbe_temp(b, "t")
-                qbe_emit_eq(b, result, operand, "0")
+                let result = llvm_temp(b, "t")
+                llvm_emit_eq(b, result, operand, "0")
                 result
             }
             _ -> "0"
@@ -66,74 +66,76 @@ pub fn codegen_expr(b: &QbeBuilder, es: &ExprStore, expr: AstExpr): string
                 let arg = codegen_expr(b, es, arg_expr)
                 arg_temps.push(arg)
             }
-            let result = qbe_temp(b, "t")
-            qbe_emit_call(b, result, expr.text, arg_temps)
+            let result = llvm_temp(b, "t")
+            llvm_emit_call(b, result, expr.text, arg_temps)
             result
         }
         _ -> "0"
     }
 }
 
-pub fn codegen_stmt(b: &QbeBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32)
+pub fn codegen_stmt(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32)
 {
     let stmt = stmt_store_get(store, stmt_idx)
     match stmt.tag {
-        "return" -> qbe_emit_ret_i32(b, i32_to_str(stmt.direct_ret))
+        "return" -> llvm_emit_ret_i32(b, i32_to_str(stmt.direct_ret))
         "return_expr" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.value_idx))
-            qbe_emit_ret_i32(b, val)
+            let loaded = llvm_temp(b, "ret_val")
+            llvm_emit_loadw(b, loaded, val)
+            llvm_emit_ret_i32(b, loaded)
         }
         "let" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.assign_idx))
-            let offset = qbe_temp(b, "t")
-            qbe_emit_alloc4(b, offset)
-            qbe_emit_storew(b, val, offset)
+            let offset = llvm_temp(b, "t")
+            llvm_emit_alloc4(b, offset)
+            llvm_emit_storew(b, val, offset)
         }
         "assign" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.assign_idx))
-            let offset = qbe_temp(b, "t")
-            qbe_emit_alloc4(b, offset)
-            qbe_emit_storew(b, val, offset)
+            let offset = llvm_temp(b, "t")
+            llvm_emit_alloc4(b, offset)
+            llvm_emit_storew(b, val, offset)
         }
         "print" -> {
             let val = codegen_expr(b, es, expr_store_get(es, stmt.print_idx))
-            qbe_emit_printf_i32(b, val)
+            llvm_emit_printf_i32(b, val)
         }
         "expr" -> {
             let _ = codegen_expr(b, es, expr_store_get(es, stmt.value_idx))
         }
         "if_eq_return" -> {
-            let start_label = qbe_label_name(b, "L")
-            let then_label = qbe_label_name(b, "L")
-            let else_label = qbe_label_name(b, "L")
-            qbe_emit_label(b, start_label)
-            qbe_emit_eq_string(b, "%cmp", stmt.cond_left, stmt.cond_right)
-            qbe_emit_jnz(b, "%cmp", then_label, else_label)
-            qbe_emit_label(b, then_label)
-            qbe_emit_ret_i32(b, i32_to_str(stmt.then_ret))
-            qbe_emit_label(b, else_label)
-            qbe_emit_ret_i32(b, i32_to_str(stmt.else_ret))
+            let start_label = llvm_label_name(b, "L")
+            let then_label = llvm_label_name(b, "L")
+            let else_label = llvm_label_name(b, "L")
+            llvm_emit_label(b, start_label)
+            llvm_emit_eq_string(b, "%cmp", stmt.cond_left, stmt.cond_right)
+            llvm_emit_jnz(b, "%cmp", then_label, else_label)
+            llvm_emit_label(b, then_label)
+            llvm_emit_ret_i32(b, i32_to_str(stmt.then_ret))
+            llvm_emit_label(b, else_label)
+            llvm_emit_ret_i32(b, i32_to_str(stmt.else_ret))
         }
         "match_option_string" -> {
-            let start_label = qbe_label_name(b, "L")
-            let some_label = qbe_label_name(b, "L")
-            let none_label = qbe_label_name(b, "L")
-            let then_label = qbe_label_name(b, "L")
-            let else_label = qbe_label_name(b, "L")
-            qbe_emit_label(b, start_label)
+            let start_label = llvm_label_name(b, "L")
+            let some_label = llvm_label_name(b, "L")
+            let none_label = llvm_label_name(b, "L")
+            let then_label = llvm_label_name(b, "L")
+            let else_label = llvm_label_name(b, "L")
+            llvm_emit_label(b, start_label)
             let opt_expr = expr_store_get(es, stmt.value_idx)
-            qbe_emit_copy_i32(b, "%has", opt_expr.option_has_value)
-            qbe_emit_jnz(b, "%has", some_label, none_label)
-            qbe_emit_label(b, some_label)
-            qbe_emit_comment(b, "bound string value available as %" + stmt.match_bind)
-            qbe_emit_eq_string(b, "%strcmp_res", stmt.match_bind, stmt.match_compare_right)
-            qbe_emit_jnz(b, "%strcmp_res", then_label, else_label)
-            qbe_emit_label(b, then_label)
-            qbe_emit_ret_i32(b, i32_to_str(stmt.match_some_then_ret))
-            qbe_emit_label(b, else_label)
-            qbe_emit_ret_i32(b, i32_to_str(stmt.match_some_else_ret))
-            qbe_emit_label(b, none_label)
-            qbe_emit_ret_i32(b, i32_to_str(stmt.match_none_ret))
+            llvm_emit_copy_i32(b, "%has", opt_expr.option_has_value)
+            llvm_emit_jnz(b, "%has", some_label, none_label)
+            llvm_emit_label(b, some_label)
+            llvm_emit_comment(b, "bound string value available as %" + stmt.match_bind)
+            llvm_emit_eq_string(b, "%strcmp_res", stmt.match_bind, stmt.match_compare_right)
+            llvm_emit_jnz(b, "%strcmp_res", then_label, else_label)
+            llvm_emit_label(b, then_label)
+            llvm_emit_ret_i32(b, i32_to_str(stmt.match_some_then_ret))
+            llvm_emit_label(b, else_label)
+            llvm_emit_ret_i32(b, i32_to_str(stmt.match_some_else_ret))
+            llvm_emit_label(b, none_label)
+            llvm_emit_ret_i32(b, i32_to_str(stmt.match_none_ret))
         }
         "block" -> {
             for (i in 0 .. stmt.block_count)
@@ -151,18 +153,17 @@ pub fn codegen_program(program: AstProgram): string
     {
         return program.error
     }
-    let b = qbe_new()
-    qbe_emit_data_string(b, "fmt", "%d\\n")
-    qbe_emit_function_header(b, program.function.name, program.function.ret_ty)
+    let b = llvm_new()
+    llvm_emit_function_header(b, program.function.name, program.function.ret_ty)
     codegen_stmt(b, program.expr_store, program.store, program.function.body_idx)
     if (program.function.ret_ty == "void")
     {
-        qbe_emit_ret_void(b)
+        llvm_emit_ret_void(b)
     }
     else
     {
-        qbe_emit_ret_i32(b, "0")
+        llvm_emit_ret_i32(b, "0")
     }
-    qbe_emit_end_function(b)
-    return qbe_get_code(b)
+    llvm_emit_end_function(b)
+    return llvm_get_code(b)
 }

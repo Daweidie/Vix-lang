@@ -163,6 +163,9 @@ int main(int argc, char **argv) {
 #define MAX_LIB_PATHS 64
   char *lib_paths[MAX_LIB_PATHS];
   int lib_path_count = 0;
+#define MAX_EXTRA_LIBS 64
+  char *extra_libs[MAX_EXTRA_LIBS];
+  int extra_lib_count = 0;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--target=", 9) == 0) {
       target = argv[i] + 9;
@@ -186,7 +189,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.4.0 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
+      printf("Vix Compiler 0.4.2 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       return 0;
     } else if (strcmp(argv[i], "-llvm") == 0) {
       out_llvm = 1;
@@ -240,6 +243,16 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Error: -L option requires a path\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "-l") == 0) {
+      if (i + 1 < argc) {
+        if (extra_lib_count < MAX_EXTRA_LIBS) {
+          extra_libs[extra_lib_count++] = argv[i + 1];
+        }
+        i++;
+      } else {
+        fprintf(stderr, "Error: -l option requires a library name\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:22.1.2(8)\n\n");
       fprintf(stderr, "OPTIONS:\n");
@@ -261,6 +274,7 @@ int main(int argc, char **argv) {
       fprintf(stderr,
               "  -static                Static linking (default: dynamic)\n");
       fprintf(stderr, "  -L <path>              Add library search path\n");
+      fprintf(stderr, "  -l <lib>               Link with library\n");
       fprintf(stderr, "  --check                Syntax & type check only\n");
       fprintf(stderr, "  --time                 Show phase timing breakdown\n");
       fprintf(stderr, "  --debug                Enable debug output\n");
@@ -324,6 +338,8 @@ int main(int argc, char **argv) {
         .libc_dir = find_bundled_libc(),
         .lib_paths = lib_path_count > 0 ? (const char **)lib_paths : NULL,
         .lib_path_count = lib_path_count,
+        .extra_libs = extra_lib_count > 0 ? (const char **)extra_libs : NULL,
+        .extra_lib_count = extra_lib_count,
     };
 
     if (!vix_link_multi((const char **)obj_files, obj_file_count, out_f,
@@ -694,6 +710,8 @@ int main(int argc, char **argv) {
             .libc_dir = find_bundled_libc(),
             .lib_paths = lib_path_count > 0 ? (const char **)lib_paths : NULL,
             .lib_path_count = lib_path_count,
+            .extra_libs = extra_lib_count > 0 ? (const char **)extra_libs : NULL,
+            .extra_lib_count = extra_lib_count,
         };
         if (!vix_link(obj_file, out_f, &link_opts, &link_err)) {
           fprintf(stderr, "Error: Failed to link object file to executable");
