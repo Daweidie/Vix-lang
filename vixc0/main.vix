@@ -3,9 +3,47 @@ import "parser.vix"
 import "ast.vix"
 import "codegen.vix"
 
+extern "C"
+{
+    fn fopen(filename: ptr, mode: ptr): ptr
+    fn fclose(file: ptr): i32
+    fn fread(buf: ptr, size: i64, count: i64, file: ptr): i64
+    fn fseek(file: ptr, offset: i64, whence: i32): i32
+    fn ftell(file: ptr): i64
+    fn malloc(size: usize): string
+}
+
+fn string_ends_with(text: string, suffix: string): i32
+{
+    if (text.length < suffix.length) { return 0 }
+    let offset = text.length - suffix.length
+    for (i in 0 .. suffix.length)
+    {
+        if (text[offset + i] != suffix[i]) { return 0 }
+    }
+    return 1
+}
+
+fn read_source_file(path: ptr): string
+{
+    let file = fopen(path, "r")
+    if (file == 0)
+    {
+        return ""
+    }
+    fseek(file, 0, 2)
+    let size = ftell(file)
+    fseek(file, 0, 0)
+    let buf = malloc(size + 1)
+    let n = fread(buf, 1, size, file)
+    buf[n] = 0
+    fclose(file)
+    return buf
+}
+
 fn main(argc: i32, argv: ptr): i32
 {
-    let mut src = "fn main():i32 { let a = 10 let b = 20 let c = 30 return 0 }"
+    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; printf(a); if (a < 100) { printf(a); } return 0 }"
     let mut mode = "codegen"
 
     if (argc > 1)
@@ -15,6 +53,10 @@ fn main(argc: i32, argv: ptr): i32
     if (argc > 2)
     {
         src = argv[2]
+        if (string_ends_with(src, ".vix") == 1)
+        {
+            src = read_source_file(argv[2])
+        }
     }
 
     if (mode == "--lex")

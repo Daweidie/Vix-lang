@@ -180,6 +180,7 @@ pub fn parse_unary(parser: &Parser): i32
         }
         _ -> parse_primary(parser)
     }
+    
     return result
 }
 

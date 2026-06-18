@@ -75,13 +75,12 @@ pub fn stream_col_at(stream: TokenStream, index: i32): i32
 
 pub fn peek_char(src: string, pos: i32): ?i8
 {
-    if (pos < 0 or pos >= src.length)
+    if (pos < 0 or src.length <= pos)
     {
         return None
     }
     return Some(src[pos])
 }
-
 pub fn is_alpha(c: i8): i32
 {
     if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_') { return 1 }
@@ -106,6 +105,55 @@ pub fn char_string(c: i8): string
     s[0] = c
     s[1] = '\0'
     return s
+}
+
+pub fn token_can_end_statement(kind: i32, text: string): i32
+{
+    if (kind == tk_ident() or kind == tk_number() or kind == tk_string() or kind == tk_bool()) { return 1 }
+    if (text == ")" or text == "]" or text == "}" or text == "break" or text == "continue" or text == "return") { return 1 }
+    return 0
+}
+
+pub fn next_non_space_char(src: string, pos: i32): ?i8
+{
+    let mut i = pos
+    while (i < src.length)
+    {
+        if (src[i] == ' ' or src[i] == '\t' or src[i] == '\r' or src[i] == '\n')
+        {
+            i += 1
+        }
+        elif (src[i] == '/' and i + 1 < src.length and src[i + 1] == '/')
+        {
+            while (i < src.length and src[i] != '\n') { i += 1 }
+        }
+        else
+        {
+            return Some(src[i])
+        }
+    }
+    return None
+}
+
+pub fn newline_should_insert_semicolon(src: string, pos: i32, stream: TokenStream): i32
+{
+    if (stream_len(stream) == 0) { return 0 }
+    let last = stream_len(stream) - 1
+    if (token_can_end_statement(stream_kind_at(stream, last), stream_text_at(stream, last)) == 0) { return 0 }
+    let result = match next_non_space_char(src, pos) {
+        Some(c) -> {
+            if (c == '}' or c == '"' or is_alpha(c) == 1 or is_digit(c) == 1)
+            {
+                1
+            }
+            else
+            {
+                0
+            }
+        }
+        None -> 0
+    }
+    return result
 }
 
 pub fn is_keyword(text: string): i32
@@ -139,6 +187,10 @@ pub fn tokenize(src: string): TokenStream
                 elif (c == '\n')
                 {
                     pos += 1
+                    if (newline_should_insert_semicolon(src, pos, stream) == 1)
+                    {
+                        stream_push(&stream, tk_symbol(), ";", 0, line, column)
+                    }
                     line += 1
                     column = 1
                 }
