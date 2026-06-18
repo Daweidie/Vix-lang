@@ -41,9 +41,9 @@ The Flex-based lexer tokenizes Vix source into tokens:
 
 The Bison grammar builds an AST from the token stream. Key productions:
 - **Program:** sequence of top-level declarations (imports, globals, structs, types, functions, externs)
-- **Functions:** `fn name:[generics](params) -> RetType { body }`
-- **Structs:** `struct Name:[generics] { field: Type, ... }`
-- **ADTs:** `type Name:[generics] = Ctor1 | Ctor2(Type) | ...`
+- **Functions:** `fn name<generics>(params) -> RetType { body }`
+- **Structs:** `struct Name<generics> { field: Type, ... }`
+- **ADTs:** `type Name<generics> = Ctor1 | Ctor2(Type) | ...`
 - **Statements:** variable declarations, assignments, if/elif/else, while, for-in-range, return, match
 - **Expressions:** full operator precedence chain from logical-or down to unary/postfix
 

@@ -109,7 +109,7 @@ These fixes enable:
 - Variable shadowing in nested scopes (`let x = x + 1` inside if-blocks)
 - Reference parameters with auto-deref (`fn f(x: &i32): i32 { return x }`)
 - Empty array initialization with type annotations (`let arr: [i32] = []`)
-- Generic HashMap implementation (`type HashMap:[V] = struct { ... }`)
+- Generic HashMap implementation (`type HashMap<V> = struct { ... }`)
 - Struct member access through reference parameters (`fn f(map: &HashMap) { map.field }`)
 - Struct member assignment through references (`fn f(map: &HashMap) { map.field = value }`)
 - Chained array indexing in for-loop bodies (`let entry = arr[i][j]`)

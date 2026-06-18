@@ -75,9 +75,17 @@ static void register_impl_method(const char* type_name, const char* method_name,
 
 const char* vix_lookup_impl_method(const char* type_name, const char* method_name) {
     if (!type_name || !method_name) return NULL;
+    /* Normalize type_name to lowercase for case-insensitive matching */
+    char normalized[256];
+    size_t len = strlen(type_name);
+    if (len >= sizeof(normalized)) len = sizeof(normalized) - 1;
+    for (size_t i = 0; i < len; i++) {
+        normalized[i] = tolower((unsigned char)type_name[i]);
+    }
+    normalized[len] = '\0';
     for (int i = 0; i < g_impl_method_count; i++) {
         if (g_impl_methods[i].type_name && g_impl_methods[i].method_name &&
-            strcmp(g_impl_methods[i].type_name, type_name) == 0 &&
+            strcmp(g_impl_methods[i].type_name, normalized) == 0 &&
             strcmp(g_impl_methods[i].method_name, method_name) == 0) {
             return g_impl_methods[i].func_name;
         }

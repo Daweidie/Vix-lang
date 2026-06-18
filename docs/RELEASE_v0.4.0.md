@@ -62,29 +62,27 @@ fn eval(e: Expr): i32 {
 
 ### 3. Generic Syntax
 
-Vix supports generic types using `:[]` bracket syntax (recommended) and `<>` angle bracket syntax (declarations only):
+Vix supports generic types using `<>` angle bracket syntax:
 
 ```vix
-// Type definitions - both syntaxes work
-type Option:[T] = Some(T) | None
+// Type definitions
+type Option<T> = Some(T) | None
 type Box<T> = struct { value: T }
 
-// Function definitions - both syntaxes work
-fn id:[T](value: T): T { return value }
+// Function definitions
+fn id<T>(value: T): T { return value }
 fn add<T>(a: T, b: T): T { return a + b }
 
-// Function calls - use :[] syntax
-let x = id:[i32](42)
-let y = add:[i32](4, 6)
+// Function calls
+let x = id<i32>(42)
+let y = add<i32>(4, 6)
 
-// Struct literals - use :[] syntax
-let b = Box:[i32]{ value: 10 }
+// Struct literals
+let b = Box<i32>{ value: 10 }
 
-// Type references - both syntaxes work
-let arr: Box:[i32] = b
+// Type references
+let arr: Box<i32> = b
 ```
-
-**Note:** The `:[]` bracket syntax is recommended for all contexts to avoid ambiguity with the `<` comparison operator. The `<>` angle bracket syntax is still supported for type/function/struct definitions but cannot be used in function calls or struct literals.
 
 ### 4. String Methods via Impl
 
@@ -126,14 +124,12 @@ vixc program.vix -o program -L /usr/local/lib -L /opt/lib
 - `examples/adt_payload.vix` - ADT with payload example
 - `examples/impl_basic.vix` - Impl blocks example
 - `examples/string_impl.vix` - String methods example
-- `examples/generics.vix` - Generic functions and types using `:[]` syntax
-- `examples/generics2.vix` - Generic functions using `:[]` syntax
+- `examples/generics.vix` - Generic functions and types
+- `examples/generics2.vix` - Generic functions
 
 ## Breaking Changes
 
-- Generic syntax in function calls and struct literals must use `:[]` bracket syntax (e.g., `id:[i32](42)`, `Box:[i32]{ value: 10 }`)
-- The `<>` angle bracket syntax is still supported for type/function/struct definitions but not for calls/literals
-- This resolves parser ambiguity with the `<` comparison operator
+- Generic syntax now uses `<>` angle brackets (e.g., `id<i32>(42)`, `Box<i32>{ value: 10 }`)
 
 ## Known Issues
 
