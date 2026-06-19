@@ -382,6 +382,28 @@ pub fn parse_if_statement(parser: &Parser): i32
     return ast_stmt_if(parser.store, cond_idx, then_idx, else_idx)
 }
 
+pub fn parse_for_statement(parser: &Parser): i32
+{
+    parser_advance(parser)
+    parser_expect_text(parser, "(")
+    if (parser.ok == 0) { return -1 }
+    let name = parser_text(parser)
+    if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
+    parser_expect_text(parser, "in")
+    if (parser.ok == 0) { return -1 }
+    let start_idx = parse_expression(parser)
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, "..")
+    if (parser.ok == 0) { return -1 }
+    let end_idx = parse_expression(parser)
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, ")")
+    if (parser.ok == 0) { return -1 }
+    let body_idx = parse_block_statement(parser)
+    if (parser.ok == 0) { return -1 }
+    return ast_stmt_for_range(parser.store, name, start_idx, end_idx, body_idx)
+}
+
 pub fn parse_statement(parser: &Parser): i32
 {
     return match parser_text(parser) {
@@ -443,6 +465,7 @@ pub fn parse_statement(parser: &Parser): i32
             ast_stmt_while(parser.store, cond_idx, body_idx)
         }
         "if" -> parse_if_statement(parser)
+        "for" -> parse_for_statement(parser)
         "break" | "continue" -> {
             let tag = parser_text(parser)
             parser_advance(parser)
@@ -501,11 +524,122 @@ pub fn parse_function(parser: &Parser): AstFunction
     return ast_function_full(name, ret_ty, body_idx, param_names, param_types)
 }
 
+pub fn parse_function_params_and_return(parser: &Parser, name: string): AstFunction
+{
+    let mut param_names: [string] = []
+    let mut param_types: [string] = []
+    let mut is_var_arg = 0
+    if (parser_text(parser) != ")")
+    {
+        if (parser_text(parser) == "...")
+        {
+            is_var_arg = 1
+            parser_advance(parser)
+        }
+        else
+        {
+            let param_name = parser_text(parser)
+            if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function(name, "i32", -1) }
+            if (parser_expect_text(parser, ":") == 0) { return ast_function(name, "i32", -1) }
+            let param_ty = parser_text(parser)
+            parser_advance(parser)
+            param_names.push(param_name)
+            param_types.push(param_ty)
+            while (parser_text(parser) == ",")
+            {
+                parser_advance(parser)
+                if (parser_text(parser) == "...")
+                {
+                    is_var_arg = 1
+                    parser_advance(parser)
+                    break
+                }
+                let next_name = parser_text(parser)
+                if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function(name, "i32", -1) }
+                if (parser_expect_text(parser, ":") == 0) { return ast_function(name, "i32", -1) }
+                let next_ty = parser_text(parser)
+                parser_advance(parser)
+                param_names.push(next_name)
+                param_types.push(next_ty)
+            }
+        }
+    }
+    if (parser_expect_text(parser, ")") == 0) { return ast_function(name, "i32", -1) }
+    let mut ret_ty = "void"
+    if (parser_text(parser) == ":")
+    {
+        parser_advance(parser)
+        ret_ty = parser_text(parser)
+        parser_advance(parser)
+    }
+    return ast_function_full_vararg(name, ret_ty, -1, param_names, param_types, is_var_arg)
+}
+
+pub fn parse_extern_function(parser: &Parser): AstFunction
+{
+    if (parser_expect_text(parser, "fn") == 0) { return ast_function("", "i32", -1) }
+    let name = parser_text(parser)
+    if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function("", "i32", -1) }
+    if (parser_expect_text(parser, "(") == 0) { return ast_function(name, "i32", -1) }
+    let func = parse_function_params_and_return(parser, name)
+    parser_accept_text(parser, ";")
+    return func
+}
+
+pub fn parse_extern_block(parser: &Parser): AstFunction
+{
+    parser_expect_text(parser, "extern")
+    if (parser.ok == 0) { return ast_function("", "i32", -1) }
+    if (parser_kind(parser) == tk_string())
+    {
+        parser_advance(parser)
+    }
+    parser_expect_text(parser, "{")
+    if (parser.ok == 0) { return ast_function("", "i32", -1) }
+    if (parser_text(parser) == ";")
+    {
+        parser_advance(parser)
+    }
+    let func = parse_extern_function(parser)
+    if (parser.ok == 0) { return ast_function("", "i32", -1) }
+    while (parser_text(parser) == ";")
+    {
+        parser_advance(parser)
+    }
+    parser_expect_text(parser, "}")
+    return func
+}
+
 pub fn parse_program(src: string): AstProgram
 {
     let mut parser = parser_new(src)
     if (parser_at_end(&parser) == 1) { return ast_program_err("empty source") }
     let mut functions: [AstFunction] = []
+    let mut extern_functions: [AstFunction] = []
+    while (parser_text(&parser) == "extern")
+    {
+        parser_expect_text(&parser, "extern")
+        if (parser.ok == 0) { return ast_program_err(parser.error) }
+        if (parser_kind(&parser) == tk_string())
+        {
+            parser_advance(&parser)
+        }
+        parser_expect_text(&parser, "{")
+        if (parser.ok == 0) { return ast_program_err(parser.error) }
+        while (parser_text(&parser) != "}" and parser_at_end(&parser) == 0)
+        {
+            if (parser_text(&parser) == ";")
+            {
+                parser_advance(&parser)
+                continue
+            }
+            let extern_func = parse_extern_function(&parser)
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            extern_functions.push(extern_func)
+        }
+        parser_expect_text(&parser, "}")
+        if (parser.ok == 0) { return ast_program_err(parser.error) }
+    }
     if (parser_text(&parser) != "fn" and parser_text(&parser) != "pub")
     {
         return ast_program_err("expected function")
@@ -519,5 +653,5 @@ pub fn parse_program(src: string): AstProgram
         if (parser.ok == 0) { return ast_program_err(parser.error) }
         functions.push(func)
     }
-    return ast_program_ok_functions(functions, parser.expr_store, parser.store)
+    return ast_program_ok_functions_with_externs(functions, extern_functions, parser.expr_store, parser.store)
 }

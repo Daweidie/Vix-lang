@@ -6,6 +6,7 @@ pub type FunctionSymbols = struct {
     names: [string],
     return_types: [string],
     arg_counts: [i32],
+    is_var_args: [i32],
     ok: i32,
     error: string
 }
@@ -18,7 +19,7 @@ pub type TypeInferResult = struct {
 
 pub fn function_symbols_new(): FunctionSymbols
 {
-    return FunctionSymbols{ names: [], return_types: [], arg_counts: [], ok: 1, error: "" }
+    return FunctionSymbols{ names: [], return_types: [], arg_counts: [], is_var_args: [], ok: 1, error: "" }
 }
 
 pub fn function_symbols_fail(symbols: &FunctionSymbols, message: string)
@@ -41,6 +42,11 @@ pub fn function_symbols_find(symbols: &FunctionSymbols, name: string): i32
 
 pub fn function_symbols_declare(symbols: &FunctionSymbols, name: string, ret_ty: string, arg_count: i32)
 {
+    function_symbols_declare_vararg(symbols, name, ret_ty, arg_count, 0)
+}
+
+pub fn function_symbols_declare_vararg(symbols: &FunctionSymbols, name: string, ret_ty: string, arg_count: i32, is_var_arg: i32)
+{
     let idx = function_symbols_find(symbols, name)
     if (idx >= 0)
     {
@@ -50,6 +56,7 @@ pub fn function_symbols_declare(symbols: &FunctionSymbols, name: string, ret_ty:
     symbols.names.push(name)
     symbols.return_types.push(ret_ty)
     symbols.arg_counts.push(arg_count)
+    symbols.is_var_args.push(is_var_arg)
 }
 
 pub fn function_symbols_return_type(symbols: &FunctionSymbols, name: string): string
@@ -64,6 +71,14 @@ pub fn function_symbols_arg_count(symbols: &FunctionSymbols, name: string): i32
 {
     let idx = function_symbols_find(symbols, name)
     if (idx >= 0) { return symbols.arg_counts[idx] }
+    function_symbols_fail(symbols, "undefined function '" + name + "'")
+    return 0
+}
+
+pub fn function_symbols_is_var_arg(symbols: &FunctionSymbols, name: string): i32
+{
+    let idx = function_symbols_find(symbols, name)
+    if (idx >= 0) { return symbols.is_var_args[idx] }
     function_symbols_fail(symbols, "undefined function '" + name + "'")
     return 0
 }
@@ -125,12 +140,13 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
         "option" -> "Option[string]"
         "call" -> {
             let expected_args = function_symbols_arg_count(funcs, expr.text)
+            let is_var_arg = function_symbols_is_var_arg(funcs, expr.text)
             if (funcs.ok == 0)
             {
                 symtable_fail(env, funcs.error)
                 return "unknown"
             }
-            if (expected_args != expr.args.length)
+            if ((is_var_arg == 0 and expected_args != expr.args.length) or (is_var_arg == 1 and expr.args.length < expected_args))
             {
                 symtable_fail(env, "function '" + expr.text + "' expects " + ast_i32(expected_args) + " arguments, got " + ast_i32(expr.args.length))
                 return "unknown"
@@ -311,6 +327,36 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             }
             infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
         }
+        "for_range" -> {
+            if (symtable_lookup_index(env, stmt.assign_name) >= 0)
+            {
+                symtable_fail(env, "for iterator '" + stmt.assign_name + "' conflicts with existing symbol")
+                return
+            }
+            let start_ty = infer_expr_type(env, funcs, es, stmt.value_idx)
+            if (env.ok == 0) { return }
+            let end_ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
+            if (env.ok == 0) { return }
+            if (type_is_integer(start_ty) == 0)
+            {
+                symtable_fail(env, "for range start must be integer, got '" + start_ty + "'")
+                return
+            }
+            if (type_is_integer(end_ty) == 0)
+            {
+                symtable_fail(env, "for range end must be integer, got '" + end_ty + "'")
+                return
+            }
+            symtable_push_scope(env)
+            symtable_declare(env, stmt.assign_name, "i32")
+            if (env.ok == 0)
+            {
+                symtable_pop_scope(env)
+                return
+            }
+            infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
+            symtable_pop_scope(env)
+        }
         "break" | "continue" -> {
             if (loop_depth <= 0)
             {
@@ -379,6 +425,14 @@ pub fn infer(program: AstProgram): TypeInferResult
         return TypeInferResult{ ok: 0, error: program.error, return_type: "unknown" }
     }
     let funcs = function_symbols_new()
+    for (i in 0 .. program.extern_functions.length)
+    {
+        function_symbols_declare_vararg(&funcs, program.extern_functions[i].name, program.extern_functions[i].ret_ty, program.extern_functions[i].param_names.length, program.extern_functions[i].is_var_arg)
+        if (funcs.ok == 0)
+        {
+            return TypeInferResult{ ok: 0, error: funcs.error, return_type: "unknown" }
+        }
+    }
     for (i in 0 .. program.functions.length)
     {
         function_symbols_declare(&funcs, program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_names.length)

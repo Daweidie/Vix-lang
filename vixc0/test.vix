@@ -1,26 +1,13 @@
-fn add(a:i32,b:i32): i32
+fn fib(n: i32): i32
 {
-    return a + b
+    if (n <= 1)
+    {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
 }
 fn main(): i32
 {
-    let a = 6
-    while(a > 5)
-    {
-        return 0
-    }
-    if(a == 6)
-    {
-        return 1
-    }
-    elif(a == 7)
-    {
-        break
-    }
-    else
-    {
-        return 3
-    }
-    add(1, 2)
-    return 10
+    print(fib(40))
+    return 0
 }

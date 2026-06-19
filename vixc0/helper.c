@@ -1,7 +1,5 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Types.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #define MAX_VARS 1024
@@ -17,6 +15,7 @@ typedef struct {
     char return_type[16];
     char param_types[16][16];
     int param_count;
+    int is_var_arg;
 } FunctionEntry;
 
 static VarEntry vars[MAX_VARS];
@@ -71,8 +70,9 @@ void vix_reset_function_sigs(void) {
     func_count = 0;
 }
 
-void vix_register_function_sig(const char *name, const char *return_type,
-                               const char **param_types, int param_count) {
+void vix_register_function_sig_vararg(const char *name, const char *return_type,
+                                      const char **param_types, int param_count,
+                                      int is_var_arg) {
     int idx = -1;
     for (int i = 0; i < func_count; i++) {
         if (strcmp(funcs[i].name, name) == 0) {
@@ -90,10 +90,16 @@ void vix_register_function_sig(const char *name, const char *return_type,
     funcs[idx].return_type[15] = '\0';
     if (param_count > 16) param_count = 16;
     funcs[idx].param_count = param_count;
+    funcs[idx].is_var_arg = is_var_arg;
     for (int i = 0; i < param_count; i++) {
         strncpy(funcs[idx].param_types[i], param_types[i], 15);
         funcs[idx].param_types[i][15] = '\0';
     }
+}
+
+void vix_register_function_sig(const char *name, const char *return_type,
+                               const char **param_types, int param_count) {
+    vix_register_function_sig_vararg(name, return_type, param_types, param_count, 0);
 }
 
 const char *vix_get_function_return_type(const char *name) {
@@ -121,6 +127,15 @@ int vix_get_function_param_count(const char *name) {
     for (int i = func_count - 1; i >= 0; i--) {
         if (strcmp(funcs[i].name, name) == 0) {
             return funcs[i].param_count;
+        }
+    }
+    return 0;
+}
+
+int vix_get_function_is_var_arg(const char *name) {
+    for (int i = func_count - 1; i >= 0; i--) {
+        if (strcmp(funcs[i].name, name) == 0) {
+            return funcs[i].is_var_arg;
         }
     }
     return 0;

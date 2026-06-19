@@ -181,3 +181,83 @@ def test_vixc0_rejects_break_outside_loop(vixc0_binary):
     assert result.returncode == 0
     assert "TypeError" in result.stdout
     assert "'break' used outside loop" in result.stdout
+
+
+def test_vixc0_parses_for_range_ast(vixc0_binary):
+    src = "fn main(): i32 { for (i in 1 .. 4) { print(i) } return 0 }"
+
+    result = run_vixc0(vixc0_binary, src, "--ast")
+
+    assert result.returncode == 0, result.stderr
+    assert "type: ForStatement" in result.stdout
+    assert "iterator: i" in result.stdout
+    assert "start:" in result.stdout
+    assert "end:" in result.stdout
+
+
+def test_vixc0_codegen_for_range_sum(vixc0_binary, tmp_path):
+    src = """
+fn main(): i32 {
+    let mut sum = 0
+    for (i in 0 .. 5) {
+        sum += i
+    }
+    print(sum)
+    return 0
+}
+"""
+
+    result = run_vixc0(vixc0_binary, src)
+    assert result.returncode == 0, result.stderr
+    assert "for.cond" in result.stdout
+    assert "for.body" in result.stdout
+    assert "for.step" in result.stdout
+
+    ll_path = tmp_path / "for_sum.ll"
+    ll_path.write_text(result.stdout)
+    verify = subprocess.run(["opt", "-passes=verify", "-disable-output", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert verify.returncode == 0, verify.stderr
+
+    run = subprocess.run(["lli", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert run.returncode == 0
+    assert run.stdout.strip() == "10"
+
+
+def test_vixc0_codegen_for_break_continue(vixc0_binary, tmp_path):
+    src = """
+fn main(): i32 {
+    for (i in 0 .. 8) {
+        if (i == 2) {
+            continue
+        }
+        if (i == 5) {
+            break
+        }
+        print(i)
+    }
+    print(99)
+    return 0
+}
+"""
+
+    result = run_vixc0(vixc0_binary, src)
+    assert result.returncode == 0, result.stderr
+
+    ll_path = tmp_path / "for_break_continue.ll"
+    ll_path.write_text(result.stdout)
+    verify = subprocess.run(["opt", "-passes=verify", "-disable-output", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert verify.returncode == 0, verify.stderr
+
+    run = subprocess.run(["lli", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert run.returncode == 0
+    assert run.stdout.splitlines() == ["0", "1", "3", "4", "99"]
+
+
+def test_vixc0_rejects_float_for_range(vixc0_binary):
+    src = "fn main(): i32 { for (i in 0.0 .. 3.0) { print(i) } return 0 }"
+
+    result = run_vixc0(vixc0_binary, src, "--typeinfer")
+
+    assert result.returncode == 0
+    assert "TypeError" in result.stdout
+    assert "for range start must be integer" in result.stdout

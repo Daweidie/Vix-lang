@@ -233,6 +233,50 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
 
             llvm_position_at_end(b, end_block)
         }
+        "for_range" -> {
+            let cond_label = llvm_label_name(b, "for.cond")
+            let body_label = llvm_label_name(b, "for.body")
+            let step_label = llvm_label_name(b, "for.step")
+            let end_label = llvm_label_name(b, "for.end")
+            let cond_block = llvm_append_block(b, cond_label)
+            let body_block = llvm_append_block(b, body_label)
+            let step_block = llvm_append_block(b, step_label)
+            let end_block = llvm_append_block(b, end_label)
+            let start_expr = expr_store_get(es, stmt.value_idx)
+            let end_expr = expr_store_get(es, stmt.assign_idx)
+            let start_val = codegen_expr_value_typed(b, es, start_expr, "i32")
+            let end_val = codegen_expr_value_typed(b, es, end_expr, "i32")
+            llvm_define_var(b, stmt.assign_name, "i32", start_val)
+            let end_name = "__for_end_" + stmt.assign_name + llvm_label_name(b, "")
+            llvm_define_var(b, end_name, "i32", end_val)
+
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, cond_block)
+            }
+
+            llvm_position_at_end(b, cond_block)
+            let iter_val = llvm_load_var(b, stmt.assign_name)
+            let limit_val = llvm_load_var(b, end_name)
+            let cond_val = llvm_build_icmp_value(b, 40, iter_val, limit_val)
+            let cond_i1 = llvm_build_truthy_typed_i1(b, cond_val, "bool")
+            vix_LLVMBuildCondBr(b.builder, cond_i1, body_block, end_block)
+
+            llvm_position_at_end(b, body_block)
+            codegen_stmt_in_loop(b, es, store, stmt.body_idx, end_block, step_block)
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, step_block)
+            }
+
+            llvm_position_at_end(b, step_block)
+            let current_val = llvm_load_var(b, stmt.assign_name)
+            let next_val = llvm_build_add_value(b, current_val, llvm_const_i32(1))
+            llvm_store_value(b, next_val, stmt.assign_name)
+            llvm_emit_jmp_block(b, cond_block)
+
+            llvm_position_at_end(b, end_block)
+        }
         "if" -> {
             let then_label = llvm_label_name(b, "if.then")
             let else_label = llvm_label_name(b, "if.else")
@@ -304,6 +348,11 @@ pub fn codegen_program(program: AstProgram): string
     }
     let b = llvm_new()
     reset_function_sigs()
+    for (i in 0 .. program.extern_functions.length)
+    {
+        register_function_sig_vararg(program.extern_functions[i].name, program.extern_functions[i].ret_ty, program.extern_functions[i].param_types, program.extern_functions[i].is_var_arg)
+        llvm_declare_function_with_params_vararg(b, program.extern_functions[i].name, program.extern_functions[i].ret_ty, program.extern_functions[i].param_types, program.extern_functions[i].is_var_arg)
+    }
     for (i in 0 .. program.functions.length)
     {
         register_function_sig(program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_types)

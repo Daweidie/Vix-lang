@@ -73,9 +73,11 @@ extern "C"
     fn vix_get_var_type(name: string): string
     fn vix_reset_function_sigs()
     fn vix_register_function_sig(name: string, ret_ty: string, param_types: ptr, param_count: i32)
+    fn vix_register_function_sig_vararg(name: string, ret_ty: string, param_types: ptr, param_count: i32, is_var_arg: i32)
     fn vix_get_function_return_type(name: string): string
     fn vix_get_function_param_type(name: string, index: i32): string
     fn vix_get_function_param_count(name: string): i32
+    fn vix_get_function_is_var_arg(name: string): i32
 }
 
 pub fn i32_to_str(n: i32): string
@@ -145,7 +147,12 @@ pub fn reset_function_sigs()
 
 pub fn register_function_sig(name: string, ret_ty: string, param_types: [string])
 {
-    vix_register_function_sig(name, ret_ty, param_types, param_types.length)
+    register_function_sig_vararg(name, ret_ty, param_types, 0)
+}
+
+pub fn register_function_sig_vararg(name: string, ret_ty: string, param_types: [string], is_var_arg: i32)
+{
+    vix_register_function_sig_vararg(name, ret_ty, param_types, param_types.length, is_var_arg)
 }
 
 pub fn get_function_return_type(name: string): string
@@ -161,6 +168,11 @@ pub fn get_function_param_type(name: string, index: i32): string
 pub fn get_function_param_count(name: string): i32
 {
     return vix_get_function_param_count(name)
+}
+
+pub fn get_function_is_var_arg(name: string): i32
+{
+    return vix_get_function_is_var_arg(name)
 }
 
 pub fn llvm_type_for(ty: string): ptr
@@ -234,21 +246,32 @@ pub fn llvm_emit_function_header(b: &LlvmBuilder, name: string, ret_ty: string)
     llvm_emit_function_header_with_params(b, name, ret_ty, [], [])
 }
 
-pub fn llvm_emit_function_header_with_params(b: &LlvmBuilder, name: string, ret_ty: string, param_names: [string], param_types: [string])
+pub fn llvm_declare_function_with_params(b: &LlvmBuilder, name: string, ret_ty: string, param_types: [string]): ptr
 {
-    vix_reset_vars()
+    return llvm_declare_function_with_params_vararg(b, name, ret_ty, param_types, 0)
+}
+
+pub fn llvm_declare_function_with_params_vararg(b: &LlvmBuilder, name: string, ret_ty: string, param_types: [string], is_var_arg: i32): ptr
+{
     let llvm_ret_ty = llvm_type_for(ret_ty)
     let mut llvm_param_types: [ptr] = []
-    for (i in 0 .. param_names.length)
+    for (i in 0 .. param_types.length)
     {
         llvm_param_types.push(llvm_type_for(param_types[i]))
     }
-    let fn_ty = vix_LLVMFunctionTypeTypedN(llvm_ret_ty, llvm_param_types, param_names.length, 0)
+    let fn_ty = vix_LLVMFunctionTypeTypedN(llvm_ret_ty, llvm_param_types, param_types.length, is_var_arg)
     let mut fn_ref = vix_LLVMGetNamedFunction(b.module, name)
     if (fn_ref == nil)
     {
         fn_ref = vix_LLVMAddFunction(b.module, name, fn_ty)
     }
+    return fn_ref
+}
+
+pub fn llvm_emit_function_header_with_params(b: &LlvmBuilder, name: string, ret_ty: string, param_names: [string], param_types: [string])
+{
+    vix_reset_vars()
+    let mut fn_ref = llvm_declare_function_with_params(b, name, ret_ty, param_types)
     b.current_fn = fn_ref
     let entry = vix_LLVMAppendBasicBlock(b.current_fn, "entry")
     vix_LLVMPositionBuilderAtEnd(b.builder, entry)
@@ -492,7 +515,7 @@ pub fn llvm_build_call_value(b: &LlvmBuilder, func: string, args: [ptr]): ptr
     {
         llvm_param_types.push(llvm_type_for(get_function_param_type(func, i)))
     }
-    let fn_ty = vix_LLVMFunctionTypeTypedN(llvm_type_for(ret_ty), llvm_param_types, param_count, 0)
+    let fn_ty = vix_LLVMFunctionTypeTypedN(llvm_type_for(ret_ty), llvm_param_types, param_count, get_function_is_var_arg(func))
     if (fn_ref == nil)
     {
         fn_ref = vix_LLVMAddFunction(b.module, func, fn_ty)

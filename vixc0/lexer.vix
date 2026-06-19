@@ -368,6 +368,12 @@ pub fn tokenize(src: string): TokenStream
                     pos += 2
                     column += 2
                 }
+                elif (c == '.' and pos + 2 < src.length and src[pos + 1] == '.' and src[pos + 2] == '.')
+                {
+                    stream_push(&stream, tk_symbol(), "...", 0, line, column)
+                    pos += 3
+                    column += 3
+                }
                 elif (c == '.' and pos + 1 < src.length and src[pos + 1] == '.')
                 {
                     stream_push(&stream, tk_symbol(), "..", 0, line, column)

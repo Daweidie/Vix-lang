@@ -107,12 +107,14 @@ pub type AstFunction = struct {
     ret_ty: string,
     body_idx: i32,
     param_names: [string],
-    param_types: [string]
+    param_types: [string],
+    is_var_arg: i32
 }
 
 pub type AstProgram = struct {
     function: AstFunction,
     functions: [AstFunction],
+    extern_functions: [AstFunction],
     expr_store: ExprStore,
     store: StmtStore,
     ok: i32,
@@ -235,6 +237,11 @@ pub fn ast_stmt_while(store: &StmtStore, cond_idx: i32, body_idx: i32): i32
     return stmt_store_add(store, AstStmt{ tag: "while", value_idx: cond_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: body_idx, type_text: "", stmt_indices: [] })
 }
 
+pub fn ast_stmt_for_range(store: &StmtStore, name: string, start_idx: i32, end_idx: i32, body_idx: i32): i32
+{
+    return stmt_store_add(store, AstStmt{ tag: "for_range", value_idx: start_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: name, assign_idx: end_idx, print_idx: -1, block_start: -1, block_count: 0, body_idx: body_idx, type_text: "", stmt_indices: [] })
+}
+
 pub fn ast_stmt_loop_control(store: &StmtStore, tag: string): i32
 {
     return stmt_store_add(store, AstStmt{ tag: tag, value_idx: -1, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, assign_name: "", assign_idx: -1, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1, type_text: "", stmt_indices: [] })
@@ -247,21 +254,31 @@ pub fn ast_stmt_if(store: &StmtStore, cond_idx: i32, then_idx: i32, else_idx: i3
 
 pub fn ast_function(name: string, ret_ty: string, body_idx: i32): AstFunction
 {
-    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: [], param_types: [] }
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: [], param_types: [], is_var_arg: 0 }
 }
 
 pub fn ast_function_full(name: string, ret_ty: string, body_idx: i32, param_names: [string], param_types: [string]): AstFunction
 {
-    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types }
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types, is_var_arg: 0 }
+}
+
+pub fn ast_function_full_vararg(name: string, ret_ty: string, body_idx: i32, param_names: [string], param_types: [string], is_var_arg: i32): AstFunction
+{
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types, is_var_arg: is_var_arg }
 }
 
 pub fn ast_program_ok(function: AstFunction, expr_store: ExprStore, store: StmtStore): AstProgram
 {
-    let entry = ast_function_full(function.name, function.ret_ty, function.body_idx, function.param_names, function.param_types)
-    return AstProgram{ function: entry, functions: [function], expr_store: expr_store, store: store, ok: 1, error: "" }
+    let entry = ast_function_full_vararg(function.name, function.ret_ty, function.body_idx, function.param_names, function.param_types, function.is_var_arg)
+    return AstProgram{ function: entry, functions: [function], extern_functions: [], expr_store: expr_store, store: store, ok: 1, error: "" }
 }
 
 pub fn ast_program_ok_functions(functions: [AstFunction], expr_store: ExprStore, store: StmtStore): AstProgram
+{
+    return ast_program_ok_functions_with_externs(functions, [], expr_store, store)
+}
+
+pub fn ast_program_ok_functions_with_externs(functions: [AstFunction], extern_functions: [AstFunction], expr_store: ExprStore, store: StmtStore): AstProgram
 {
     let mut entry = ast_function("main", "i32", -1)
     if (functions.length > 0)
@@ -275,12 +292,12 @@ pub fn ast_program_ok_functions(functions: [AstFunction], expr_store: ExprStore,
             }
         }
     }
-    return AstProgram{ function: entry, functions: functions, expr_store: expr_store, store: store, ok: 1, error: "" }
+    return AstProgram{ function: entry, functions: functions, extern_functions: extern_functions, expr_store: expr_store, store: store, ok: 1, error: "" }
 }
 
 pub fn ast_program_err(message: string): AstProgram
 {
-    return AstProgram{ function: ast_function("main", "i32", -1), functions: [], expr_store: expr_store_new(), store: stmt_store_new(), ok: 0, error: message }
+    return AstProgram{ function: ast_function("main", "i32", -1), functions: [], extern_functions: [], expr_store: expr_store_new(), store: stmt_store_new(), ok: 0, error: message }
 }
 
 pub fn ast_expr_debug(store: &ExprStore, idx: i32): string
@@ -397,6 +414,7 @@ pub fn stmt_tag_to_type(tag: string): string
         "expr" -> "ExpressionStatement"
         "block" -> "BlockStatement"
         "while" -> "WhileStatement"
+        "for_range" -> "ForStatement"
         "break" -> "BreakStatement"
         "continue" -> "ContinueStatement"
         "if" -> "IfStatement"
@@ -408,6 +426,7 @@ pub fn stmt_tag_to_type(tag: string): string
 
 pub fn ast_stmt_yaml(es: &ExprStore, store: &StmtStore, idx: i32, depth: i32): string
 {
+    if (idx < 0) { return yaml_indent(depth) + "null\n" }
     let stmt = stmt_store_get(store, idx)
     let indent = yaml_indent(depth)
     let indent1 = yaml_indent(depth + 1)
@@ -476,6 +495,17 @@ pub fn ast_stmt_yaml(es: &ExprStore, store: &StmtStore, idx: i32, depth: i32): s
             out = out + ast_stmt_yaml(es, store, stmt.body_idx, depth + 2)
             out
         }
+        "for_range" -> {
+            let mut out = indent + "type: ForStatement\n"
+            out = out + indent1 + "iterator: " + stmt.assign_name + "\n"
+            out = out + indent1 + "start:\n"
+            out = out + ast_expr_yaml(es, stmt.value_idx, depth + 2)
+            out = out + indent1 + "end:\n"
+            out = out + ast_expr_yaml(es, stmt.assign_idx, depth + 2)
+            out = out + indent1 + "body:\n"
+            out = out + ast_stmt_yaml(es, store, stmt.body_idx, depth + 2)
+            out
+        }
         "if" -> {
             let mut out = indent + "type: IfStatement\n"
             out = out + indent1 + "condition:\n"
@@ -518,6 +548,10 @@ pub fn ast_function_yaml(func: AstFunction, es: &ExprStore, store: &StmtStore, d
     let mut out = indent + "type: Function\n"
     out = out + indent1 + "name: " + func.name + "\n"
     out = out + indent1 + "return_type: " + func.ret_ty + "\n"
+    if (func.is_var_arg == 1)
+    {
+        out = out + indent1 + "varargs: true\n"
+    }
     out = out + indent1 + "params:\n"
     for (i in 0 .. func.param_names.length)
     {
@@ -536,6 +570,14 @@ pub fn ast(program: AstProgram): string
         return "type: ParseError\nmessage: \"" + program.error + "\"\n"
     }
     let mut out = "type: Program\n"
+    if (program.extern_functions.length > 0)
+    {
+        out = out + "externs:\n"
+        for (i in 0 .. program.extern_functions.length)
+        {
+            out = out + ast_function_yaml(program.extern_functions[i], program.expr_store, program.store, 1)
+        }
+    }
     out = out + "functions:\n"
     for (i in 0 .. program.functions.length)
     {
