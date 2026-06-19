@@ -6,6 +6,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IRBuilder.h>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include "../../include/ast.h"
@@ -33,6 +34,7 @@ private:
     std::map<std::string, int> variableArraySizes;
     std::map<std::string, bool> stringVariables;
     std::map<std::string, llvm::Type*> genericTypeBindings;
+    std::set<std::string> instantiating;
 
     int getTypeRank(ValueType type);
 

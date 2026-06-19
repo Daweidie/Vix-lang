@@ -1,5 +1,26 @@
+fn add(a:i32,b:i32): i32
+{
+    return a + b
+}
 fn main(): i32
 {
-    print("Hello vix!")
-    return 0
+    let a = 6
+    while(a > 5)
+    {
+        return 0
+    }
+    if(a == 6)
+    {
+        return 1
+    }
+    elif(a == 7)
+    {
+        break
+    }
+    else
+    {
+        return 3
+    }
+    add(1, 2)
+    return 10
 }

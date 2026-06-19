@@ -146,6 +146,11 @@ using namespace llvm;
                                     paramType = ValueType::POINTER;
                                     paramTypes.push_back(PointerType::get(context, 0));
                                     paramStructTypes[paramName] = structTy;
+                                } else if (vix_is_adt_definition(typeName.c_str())) {
+                                    paramType = ValueType::POINTER;
+                                    paramTypes.push_back(PointerType::get(context, 0));
+                                    StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                                    paramStructTypes[paramName] = adtStructTy;
                                 } else if (typeName == "ptr") {
                                     if (funcName == "main" && paramName == "argv") {
                                         paramType = ValueType::POINTER;
@@ -434,6 +439,135 @@ using namespace llvm;
             }
 
             std::string methodName(fieldNode->data.identifier.name);
+
+            /* Try impl method resolution first */
+            {
+                std::string typeName;
+                /* Get type name from the object's inferred_type */
+                VIX_DEBUG_LOG << "[DEBUG] impl method lookup: object has inferred_type=" 
+                              << (objectNode->inferred_type ? "yes" : "no")
+                              << " methodName=" << methodName << "\n";
+                if (objectNode->inferred_type) {
+                    const TypeInfo* ti = objectNode->inferred_type;
+                    VIX_DEBUG_LOG << "[DEBUG] impl method lookup: object kind=" << ti->kind 
+                                  << " methodName=" << methodName << "\n";
+                    if (ti->kind == TYPEINFO_APP && ti->app_ctor && ti->app_ctor->name) {
+                        typeName = ti->app_ctor->name;
+                    } else if (ti->kind == TYPEINFO_STRUCT && ti->name) {
+                        typeName = ti->name;
+                    } else if (ti->kind == TYPEINFO_STRING) {
+                        typeName = "string";
+                    } else if (ti->kind == TYPEINFO_I32) {
+                        typeName = "i32";
+                    } else if (ti->kind == TYPEINFO_I64) {
+                        typeName = "i64";
+                    } else if (ti->kind == TYPEINFO_F64) {
+                        typeName = "f64";
+                    } else if (ti->kind == TYPEINFO_F32) {
+                        typeName = "f32";
+                    } else if (ti->kind == TYPEINFO_I8) {
+                        typeName = "i8";
+                    }
+                }
+                /* Check if object is a type name (static method call) */
+                if (typeName.empty() && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+                    std::string objName(objectNode->data.identifier.name);
+                    if (typeHelper.getStructType(objName) || vix_is_adt_definition(objName.c_str())) {
+                        typeName = objName;
+                    }
+                }
+                /* Fallback: get type name from struct type */
+                if (typeName.empty()) {
+                    VisitResult objRes = visit(objectNode);
+                    if (objRes.structType) {
+                        typeName = objRes.structType->getName().str();
+                    } else if (objRes.type == ValueType::STRING) {
+                        typeName = "string";
+                    }
+                }
+                if (!typeName.empty()) {
+                    const char* mangledFunc = vix_lookup_impl_method(typeName.c_str(), methodName.c_str());
+                    if (mangledFunc) {
+                        /* Check if object is a type name (static method call) */
+                        bool isStaticCall = false;
+                        if (objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+                            std::string objName(objectNode->data.identifier.name);
+                            if (typeHelper.getStructType(objName) || vix_is_adt_definition(objName.c_str())) {
+                                isStaticCall = true;
+                            }
+                        }
+
+                        /* Look up the function in the module */
+                        Function* implFunc = module->getFunction(mangledFunc);
+                        if (!implFunc) {
+                            /* Try generic instantiation */
+                            auto fit = genericFunctionTemplates.find(mangledFunc);
+                            if (fit != genericFunctionTemplates.end() && node->data.call.type_args) {
+                                implFunc = instantiateGenericFunction(mangledFunc, node->data.call.type_args);
+                            }
+                        }
+                        if (implFunc) {
+                            /* Build call arguments */
+                            std::vector<Value*> callArgs;
+                            FunctionType* fnTy = implFunc->getFunctionType();
+                            unsigned paramIdx = 0;
+                            /* Check if the function has a 'self' parameter */
+                            bool hasSelf = false;
+                            if (implFunc->arg_begin() != implFunc->arg_end()) {
+                                auto firstArg = implFunc->arg_begin();
+                                if (firstArg->hasName() && firstArg->getName() == "self") {
+                                    hasSelf = true;
+                                }
+                            }
+                            /* If not static call, first arg is the object */
+                            if (!isStaticCall) {
+                                VisitResult objRes = visit(objectNode);
+                                if (!objRes.value) return VisitResult();
+                                if (paramIdx < fnTy->getNumParams()) {
+                                    Type* expectedTy = fnTy->getParamType(paramIdx);
+                                    Value* argVal = objRes.value;
+                                    if (argVal->getType() != expectedTy) {
+                                        if (expectedTy->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                            argVal = builder.CreateBitCast(argVal, expectedTy, "impl_self_cast");
+                                        } else if (expectedTy->isIntegerTy() && argVal->getType()->isIntegerTy()) {
+                                            argVal = builder.CreateIntCast(argVal, expectedTy, true, "impl_self_intcast");
+                                        }
+                                    }
+                                    callArgs.push_back(argVal);
+                                    paramIdx++;
+                                }
+                            }
+                            /* Remaining args */
+                            ASTNode* callArgs_node = node->data.call.args;
+                            if (callArgs_node && callArgs_node->type == AST_EXPRESSION_LIST) {
+                                for (int i = 0; i < callArgs_node->data.expression_list.expression_count; i++) {
+                                    VisitResult argRes = visit(callArgs_node->data.expression_list.expressions[i]);
+                                    if (!argRes.value) return VisitResult();
+                                    if (paramIdx < fnTy->getNumParams()) {
+                                        Type* expectedTy = fnTy->getParamType(paramIdx);
+                                        Value* argVal = argRes.value;
+                                        if (argVal->getType() != expectedTy) {
+                                            if (expectedTy->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                                argVal = builder.CreateBitCast(argVal, expectedTy, "impl_arg_cast");
+                                            } else if (expectedTy->isIntegerTy() && argVal->getType()->isIntegerTy()) {
+                                                argVal = builder.CreateIntCast(argVal, expectedTy, true, "impl_arg_intcast");
+                                            }
+                                        }
+                                        callArgs.push_back(argVal);
+                                    }
+                                    paramIdx++;
+                                }
+                            }
+                            CallInst* call = builder.CreateCall(implFunc, callArgs);
+                            if (!implFunc->getReturnType()->isVoidTy())
+                                call->setName("impl_calltmp");
+                            ValueType retType = typeHelper.getValueTypeFromType(implFunc->getReturnType());
+                            return VisitResult(call, retType);
+                        }
+                    }
+                }
+            }
+
             if (methodName == "push") {
                 if (!node->data.call.args || node->data.call.args->type != AST_EXPRESSION_LIST ||
                     node->data.call.args->data.expression_list.expression_count != 1) {
@@ -553,21 +687,85 @@ using namespace llvm;
                     auto objHintIt = pointerElementHints.find(objectRes.value);
                     if (objHintIt != pointerElementHints.end() && objHintIt->second) {
                         elemType = objHintIt->second;
+                    } else if (argRes.structType &&
+                               (argRes.value->getType()->isStructTy() ||
+                                (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER))) {
+                        elemType = argRes.structType;
+                    } else if (argRes.value && argRes.value->getType()->isStructTy()) {
+                        elemType = argRes.value->getType();
                     } else if (argRes.value) {
                         elemType = argRes.value->getType();
                     }
                 }
-
-                ValueType elemVT = typeHelper.getValueTypeFromType(elemType);
-                Value* argCast = typeHelper.castValue(builder, argRes.value, argRes.type, elemVT);
-                if (elemType->isStructTy() && argCast->getType()->isPointerTy()) {
-                    argCast = builder.CreateLoad(elemType, argCast, "push_arg_struct_load");
+                if (elemType && elemType->isPointerTy()) {
+                    if (argRes.structType &&
+                        (argRes.value->getType()->isStructTy() ||
+                         (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER))) {
+                        elemType = argRes.structType;
+                    } else if (argRes.value && argRes.value->getType()->isStructTy()) {
+                        elemType = argRes.value->getType();
+                    } else if (argRes.value && argRes.value->getType()->isPointerTy()) {
+                        auto argHintIt = pointerElementHints.find(argRes.value);
+                        if (argHintIt != pointerElementHints.end() && argHintIt->second &&
+                            argHintIt->second->isStructTy()) {
+                            elemType = argHintIt->second;
+                        } else if (auto* argAlloc = dyn_cast<AllocaInst>(argRes.value)) {
+                            Type* argAllocTy = getActualType(argAlloc);
+                            if (argAllocTy && argAllocTy->isStructTy()) {
+                                elemType = argAllocTy;
+                            }
+                        }
+                    }
                 }
-                if (argCast->getType() != elemType) {
-                    if (argCast->getType()->isPointerTy() && elemType->isPointerTy()) {
-                        argCast = builder.CreateBitCast(argCast, elemType, "push_arg_ptrcast");
-                    } else if (argCast->getType()->isIntegerTy() && elemType->isIntegerTy()) {
-                        argCast = builder.CreateIntCast(argCast, elemType, true, "push_arg_intcast");
+                if (argRes.structType &&
+                    (argRes.value->getType()->isStructTy() ||
+                     (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER))) {
+                    elemType = argRes.structType;
+                } else if (argRes.value && argRes.value->getType()->isStructTy()) {
+                    elemType = argRes.value->getType();
+                } else if (argRes.value && argRes.value->getType()->isPointerTy()) {
+                    if (auto* argAlloc = dyn_cast<AllocaInst>(argRes.value)) {
+                        Type* argAllocTy = getActualType(argAlloc);
+                        if (argAllocTy && argAllocTy->isStructTy()) {
+                            elemType = argAllocTy;
+                        }
+                    }
+                }
+
+                Type* storageElemType = elemType;
+                ValueType elemVT = typeHelper.getValueTypeFromType(elemType);
+                Value* argCast = nullptr;
+                if (elemType->isStructTy()) {
+                    storageElemType = PointerType::get(context, 0);
+                    Value* srcStructPtr = nullptr;
+                    if (argRes.value->getType()->isPointerTy()) {
+                        srcStructPtr = argRes.value;
+                    }
+
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    uint64_t structBytes = module->getDataLayout().getTypeAllocSize(elemType);
+                    Value* heapI8 = builder.CreateCall(
+                        reallocFn,
+                        {ConstantPointerNull::get(PointerType::get(context, 0)),
+                         ConstantInt::get(Type::getInt64Ty(context), structBytes)},
+                        "push_struct_heap");
+                    Value* structPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "push_struct_ptr");
+                    if (srcStructPtr) {
+                        Value* srcValue = builder.CreateLoad(elemType, srcStructPtr, "push_struct_val");
+                        builder.CreateStore(srcValue, structPtr);
+                    } else {
+                        builder.CreateStore(argRes.value, structPtr);
+                    }
+                    pointerElementHints[structPtr] = elemType;
+                    argCast = structPtr;
+                } else {
+                    argCast = typeHelper.castValue(builder, argRes.value, argRes.type, elemVT);
+                }
+                if (argCast->getType() != storageElemType) {
+                    if (argCast->getType()->isPointerTy() && storageElemType->isPointerTy()) {
+                        argCast = builder.CreateBitCast(argCast, storageElemType, "push_arg_ptrcast");
+                    } else if (argCast->getType()->isIntegerTy() && storageElemType->isIntegerTy()) {
+                        argCast = builder.CreateIntCast(argCast, storageElemType, true, "push_arg_intcast");
                     }
                 }
 
@@ -576,12 +774,12 @@ using namespace llvm;
                     pushStateName = std::string("__tmp_push_") + std::to_string((uintptr_t)objectNode);
                 }
 
-                uint64_t elemBytes = module->getDataLayout().getTypeAllocSize(elemType);
+                uint64_t elemBytes = module->getDataLayout().getTypeAllocSize(storageElemType);
                 if (elemBytes == 0) {
                     elemBytes = 4;
-                    if (elemType->isIntegerTy(8)) elemBytes = 1;
-                    else if (elemType->isIntegerTy(64) || elemType->isDoubleTy() || elemType->isPointerTy()) elemBytes = 8;
-                    else if (elemType->isFloatTy()) elemBytes = 4;
+                    if (storageElemType->isIntegerTy(8)) elemBytes = 1;
+                    else if (storageElemType->isIntegerTy(64) || storageElemType->isDoubleTy() || storageElemType->isPointerTy()) elemBytes = 8;
+                    else if (storageElemType->isFloatTy()) elemBytes = 4;
                 }
 
                 Value* oldPtr = objectRes.value;
@@ -604,7 +802,7 @@ using namespace llvm;
                 Value* isOldNull = builder.CreateIsNull(oldPtrI8);
                 Value* baseNonNullI8 = builder.CreateIntToPtr(baseInt, i8PtrTy);
                 Value* baseI8 = builder.CreateSelect(isOldNull,
-                    ConstantPointerNull::get(i8PtrTy),
+                    ConstantPointerNull::get(cast<PointerType>(i8PtrTy)),
                     baseNonNullI8, "push_base_ptr");
 
                 Value* headerSizeVal = ConstantInt::get(Type::getInt64Ty(context), ARRAY_HEADER_BYTES);
@@ -623,7 +821,7 @@ using namespace llvm;
                 Value* newDataI8 = builder.CreateInBoundsGEP(Type::getInt8Ty(context), newBaseI8, headerSizeVal, "push_new_data_i8");
                 Value* newPtr = builder.CreateBitCast(newDataI8, targetPtrTy, "push_new_ptr");
 
-                Value* dstPtr = builder.CreateInBoundsGEP(elemType, newPtr, oldLen, "push_dst_ptr");
+                Value* dstPtr = builder.CreateInBoundsGEP(storageElemType, newPtr, oldLen, "push_dst_ptr");
                 builder.CreateStore(argCast, dstPtr);
 
                 if (objectAlloc) {
@@ -746,8 +944,8 @@ using namespace llvm;
                     return VisitResult();
                 }
                 Type* i32Ty = Type::getInt32Ty(context);
-                Type* i8PtrTy = PointerType::get(context, 0);
-                StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+                Type* i64Ty = Type::getInt64Ty(context);
+                StructType* adtStructTy = StructType::get(context, {i32Ty, i64Ty});
 
                 Function* reallocFn = getOrCreateReallocFunction();
                 uint64_t structSize = 16;
@@ -759,7 +957,7 @@ using namespace llvm;
                 builder.CreateStore(ConstantInt::get(i32Ty, 1), tagPtr);
 
                 Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
-                builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+                builder.CreateStore(ConstantInt::get(i64Ty, 0), payloadPtr);
 
                 pointerElementHints[adtPtr] = adtStructTy;
                 return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
@@ -773,6 +971,16 @@ using namespace llvm;
                     if (!argRes.value) return VisitResult();
 
                     int32_t tagValue = ctorTagValue(calleeName);
+                    /* Try to use the const value from the global variable instead of hash */
+                    GlobalVariable* ctorGv = module->getGlobalVariable(calleeName, true);
+                    if (ctorGv && ctorGv->hasInitializer()) {
+                        if (auto* intInit = dyn_cast<ConstantInt>(ctorGv->getInitializer())) {
+                            tagValue = static_cast<int32_t>(intInit->getSExtValue());
+                        }
+                    } else {
+                        int ctor_idx = vix_adt_ctor_index(calleeName.c_str());
+                        if (ctor_idx >= 0) tagValue = static_cast<int32_t>(ctor_idx);
+                    }
                     Type* i32Ty = Type::getInt32Ty(context);
                     Type* i8PtrTy = PointerType::get(context, 0);
                     StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
@@ -804,7 +1012,32 @@ using namespace llvm;
                     llvm::errs() << "Error: " << calleeName << "() does not accept arguments\n";
                     return VisitResult();
                 }
-                return VisitResult(ConstantInt::get(Type::getInt32Ty(context), ctorTagValue(calleeName), true), ValueType::INT32);
+                int32_t noArgTag = ctorTagValue(calleeName);
+                GlobalVariable* noArgGv = module->getGlobalVariable(calleeName, true);
+                if (noArgGv && noArgGv->hasInitializer()) {
+                    if (auto* intInit = dyn_cast<ConstantInt>(noArgGv->getInitializer())) {
+                        noArgTag = static_cast<int32_t>(intInit->getSExtValue());
+                    }
+                } else {
+                    int ctor_idx = vix_adt_ctor_index(calleeName.c_str());
+                    if (ctor_idx >= 0) noArgTag = static_cast<int32_t>(ctor_idx);
+                }
+                /* Create tagged struct for no-payload constructor */
+                {
+                    Type* i32Ty = Type::getInt32Ty(context);
+                    Type* i8PtrTy = PointerType::get(context, 0);
+                    StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), 16);
+                    Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                    Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+                    Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+                    builder.CreateStore(ConstantInt::get(i32Ty, noArgTag), tagPtr);
+                    Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+                    builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+                    pointerElementHints[adtPtr] = adtStructTy;
+                    return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
+                }
             }
 
             if (argCount != 1 || !node->data.call.args || node->data.call.args->type != AST_EXPRESSION_LIST) {
@@ -817,29 +1050,29 @@ using namespace llvm;
 
             if (calleeName == "Ok" || calleeName == "Err" || calleeName == "Some") {
                 int32_t tagValue = (calleeName == "Err") ? 1 : 0;
-                Type* i32Ty = Type::getInt32Ty(context);
-                Type* i8PtrTy = PointerType::get(context, 0);
-                StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+                    Type* i32Ty = Type::getInt32Ty(context);
+                    Type* i8PtrTy = PointerType::get(context, 0);
+                    StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
 
-                Function* reallocFn = getOrCreateReallocFunction();
-                uint64_t structSize = 16;
-                Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
-                Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
-                Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    uint64_t structSize = 16;
+                    Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
+                    Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+                    Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
 
-                Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
-                builder.CreateStore(ConstantInt::get(i32Ty, tagValue), tagPtr);
+                    Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+                    builder.CreateStore(ConstantInt::get(i32Ty, tagValue), tagPtr);
 
-                Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
-                Value* payload = argRes.value;
-                if (!payload->getType()->isPointerTy()) {
-                    payload = builder.CreateIntToPtr(
-                        builder.CreateIntCast(payload, Type::getInt64Ty(context), true, "adt_payload_cast"),
-                        i8PtrTy);
-                } else if (payload->getType() != i8PtrTy) {
-                    payload = builder.CreateBitCast(payload, i8PtrTy, "adt_payload_bcast");
-                }
-                builder.CreateStore(payload, payloadPtr);
+                    Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+                    Value* payload = argRes.value;
+                    if (!payload->getType()->isPointerTy()) {
+                        payload = builder.CreateIntToPtr(
+                            builder.CreateIntCast(payload, Type::getInt64Ty(context), true, "adt_payload_cast"),
+                            i8PtrTy);
+                    } else if (payload->getType() != i8PtrTy) {
+                        payload = builder.CreateBitCast(payload, i8PtrTy, "adt_payload_bcast");
+                    }
+                    builder.CreateStore(payload, payloadPtr);
 
                 pointerElementHints[adtPtr] = adtStructTy;
                 return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
@@ -1087,8 +1320,26 @@ using namespace llvm;
                     }
                     
                     ValueType expectedValueType = typeHelper.getValueTypeFromType(expectedType);
-                    
-                    Value* arg = typeHelper.castValue(builder, argRes.value, argRes.type, expectedValueType);
+
+                    Value* arg = nullptr;
+                    if (expectedType && expectedType->isPointerTy() &&
+                        argRes.value->getType()->isStructTy()) {
+                        StructType* argStructTy = cast<StructType>(argRes.value->getType());
+                        Value* sourcePtr = nullptr;
+                        if (auto* loadInst = dyn_cast<LoadInst>(argRes.value)) {
+                            sourcePtr = loadInst->getPointerOperand();
+                        }
+                        if (sourcePtr && sourcePtr->getType()->isPointerTy()) {
+                            arg = sourcePtr;
+                        } else {
+                            AllocaInst* tmpStructArg = builder.CreateAlloca(argStructTy, nullptr, "struct_arg_tmp");
+                            builder.CreateStore(argRes.value, tmpStructArg);
+                            arg = tmpStructArg;
+                        }
+                        pointerElementHints[arg] = argStructTy;
+                    } else {
+                        arg = typeHelper.castValue(builder, argRes.value, argRes.type, expectedValueType);
+                    }
                     if (expectedType && expectedType->isPointerTy() && arg->getType()->isPointerTy() &&
                         arg->getType() != expectedType) {
                         arg = builder.CreateBitCast(arg, expectedType, "arg_ptrcast");

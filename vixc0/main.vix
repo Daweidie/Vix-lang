@@ -1,37 +1,133 @@
 import "lexer.vix"
 import "parser.vix"
 import "ast.vix"
+import "typeinfer.vix"
 import "codegen.vix"
 
-fn main(argc: i32, argv: ptr): i32
+extern "C"
 {
-    let mut src = "fn test(): i32 { return 0 }"
-    let mut mode = "codegen"
+    fn fopen(filename: ptr, mode: ptr): ptr
+    fn fclose(file: ptr): i32
+    fn fread(buf: ptr, size: i64, count: i64, file: ptr): i64
+    fn fseek(file: ptr, offset: i64, whence: i32): i32
+    fn ftell(file: ptr): i64
+    fn malloc(size: usize): string
+}
 
-    if (argc > 1)
+fn string_ends_with(text: string, suffix: string): i32
+{
+    if (text.length < suffix.length) { return 0 }
+    let offset = text.length - suffix.length
+    for (i in 0 .. suffix.length)
     {
-        mode = argv[1]
+        if (text[offset + i] != suffix[i]) { return 0 }
     }
-    if (argc > 2)
-    {
-        src = argv[2]
-    }
+    return 1
+}
 
-    if (mode == "--lex")
+fn compiler_mode(arg: string): ?string
+{
+    if (arg == "--tyinfer") { return Some("--typeinfer") }
+    return match arg {
+        "--lex" | "--parser" | "--ast" | "--typeinfer" | "codegen" -> Some(arg)
+        _ -> None
+    }
+}
+
+fn source_file_arg(arg: string): ?string
+{
+    return match string_ends_with(arg, ".vix") {
+        1 -> Some(arg)
+        _ -> None
+    }
+}
+
+fn run_mode(mode: string, src: string): ?i32
+{
+    match mode
     {
-        print(tokenize_debug(src))
-        return 0
+        "--lex" -> {
+            print(tokenize_debug(src))
+            return Some(0)
+        }
+        _ -> {}
     }
 
     let program = parse_program(src)
 
-    if (mode == "--parser" or mode == "--ast")
+    match mode
     {
-        print(ast_program_debug(program))
-        return 0
+        "--parser" -> {
+            print(ast_program_debug(program))
+            return Some(0)
+        }
+        "--ast" -> {
+            print(ast(program))
+            return Some(0)
+        }
+        _ -> {}
     }
 
-    let qbe = codegen_program(program)
-    print(qbe)
-    return 0
+    let infer_result = infer(program)
+    match mode
+    {
+        "--typeinfer" -> {
+            print(typeinfer_result_debug(infer_result))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (infer_result.ok == 0)
+    {
+        print(typeinfer_result_debug(infer_result))
+        return Some(1)
+    }
+
+    let ir = codegen_program(program)
+    print(ir)
+    return None
+}
+
+fn read_source_file(path: ptr): string
+{
+    let file = fopen(path, "r")
+    if (file == 0)
+    {
+        return ""
+    }
+    fseek(file, 0, 2)
+    let size = ftell(file)
+    fseek(file, 0, 0)
+    let buf = malloc(size + 1)
+    let n = fread(buf, 1, size, file)
+    buf[n] = 0
+    fclose(file)
+    return buf
+}
+
+fn main(argc: i32, argv: ptr): i32
+{
+    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; while(a > 5) { return 0 } }"
+    let mut mode = "codegen"
+
+    for (i in 1 .. argc)
+    {
+        let arg = argv[i]
+        match compiler_mode(arg)
+        {
+            Some(next_mode) -> mode = next_mode
+            None -> match source_file_arg(arg)
+            {
+                Some(path) -> src = read_source_file(path)
+                None -> src = arg
+            }
+        }
+    }
+
+    match run_mode(mode, src)
+    {
+        Some(code) -> return code
+        None -> return 0
+    }
 }

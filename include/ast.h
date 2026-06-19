@@ -161,6 +161,7 @@ typedef struct ASTNode {
             MutabilityType mutability;
             int is_declaration;
             int is_public;
+            int is_multi_pattern;
             struct ASTNode* declared_type;
         } assign;
         struct {
@@ -308,6 +309,7 @@ ASTNode* create_unaryop_node_with_yyltype(UnaryOpType op, ASTNode* expr, void* y
 ASTNode* create_num_int_node(long long value);
 ASTNode* create_num_int_node_with_location(long long value, Location location);
 ASTNode* create_num_int_node_with_yyltype(long long value, void* yylloc);
+ASTNode* create_bool_node_with_yyltype(long long value, void* yylloc);
 ASTNode* create_num_float_node(double value);
 ASTNode* create_num_float_node_with_location(double value, Location location);
 ASTNode* create_num_float_node_with_yyltype(double value, void* yylloc);

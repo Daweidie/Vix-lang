@@ -18,8 +18,8 @@
 #include "../include/codegen.h"
 #include "../include/compat.h"
 #include "../include/compiler.h"
-#include "../include/parser.h"
 #include "../include/ownership.h"
+#include "../include/parser.h"
 #include "../include/semantic.h"
 #include "../include/typeck.h"
 #include "compiler/Linker/Linker.h"
@@ -124,6 +124,9 @@ int main(int argc, char **argv) {
             "  -opt=lN                Set optimization level (N = 0..3)\n");
     fprintf(stderr,
             "  --target=<triple>      Set codegen/link target triple\n");
+    fprintf(stderr,
+            "  -static                Static linking (default: dynamic)\n");
+    fprintf(stderr, "  -L <path>              Add library search path\n");
     fprintf(stderr, "  --check                Syntax & type check only\n");
     fprintf(stderr, "  --time                 Show phase timing breakdown\n");
     fprintf(stderr, "  --debug                Enable debug output\n");
@@ -152,10 +155,17 @@ int main(int argc, char **argv) {
   int no_main = 0;
   int check_only = 0;
   int show_time = 0;
-  #define MAX_OBJ_FILES 256
+#define MAX_OBJ_FILES 256
   char *obj_files[MAX_OBJ_FILES];
   int obj_file_count = 0;
   int link_mode = 0;
+  int static_link = 0;
+#define MAX_LIB_PATHS 64
+  char *lib_paths[MAX_LIB_PATHS];
+  int lib_path_count = 0;
+#define MAX_EXTRA_LIBS 64
+  char *extra_libs[MAX_EXTRA_LIBS];
+  int extra_lib_count = 0;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--target=", 9) == 0) {
       target = argv[i] + 9;
@@ -179,7 +189,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.3.0 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
+      printf("Vix Compiler 0.4.2 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       return 0;
     } else if (strcmp(argv[i], "-llvm") == 0) {
       out_llvm = 1;
@@ -221,6 +231,28 @@ int main(int argc, char **argv) {
         return 1;
       }
       opt_level = lvl;
+    } else if (strcmp(argv[i], "-static") == 0) {
+      static_link = 1;
+    } else if (strcmp(argv[i], "-L") == 0) {
+      if (i + 1 < argc) {
+        if (lib_path_count < MAX_LIB_PATHS) {
+          lib_paths[lib_path_count++] = argv[i + 1];
+        }
+        i++;
+      } else {
+        fprintf(stderr, "Error: -L option requires a path\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "-l") == 0) {
+      if (i + 1 < argc) {
+        if (extra_lib_count < MAX_EXTRA_LIBS) {
+          extra_libs[extra_lib_count++] = argv[i + 1];
+        }
+        i++;
+      } else {
+        fprintf(stderr, "Error: -l option requires a library name\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:22.1.2(8)\n\n");
       fprintf(stderr, "OPTIONS:\n");
@@ -239,6 +271,10 @@ int main(int argc, char **argv) {
               "  -opt=lN                Set optimization level (N = 0..3)\n");
       fprintf(stderr,
               "  --target=<triple>      Set codegen/link target triple\n");
+      fprintf(stderr,
+              "  -static                Static linking (default: dynamic)\n");
+      fprintf(stderr, "  -L <path>              Add library search path\n");
+      fprintf(stderr, "  -l <lib>               Link with library\n");
       fprintf(stderr, "  --check                Syntax & type check only\n");
       fprintf(stderr, "  --time                 Show phase timing breakdown\n");
       fprintf(stderr, "  --debug                Enable debug output\n");
@@ -257,7 +293,8 @@ int main(int argc, char **argv) {
           obj_files[obj_file_count++] = argv[i];
           link_mode = 1;
         } else {
-          fprintf(stderr, "Error: too many object files (max %d)\n", MAX_OBJ_FILES);
+          fprintf(stderr, "Error: too many object files (max %d)\n",
+                  MAX_OBJ_FILES);
           return 1;
         }
       } else {
@@ -271,7 +308,8 @@ int main(int argc, char **argv) {
 
   if (link_mode && obj_file_count > 0) {
     if (!out_f) {
-      fprintf(stderr, "Error: -o <output> required when linking object files\n");
+      fprintf(stderr,
+              "Error: -o <output> required when linking object files\n");
       return 1;
     }
 
@@ -295,9 +333,13 @@ int main(int argc, char **argv) {
         .target_triple = eff_t,
         .bare_mode = bare,
         .linker_script = ls,
-        .static_link = bare,
+        .static_link = bare || static_link,
         .entry_point = bare ? "_start" : NULL,
         .libc_dir = find_bundled_libc(),
+        .lib_paths = lib_path_count > 0 ? (const char **)lib_paths : NULL,
+        .lib_path_count = lib_path_count,
+        .extra_libs = extra_lib_count > 0 ? (const char **)extra_libs : NULL,
+        .extra_lib_count = extra_lib_count,
     };
 
     if (!vix_link_multi((const char **)obj_files, obj_file_count, out_f,
@@ -493,7 +535,8 @@ int main(int argc, char **argv) {
         llvm_f = llvm_filename;
       } else {
         if (strstr(llvm_f, ".ll") == NULL) {
-          int written = snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
+          int written =
+              snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
           if (written < 0 || (size_t)written >= sizeof(llvm_filename)) {
             fprintf(stderr, "Error: LLVM IR output path is too long\n");
             if (root) {
@@ -662,9 +705,13 @@ int main(int argc, char **argv) {
             .target_triple = eff_t,
             .bare_mode = bare,
             .linker_script = ls,
-            .static_link = bare,
+            .static_link = bare || static_link,
             .entry_point = bare ? "_start" : NULL,
             .libc_dir = find_bundled_libc(),
+            .lib_paths = lib_path_count > 0 ? (const char **)lib_paths : NULL,
+            .lib_path_count = lib_path_count,
+            .extra_libs = extra_lib_count > 0 ? (const char **)extra_libs : NULL,
+            .extra_lib_count = extra_lib_count,
         };
         if (!vix_link(obj_file, out_f, &link_opts, &link_err)) {
           fprintf(stderr, "Error: Failed to link object file to executable");

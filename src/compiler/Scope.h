@@ -32,7 +32,13 @@ public:
     llvm::AllocaInst* findVariable(const std::string& name) {
         for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
             auto found = it->find(name);
-            if (found != it->end()) return found->second;
+            if (found != it->end()) {
+                llvm::AllocaInst* alloc = found->second;
+                if (currentFunction && alloc->getFunction() != currentFunction) {
+                    continue;
+                }
+                return alloc;
+            }
         }
         return nullptr;
     }

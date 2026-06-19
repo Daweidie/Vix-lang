@@ -110,7 +110,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIf(ASTNode* node) {
     
     builder.SetInsertPoint(mergeBB);
     
-    // Create phi node if both branches produce values
+    // Create phi node if both branches produce non-void values
     if (thenResult.value && elseResult.value && !thenTerminated && !elseTerminated) {
         ValueType resultType = thenResult.type;
         if (thenResult.type != elseResult.type) {
@@ -135,7 +135,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIf(ASTNode* node) {
             // Restore insert point to mergeBB
             builder.SetInsertPoint(mergeBB);
         }
-        if (thenResult.value && elseResult.value && thenResult.value->getType() == elseResult.value->getType()) {
+        if (thenResult.value && elseResult.value && thenResult.value->getType() == elseResult.value->getType() &&
+            !thenResult.value->getType()->isVoidTy()) {
             PHINode* phi = builder.CreatePHI(thenResult.value->getType(), 2, "iftmp");
             phi->addIncoming(thenResult.value, thenEndBB);
             phi->addIncoming(elseResult.value, elseEndBB);
@@ -381,11 +382,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitFor(ASTNode* node) {
     builder.CreateBr(condBB);
     builder.SetInsertPoint(condBB);
     Value* cur_val = builder.CreateLoad(Type::getInt32Ty(context), var_alloc, var_name);
-    Value* descending = builder.CreateICmpSGT(start_val_casted, end_val_casted, "for_desc");
-    Value* ascCond = builder.CreateICmpSLT(cur_val, end_val_casted, "forcond_asc");
-    Value* descCond = builder.CreateICmpSGT(cur_val, end_val_casted, "forcond_desc");
-    Value* cond = builder.CreateSelect(descending, descCond, ascCond, "forcond");
-    VIX_DEBUG_LOG << "[DEBUG] for cond direction-aware (ascending/descending)\n";
+    Value* cond = builder.CreateICmpSLT(cur_val, end_val_casted, "forcond");
+    VIX_DEBUG_LOG << "[DEBUG] for cond half-open ascending range\n";
     func->insert(func->end(), loopBB);
     func->insert(func->end(), incBB);
     func->insert(func->end(), afterBB);
@@ -403,10 +401,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitFor(ASTNode* node) {
     }
     builder.SetInsertPoint(incBB);
     Value* cur_val_for_inc = builder.CreateLoad(Type::getInt32Ty(context), var_alloc, var_name);
-    Value* one_val = ConstantInt::get(Type::getInt32Ty(context), 1);
-    Value* neg_one_val = ConstantInt::get(Type::getInt32Ty(context), -1);
-    Value* step_val = builder.CreateSelect(descending, neg_one_val, one_val, "for_step");
-    Value* new_val = builder.CreateAdd(cur_val_for_inc, step_val, "inc");
+    Value* new_val = builder.CreateAdd(cur_val_for_inc, ConstantInt::get(Type::getInt32Ty(context), 1), "inc");
     builder.CreateStore(new_val, var_alloc);
     builder.CreateBr(condBB);
     
@@ -570,8 +565,17 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitPrint(ASTNode* node) {
             
             switch (printType) {
                 case ValueType::INT32:
-                    formatStr = safeCreateGlobalString("%d", "fmt_i32");
-                    builder.CreateCall(printfFunction, {formatStr, printValue});
+                    if (expr->inferred_type && expr->inferred_type->kind == TYPEINFO_BOOL) {
+                        Value* trueStr = safeCreateGlobalString("true", "bool_true");
+                        Value* falseStr = safeCreateGlobalString("false", "bool_false");
+                        Value* boolVal = builder.CreateICmpNE(printValue, ConstantInt::get(Type::getInt32Ty(context), 0), "to_bool");
+                        Value* selected = builder.CreateSelect(boolVal, trueStr, falseStr, "bool_str");
+                        formatStr = safeCreateGlobalString("%s", "fmt_bs");
+                        builder.CreateCall(printfFunction, {formatStr, selected});
+                    } else {
+                        formatStr = safeCreateGlobalString("%d", "fmt_i32");
+                        builder.CreateCall(printfFunction, {formatStr, printValue});
+                    }
                     break;
                     
                 case ValueType::INT8:
@@ -597,9 +601,16 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitPrint(ASTNode* node) {
                     break;
                     
                 case ValueType::BOOL:
-                    formatStr = safeCreateGlobalString("%d", "fmt_b");
-                    printValue = typeHelper.castValue(builder, printValue, printType, ValueType::INT32);
-                    builder.CreateCall(printfFunction, {formatStr, printValue});
+                    {
+                        Value* trueStr = safeCreateGlobalString("true", "bool_true");
+                        Value* falseStr = safeCreateGlobalString("false", "bool_false");
+                        Value* boolVal = builder.CreateICmpNE(
+                            typeHelper.castValue(builder, printValue, printType, ValueType::INT32),
+                            ConstantInt::get(Type::getInt32Ty(context), 0), "to_bool");
+                        Value* selected = builder.CreateSelect(boolVal, trueStr, falseStr, "bool_str");
+                        formatStr = safeCreateGlobalString("%s", "fmt_b");
+                        builder.CreateCall(printfFunction, {formatStr, selected});
+                    }
                     break;
                     
                 case ValueType::POINTER:
@@ -670,9 +681,16 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitPrint(ASTNode* node) {
                 break;
                 
             case ValueType::BOOL:
-                formatStr = safeCreateGlobalString("%d\n", "fmt_b_nl");
-                printValue = typeHelper.castValue(builder, printValue, printType, ValueType::INT32);
-                builder.CreateCall(printfFunction, {formatStr, printValue});
+                {
+                    Value* trueStr = safeCreateGlobalString("true", "bool_true_nl");
+                    Value* falseStr = safeCreateGlobalString("false", "bool_false_nl");
+                    Value* boolVal = builder.CreateICmpNE(
+                        typeHelper.castValue(builder, printValue, printType, ValueType::INT32),
+                        ConstantInt::get(Type::getInt32Ty(context), 0), "to_bool");
+                    Value* selected = builder.CreateSelect(boolVal, trueStr, falseStr, "bool_str");
+                    formatStr = safeCreateGlobalString("%s\n", "fmt_b_nl");
+                    builder.CreateCall(printfFunction, {formatStr, selected});
+                }
                 break;
                 
             case ValueType::POINTER:
@@ -1129,6 +1147,10 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
                 if (!elemType) {
                     elemType = Type::getInt32Ty(context);
                 }
+                // 结构体在数组中存储为指针
+                if (elemType && elemType->isStructTy()) {
+                    elemType = PointerType::get(context, 0);
+                }
                 if (!hasInferredElem && arraySize > 0) {
                     ASTNode* firstElem = node->data.assign.right->data.expression_list.expressions[0];
                     if (firstElem) {
@@ -1143,6 +1165,11 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
                             elemType = (v >= -2147483648LL && v <= 2147483647LL)
                                        ? Type::getInt32Ty(context)
                                        : Type::getInt64Ty(context);
+                        } else if (firstElem->type == AST_STRUCT_LITERAL) {
+                            Type* rawType = typeHelper.getTypeFromTypeNode(firstElem->data.struct_literal.type_name);
+                            if (rawType && rawType->isStructTy()) {
+                                elemType = PointerType::get(context, 0);
+                            }
                         }
                     }
                 }

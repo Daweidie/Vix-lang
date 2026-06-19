@@ -165,17 +165,29 @@ Type* TypeHelper::instantiateStructType(const std::string& baseName, ASTNode* ty
     std::string mangledName = mangleStructInstanceName(baseName, typeArgs);
     if (StructType* existing = getStructType(mangledName)) return existing;
 
+    // Cycle detection: if we're already instantiating this struct, return a pointer type
+    // to break the infinite recursion (self-recursive generic struct)
+    if (instantiating.count(mangledName)) {
+        return PointerType::get(context, 0);
+    }
+
+    instantiating.insert(mangledName);
+
     ASTNode* genericParams = structDef->data.struct_def.generic_params;
     ASTNode* fields = structDef->data.struct_def.fields;
     if (!genericParams || genericParams->type != AST_EXPRESSION_LIST ||
         !fields || fields->type != AST_EXPRESSION_LIST ||
         !typeArgs || typeArgs->type != AST_EXPRESSION_LIST) {
+        instantiating.erase(mangledName);
         return nullptr;
     }
 
     int paramCount = genericParams->data.expression_list.expression_count;
     int argCount = typeArgs->data.expression_list.expression_count;
-    if (paramCount != argCount) return nullptr;
+    if (paramCount != argCount) {
+        instantiating.erase(mangledName);
+        return nullptr;
+    }
 
     std::map<std::string, Type*> savedBindings = genericTypeBindings;
     for (int i = 0; i < paramCount; i++) {
@@ -183,6 +195,7 @@ Type* TypeHelper::instantiateStructType(const std::string& baseName, ASTNode* ty
         ASTNode* a = typeArgs->data.expression_list.expressions[i];
         if (!p || p->type != AST_IDENTIFIER || !p->data.identifier.name || !a) {
             genericTypeBindings = std::move(savedBindings);
+            instantiating.erase(mangledName);
             return nullptr;
         }
         genericTypeBindings[p->data.identifier.name] = getTypeFromTypeNode(a);
@@ -205,6 +218,7 @@ Type* TypeHelper::instantiateStructType(const std::string& baseName, ASTNode* ty
     }
 
     genericTypeBindings = std::move(savedBindings);
+    instantiating.erase(mangledName);
     if (fieldTypes.empty()) return nullptr;
     structType->setBody(fieldTypes, false);
     registerStructType(mangledName, structType, fieldInfo);

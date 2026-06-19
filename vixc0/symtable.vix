@@ -1,0 +1,97 @@
+#[no_main]
+
+pub type SymbolTable = struct {
+    names: [string],
+    types: [string],
+    depths: [i32],
+    depth: i32,
+    ok: i32,
+    error: string
+}
+
+pub fn symtable_new(): SymbolTable
+{
+    return SymbolTable{ names: [], types: [], depths: [], depth: 0, ok: 1, error: "" }
+}
+
+pub fn symtable_fail(table: &SymbolTable, message: string)
+{
+    if (table.ok == 1)
+    {
+        table.ok = 0
+        table.error = message
+    }
+}
+
+pub fn symtable_push_scope(table: &SymbolTable)
+{
+    table.depth += 1
+}
+
+pub fn symtable_pop_scope(table: &SymbolTable)
+{
+    if (table.depth > 0)
+    {
+        table.depth -= 1
+    }
+}
+
+pub fn symtable_find_current(table: &SymbolTable, name: string): i32
+{
+    for (i in 0 .. table.names.length)
+    {
+        if (table.names[i] == name and table.depths[i] == table.depth)
+        {
+            return i
+        }
+    }
+    return -1
+}
+
+pub fn symtable_lookup_index(table: &SymbolTable, name: string): i32
+{
+    let mut i = table.names.length - 1
+    while (i >= 0)
+    {
+        if (table.names[i] == name and table.depths[i] <= table.depth)
+        {
+            return i
+        }
+        i -= 1
+    }
+    return -1
+}
+
+pub fn symtable_declare(table: &SymbolTable, name: string, ty: string)
+{
+    if (symtable_find_current(table, name) >= 0)
+    {
+        symtable_fail(table, "duplicate symbol '" + name + "'")
+        return
+    }
+    table.names.push(name)
+    table.types.push(ty)
+    table.depths.push(table.depth)
+}
+
+pub fn symtable_assign(table: &SymbolTable, name: string, ty: string)
+{
+    let idx = symtable_lookup_index(table, name)
+    if (idx < 0)
+    {
+        symtable_fail(table, "undefined symbol '" + name + "'")
+        return
+    }
+    table.types[idx] = ty
+}
+
+pub fn symtable_lookup(table: &SymbolTable, name: string): string
+{
+    let idx = symtable_lookup_index(table, name)
+    if (idx >= 0)
+    {
+        return table.types[idx]
+    }
+    symtable_fail(table, "undefined symbol '" + name + "'")
+    return "unknown"
+}

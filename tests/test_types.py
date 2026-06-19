@@ -46,8 +46,8 @@ class TestTypeAnnotations:
         src = 'fn main(): i32 { let t = true let f = false print(t) print(f) return 0 }'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
-        assert "1" in run.stdout
-        assert "0" in run.stdout
+        assert "true" in run.stdout
+        assert "false" in run.stdout
 
 
 # ============================================================
@@ -383,7 +383,7 @@ fn main(): i32 {
         assert compile_res.returncode == 0
 
     def test_result_type(self, compiler, tmp_path):
-        src = '''fn safe_div(a: i32, b: i32): Result[i32, string] {
+        src = '''fn safe_div(a: i32, b: i32): Result:[i32, string] {
     if (b == 0) { return Err("division by zero") }
     return Ok(a / b)
 }
@@ -908,7 +908,7 @@ class TestADTMatchPayload:
     def test_result_err_payload_type(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let bad = Err("division by zero") : Result[i32, string]
+    let bad = Err("division by zero") : Result:[i32, string]
     match bad {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -922,7 +922,7 @@ fn main(): i32 {
     def test_result_ok_payload_type(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let good = Ok(42) : Result[i32, string]
+    let good = Ok(42) : Result:[i32, string]
     match good {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -936,8 +936,8 @@ fn main(): i32 {
     def test_result_both_arms(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let r1 = Ok(5) : Result[i32, string]
-    let r2 = Err("cannot divide by zero") : Result[i32, string]
+    let r1 = Ok(5) : Result:[i32, string]
+    let r2 = Err("cannot divide by zero") : Result:[i32, string]
     match r1 {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -985,8 +985,8 @@ fn main(): i32 {
     def test_adt_tag_annotation_syntax(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let a = Ok(42) : Result[i32, string]
-    let b = Err("oops") : Result[i32, string]
+    let a = Ok(42) : Result:[i32, string]
+    let b = Err("oops") : Result:[i32, string]
     match a {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -1112,7 +1112,7 @@ class TestADTConstructorStability:
     def test_ok_with_annotation(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let x = Ok(42) : Result[i32, string]
+    let x = Ok(42) : Result:[i32, string]
     match x {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -1126,7 +1126,7 @@ fn main(): i32 {
     def test_err_with_annotation(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let x = Err("oops") : Result[i32, string]
+    let x = Err("oops") : Result:[i32, string]
     match x {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }

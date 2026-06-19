@@ -2,7 +2,7 @@ extern "C"
 {
 	fn printf(format: ptr, ...): i32
 }
-struct Box:[T]
+type Box:[T] = struct
 {
 	value: T
 }
@@ -48,7 +48,6 @@ fn main(): i32
 		printf("FAIL: add f64 basic\n")
 		return 1
 	}
-
 	if (z2 < -1.501 or z2 > -1.499) {
 		printf("FAIL: add f64 negative\n")
 		return 1

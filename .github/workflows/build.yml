@@ -90,7 +90,7 @@ jobs:
       # ===================== Configure =====================
       - name: Configure (Linux)
         if: runner.os == 'Linux'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/lib/llvm-20
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/lib/llvm-22
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'

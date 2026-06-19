@@ -1455,6 +1455,24 @@ ASTNode* create_num_int_node_with_yyltype(long long value, void* yylloc) {
     return create_num_int_node_with_location(value, location);
 }
 
+ASTNode* create_bool_node_with_yyltype(long long value, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = {
+        loc->first_line,
+        loc->first_column,
+        loc->last_line,
+        loc->last_column
+    };
+    ASTNode* node = create_num_int_node_with_location(value, location);
+    if (node) {
+        node->inferred_type = (TypeInfo*)calloc(1, sizeof(TypeInfo));
+        if (node->inferred_type) {
+            node->inferred_type->kind = TYPEINFO_BOOL;
+        }
+    }
+    return node;
+}
+
 ASTNode* create_num_float_node_with_yyltype(double value, void* yylloc) {
     YYLTYPE* loc = (YYLTYPE*)yylloc;
     Location location = {

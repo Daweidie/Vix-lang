@@ -7,7 +7,11 @@ using namespace llvm;
         int64_t val = node->data.num_int.value;
         ValueType type;
         Value* value;
-        if (val >= -2147483648LL && val <= 2147483647LL) {
+        
+        if (node->inferred_type && node->inferred_type->kind == TYPEINFO_BOOL) {
+            type = ValueType::BOOL;
+            value = ConstantInt::get(Type::getInt1Ty(context), val, true);
+        } else if (val >= -2147483648LL && val <= 2147483647LL) {
             type = ValueType::INT32;
             value = ConstantInt::get(Type::getInt32Ty(context), val, true);
         } else {
@@ -95,12 +99,29 @@ using namespace llvm;
         }
         if (isRegisteredUnionCtorName(name)) {
             GlobalVariable* gv = module->getGlobalVariable(name, true);
+            int32_t tagVal = 0;
             if (gv && gv->hasInitializer()) {
                 if (auto* intInit = dyn_cast<ConstantInt>(gv->getInitializer())) {
-                    return VisitResult(ConstantInt::get(Type::getInt32Ty(context), intInit->getSExtValue(), true), ValueType::INT32);
+                    tagVal = static_cast<int32_t>(intInit->getSExtValue());
                 }
+            } else {
+                int ctor_idx = vix_adt_ctor_index(name.c_str());
+                tagVal = (ctor_idx >= 0) ? static_cast<int32_t>(ctor_idx) : ctorTagValue(name);
             }
-            return VisitResult(ConstantInt::get(Type::getInt32Ty(context), ctorTagValue(name), true), ValueType::INT32);
+            /* Create tagged struct for no-payload constructor */
+            Type* i32Ty = Type::getInt32Ty(context);
+            Type* i8PtrTy = PointerType::get(context, 0);
+            StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
+            Function* reallocFn = getOrCreateReallocFunction();
+            Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), 16);
+            Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+            Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+            Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+            builder.CreateStore(ConstantInt::get(i32Ty, tagVal), tagPtr);
+            Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+            builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
+            pointerElementHints[adtPtr] = adtStructTy;
+            return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
         }
         AllocaInst* alloc = scopeManager.findVariable(name);
         Function* curFnForScope = getCurrentFunction();
@@ -146,9 +167,12 @@ using namespace llvm;
         // 检查是否是字符串变量
         bool isStringVar = typeHelper.isStringVariable(name);
         
-        if (allocatedType && allocatedType->isStructTy()) {
-            StructType* st = cast<StructType>(allocatedType);
-            return VisitResult(alloc, ValueType::POINTER, st);
+        if (allocatedType && (allocatedType->isStructTy() || allocatedType->isArrayTy())) {
+            if (allocatedType->isStructTy()) {
+                StructType* st = cast<StructType>(allocatedType);
+                return VisitResult(alloc, ValueType::POINTER, st);
+            }
+            return VisitResult(alloc, ValueType::POINTER);
         }
         
         // 如果是字符串变量，需要正确处理
@@ -168,6 +192,31 @@ using namespace llvm;
                 pointerElementHints[val] = elemType;
             }
         }
+        if (node->inferred_type && node->inferred_type->kind == TYPEINFO_STRUCT && node->inferred_type->name) {
+            if (vix_is_adt_definition(node->inferred_type->name)) {
+                StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                pointerElementHints[val] = adtStructTy;
+            } else {
+                StructType* st = typeHelper.getStructType(node->inferred_type->name);
+                if (st) {
+                    pointerElementHints[val] = st;
+                }
+            }
+        }
+        if (node->inferred_type && node->inferred_type->kind == TYPEINFO_APP) {
+            if (node->inferred_type->app_ctor && node->inferred_type->app_ctor->kind == TYPEINFO_STRUCT &&
+                node->inferred_type->app_ctor->name) {
+                if (vix_is_adt_definition(node->inferred_type->app_ctor->name)) {
+                    StructType* adtStructTy = StructType::get(context, {Type::getInt32Ty(context), PointerType::get(context, 0)});
+                    pointerElementHints[val] = adtStructTy;
+                } else {
+                    StructType* st = typeHelper.getStructType(node->inferred_type->app_ctor->name);
+                    if (st) {
+                        pointerElementHints[val] = st;
+                    }
+                }
+            }
+        }
         // Propagate pointerElementHints from the alloca to the loaded value
         // This ensures ADT struct types (Option/Result/Custom) are tracked through variables
         auto allocHintIt = pointerElementHints.find(alloc);
@@ -182,6 +231,48 @@ using namespace llvm;
         if (!node || !node->data.binop.left || !node->data.binop.right)
             return VisitResult();
         
+        /* For comparisons involving ADT constructors, use tag value (i32) instead of pointer */
+        BinOpType op = node->data.binop.op;
+        if (op == OP_EQ || op == OP_NE) {
+            ASTNode* left_node = node->data.binop.left;
+            ASTNode* right_node = node->data.binop.right;
+            auto getAdtTagValue = [&](ASTNode* n) -> Value* {
+                if (!n || n->type != AST_IDENTIFIER || !n->data.identifier.name) return nullptr;
+                std::string name(n->data.identifier.name);
+                if (!isRegisteredUnionCtorName(name)) return nullptr;
+                GlobalVariable* gv = module->getGlobalVariable(name, true);
+                int32_t tagVal = 0;
+                if (gv && gv->hasInitializer()) {
+                    if (auto* intInit = dyn_cast<ConstantInt>(gv->getInitializer())) {
+                        tagVal = static_cast<int32_t>(intInit->getSExtValue());
+                    }
+                } else {
+                    int ctor_idx = vix_adt_ctor_index(name.c_str());
+                    tagVal = (ctor_idx >= 0) ? static_cast<int32_t>(ctor_idx) : ctorTagValue(name);
+                }
+                return ConstantInt::get(Type::getInt32Ty(context), tagVal);
+            };
+            Value* leftAdtTag = getAdtTagValue(left_node);
+            Value* rightAdtTag = getAdtTagValue(right_node);
+            if (leftAdtTag || rightAdtTag) {
+                VisitResult leftRes = leftAdtTag ? VisitResult(leftAdtTag, ValueType::INT32) : visit(left_node);
+                VisitResult rightRes = rightAdtTag ? VisitResult(rightAdtTag, ValueType::INT32) : visit(right_node);
+                if (!leftRes.value || !rightRes.value) return VisitResult();
+                Value* lv = leftRes.value;
+                Value* rv = rightRes.value;
+                if (lv->getType() != rv->getType()) {
+                    if (lv->getType()->isIntegerTy() && rv->getType()->isIntegerTy()) {
+                        unsigned maxBits = std::max(lv->getType()->getIntegerBitWidth(),
+                                                    rv->getType()->getIntegerBitWidth());
+                        lv = builder.CreateIntCast(lv, Type::getIntNTy(context, maxBits), true);
+                        rv = builder.CreateIntCast(rv, Type::getIntNTy(context, maxBits), true);
+                    }
+                }
+                if (op == OP_EQ) return VisitResult(builder.CreateICmpEQ(lv, rv, "eqtmp"), ValueType::BOOL);
+                return VisitResult(builder.CreateICmpNE(lv, rv, "netmp"), ValueType::BOOL);
+            }
+        }
+
         VisitResult leftRes = visit(node->data.binop.left);
         VisitResult rightRes = visit(node->data.binop.right);
         if (!leftRes.value || !rightRes.value) {
@@ -432,7 +523,23 @@ using namespace llvm;
                 if (isFloat) return VisitResult(builder.CreateFDiv(leftVal, rightVal, "divtmp"), resultType);
                 else return VisitResult(builder.CreateSDiv(leftVal, rightVal, "divtmp"), resultType);
             case OP_MOD:
-                if (isFloat) return VisitResult();
+                if (isFloat) {
+                    Type* dblTy = Type::getDoubleTy(context);
+                    Value* lhs = (resultType == ValueType::FLOAT32)
+                        ? builder.CreateFPExt(leftVal, dblTy, "mod_lhs") : leftVal;
+                    Value* rhs = (resultType == ValueType::FLOAT32)
+                        ? builder.CreateFPExt(rightVal, dblTy, "mod_rhs") : rightVal;
+                    Function* fmodFn = module->getFunction("fmod");
+                    if (!fmodFn) {
+                        FunctionType* fmodTy = FunctionType::get(dblTy, {dblTy, dblTy}, false);
+                        fmodFn = Function::Create(fmodTy, Function::ExternalLinkage, "fmod", module.get());
+                    }
+                    Value* fmodResult = builder.CreateCall(fmodFn, {lhs, rhs}, "modtmp");
+                    if (resultType == ValueType::FLOAT32) {
+                        return VisitResult(builder.CreateFPTrunc(fmodResult, Type::getFloatTy(context), "mod_f32"), resultType);
+                    }
+                    return VisitResult(fmodResult, resultType);
+                }
                 else return VisitResult(builder.CreateSRem(leftVal, rightVal, "modtmp"), resultType);
             case OP_POW:
                 {

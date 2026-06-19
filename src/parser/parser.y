@@ -26,6 +26,7 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms);
 typedef struct {
     char* name;
     int payload_count;
+    ASTNode* payload_type_node;
 } AdtCtorEntry;
 
 typedef struct {
@@ -37,6 +38,60 @@ typedef struct {
 
 static AdtDefEntry g_adt_defs[128];
 static int g_adt_def_count = 0;
+
+/* Temporary storage for payload type nodes during enum_variant parsing */
+static ASTNode* g_adt_payload_types[256];
+static int g_adt_payload_type_count = 0;
+
+/* Impl method registry: maps (type_name, method_name) -> mangled_function_name */
+typedef struct {
+    char* type_name;
+    char* method_name;
+    char* func_name;
+} ImplMethodEntry;
+
+static ImplMethodEntry g_impl_methods[512];
+static int g_impl_method_count = 0;
+
+static void register_impl_method(const char* type_name, const char* method_name, const char* func_name) {
+    if (!type_name || !method_name || !func_name) return;
+    /* Check for duplicate method within the same type */
+    for (int i = 0; i < g_impl_method_count; i++) {
+        if (g_impl_methods[i].type_name && g_impl_methods[i].method_name &&
+            strcmp(g_impl_methods[i].type_name, type_name) == 0 &&
+            strcmp(g_impl_methods[i].method_name, method_name) == 0) {
+            char msg[512];
+            snprintf(msg, sizeof(msg), "duplicate method '%s' in impl block for type '%s'", method_name, type_name);
+            report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, msg);
+            return;
+        }
+    }
+    if (g_impl_method_count >= (int)(sizeof(g_impl_methods) / sizeof(g_impl_methods[0]))) return;
+    g_impl_methods[g_impl_method_count].type_name = strdup(type_name);
+    g_impl_methods[g_impl_method_count].method_name = strdup(method_name);
+    g_impl_methods[g_impl_method_count].func_name = strdup(func_name);
+    g_impl_method_count++;
+}
+
+const char* vix_lookup_impl_method(const char* type_name, const char* method_name) {
+    if (!type_name || !method_name) return NULL;
+    /* Normalize type_name to lowercase for case-insensitive matching */
+    char normalized[256];
+    size_t len = strlen(type_name);
+    if (len >= sizeof(normalized)) len = sizeof(normalized) - 1;
+    for (size_t i = 0; i < len; i++) {
+        normalized[i] = tolower((unsigned char)type_name[i]);
+    }
+    normalized[len] = '\0';
+    for (int i = 0; i < g_impl_method_count; i++) {
+        if (g_impl_methods[i].type_name && g_impl_methods[i].method_name &&
+            strcmp(g_impl_methods[i].type_name, normalized) == 0 &&
+            strcmp(g_impl_methods[i].method_name, method_name) == 0) {
+            return g_impl_methods[i].func_name;
+        }
+    }
+    return NULL;
+}
 
 static int is_builtin_union_ctor_name(const char* name) {
     if (!name) return 0;
@@ -71,7 +126,7 @@ static void register_adt_definition(const char* name, int generic_arity, ASTNode
     if (!name) return;
     int idx = find_adt_def_index(name);
     if (idx < 0) {
-        if (g_adt_def_count >= (int)(sizeof(g_adt_defs) / sizeof(g_adt_defs[0]))) return;
+        if (g_adt_def_count >= (int)(sizeof(g_adt_defs) / sizeof(g_adt_defs[0]))) { g_adt_payload_type_count = 0; return; }
         idx = g_adt_def_count++;
         g_adt_defs[idx].name = strdup(name);
         g_adt_defs[idx].ctor_count = 0;
@@ -82,19 +137,25 @@ static void register_adt_definition(const char* name, int generic_arity, ASTNode
         g_adt_defs[idx].ctor_count = 0;
     }
     g_adt_defs[idx].generic_arity = generic_arity;
-    if (!variants || variants->type != AST_EXPRESSION_LIST) return;
+    if (!variants || variants->type != AST_EXPRESSION_LIST) { g_adt_payload_type_count = 0; return; }
 
     int count = variants->data.expression_list.expression_count;
-    if (count <= 0) return;
+    if (count <= 0) { g_adt_payload_type_count = 0; return; }
     g_adt_defs[idx].ctors = (AdtCtorEntry*)calloc((size_t)count, sizeof(AdtCtorEntry));
-    if (!g_adt_defs[idx].ctors) return;
+    if (!g_adt_defs[idx].ctors) { g_adt_payload_type_count = 0; return; }
     g_adt_defs[idx].ctor_count = count;
     for (int i = 0; i < count; i++) {
         ASTNode* variant = variants->data.expression_list.expressions[i];
         if (!variant || variant->type != AST_IDENTIFIER || !variant->data.identifier.name) continue;
         g_adt_defs[idx].ctors[i].name = strdup(variant->data.identifier.name);
         g_adt_defs[idx].ctors[i].payload_count = (variant->mutability == (MutabilityType)1) ? 1 : 0;
+        if (i < g_adt_payload_type_count) {
+            g_adt_defs[idx].ctors[i].payload_type_node = g_adt_payload_types[i];
+        } else {
+            g_adt_defs[idx].ctors[i].payload_type_node = NULL;
+        }
     }
+    g_adt_payload_type_count = 0;
 }
 
 int vix_is_adt_definition(const char* name) {
@@ -113,11 +174,36 @@ int vix_adt_ctor_payload_count(const char* ctor_name) {
     return g_adt_defs[def_index].ctors[ctor_index].payload_count;
 }
 
+ASTNode* vix_adt_ctor_payload_type_node(const char* ctor_name) {
+    int def_index = -1;
+    int ctor_index = find_adt_ctor_index(ctor_name, &def_index);
+    if (ctor_index < 0 || def_index < 0) return NULL;
+    return g_adt_defs[def_index].ctors[ctor_index].payload_type_node;
+}
+
+int vix_adt_ctor_index(const char* ctor_name) {
+    int def_index = -1;
+    return find_adt_ctor_index(ctor_name, &def_index);
+}
+
 const char* vix_adt_ctor_base_name(const char* ctor_name) {
     int def_index = -1;
     int ctor_index = find_adt_ctor_index(ctor_name, &def_index);
     if (ctor_index < 0 || def_index < 0) return NULL;
     return g_adt_defs[def_index].name;
+}
+
+ASTNode* vix_adt_payload_type_for_base(const char* base_name) {
+    if (!base_name) return NULL;
+    int def_idx = find_adt_def_index(base_name);
+    if (def_idx < 0) return NULL;
+    for (int i = 0; i < g_adt_defs[def_idx].ctor_count; i++) {
+        if (g_adt_defs[def_idx].ctors[i].payload_count > 0 &&
+            g_adt_defs[def_idx].ctors[i].payload_type_node) {
+            return g_adt_defs[def_idx].ctors[i].payload_type_node;
+        }
+    }
+    return NULL;
 }
 
 static ASTNode* prepend_binding_to_match_body(ASTNode* body, const char* bind_name, ASTNode* scrutinee) {
@@ -323,8 +409,14 @@ static ASTNode* clone_match_scrutinee(ASTNode* scrutinee) {
         case AST_IDENTIFIER:
             if (scrutinee->data.identifier.name) {
                 return create_identifier_node(scrutinee->data.identifier.name);
-            }//如果 scrutinee 或 arms 为空，或者 arms 不是表达式列表，返回 NULL
+            }
             return NULL;
+        case AST_MEMBER_ACCESS: {
+            ASTNode* object = clone_match_scrutinee(scrutinee->data.member_access.object);
+            ASTNode* field = clone_match_scrutinee(scrutinee->data.member_access.field);
+            if (!object || !field) return NULL;
+            return create_member_access_node(object, field);
+        }
         case AST_NUM_INT:
             return create_num_int_node(scrutinee->data.num_int.value);
         case AST_NUM_FLOAT:
@@ -496,7 +588,7 @@ static void check_match_exhaustiveness(ASTNode* scrutinee, ASTNode* arms) {
         int line = scrutinee ? scrutinee->location.first_line : yylineno;
         int col = scrutinee ? scrutinee->location.first_column : 1;
         set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
-        report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, msg);
+        report_simple_error(ERROR_LEVEL_WARNING, ERROR_SEMANTIC, msg);
     }
 }
 
@@ -518,7 +610,10 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
 
         ASTNode* pattern = arm->data.assign.left;
         ASTNode* body = arm->data.assign.right;
-        if (pattern && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
+        int is_multi = arm->data.assign.is_multi_pattern;
+
+        // Handle wildcard pattern
+        if (!is_multi && pattern && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
             strcmp(pattern->data.identifier.name, "_") == 0) {
             if (i != count - 1) {
                 int line = pattern->location.first_line > 0 ? pattern->location.first_line : yylineno;
@@ -528,6 +623,35 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                     "'_' match arm should be the last arm!");
             }
             chain = body;
+            continue;
+        }
+
+        // Handle multi-pattern arms (e.g., "int" | "bool" | "string" -> ...)
+        if (is_multi && pattern && pattern->type == AST_EXPRESSION_LIST) {
+            int pat_count = pattern->data.expression_list.expression_count;
+            ASTNode* combined_cond = NULL;
+
+            for (int j = 0; j < pat_count; j++) {
+                ASTNode* single_pattern = pattern->data.expression_list.expressions[j];
+                if (!single_pattern) continue;
+
+                ASTNode* cond_left = clone_match_scrutinee(scrutinee_ref);
+                ASTNode* cond_right = clone_match_scrutinee(single_pattern);
+                if (!cond_left || !cond_right) continue;
+
+                ASTNode* single_cond = create_binop_node(OP_EQ, cond_left, cond_right);
+                if (!single_cond) continue;
+
+                if (!combined_cond) {
+                    combined_cond = single_cond;
+                } else {
+                    combined_cond = create_binop_node(OP_OR, combined_cond, single_cond);
+                }
+            }
+
+            if (combined_cond) {
+                chain = create_if_node(combined_cond, body, chain);
+            }
             continue;
         }
 
@@ -555,12 +679,14 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             int is_adt_ctor = is_builtin_union_ctor_name(ctor_name) &&
                              (strcmp(ctor_name, "Ok") == 0 || strcmp(ctor_name, "Err") == 0 ||
                               strcmp(ctor_name, "Some") == 0);
+            int is_custom_adt_ctor = !is_adt_ctor && vix_adt_ctor_index(ctor_name) >= 0;
+            int adt_ctor_tag = is_custom_adt_ctor ? vix_adt_ctor_index(ctor_name) : -1;
 
             if (pattern->data.call.args && pattern->data.call.args->type == AST_EXPRESSION_LIST &&
                 pattern->data.call.args->data.expression_list.expression_count == 1) {
                 ASTNode* bind_arg = pattern->data.call.args->data.expression_list.expressions[0];
                 if (bind_arg && bind_arg->type == AST_IDENTIFIER && bind_arg->data.identifier.name) {
-                    if (is_adt_ctor) {
+                    if (is_adt_ctor || is_custom_adt_ctor) {
                         ASTNode* payload_access = create_member_access_node(
                             clone_match_scrutinee(scrutinee_ref), create_identifier_node("1"));
                         ASTNode* bind_left = create_identifier_node(bind_arg->data.identifier.name);
@@ -584,11 +710,15 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
             }
 
             if (!cond) {
-                if (is_adt_ctor) {
+                if (is_adt_ctor || is_custom_adt_ctor) {
                     ASTNode* tag_access = create_member_access_node(
                         clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
-                    ASTNode* cond_right = create_identifier_node(ctor_name);
-                    cond = create_binop_node(OP_EQ, tag_access, cond_right);
+                    if (is_custom_adt_ctor) {
+                        cond = create_binop_node(OP_EQ, tag_access, create_identifier_node(ctor_name));
+                    } else {
+                        ASTNode* cond_right = create_identifier_node(ctor_name);
+                        cond = create_binop_node(OP_EQ, tag_access, cond_right);
+                    }
                 } else {
                     ASTNode* cond_right = create_identifier_node(ctor_name);
                     if (is_builtin_union_ctor_name(ctor_name) && strcmp(ctor_name, "None") == 0) {
@@ -614,6 +744,13 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
                         clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
                     cond = create_binop_node(OP_EQ, tag_access, create_num_int_node(0));
                 }
+            }
+            // Check for custom ADT constructors (simple identifier, no payload)
+            if (!cond && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
+                vix_adt_ctor_index(pattern->data.identifier.name) >= 0) {
+                ASTNode* tag_access = create_member_access_node(
+                    clone_match_scrutinee(scrutinee_ref), create_identifier_node("0"));
+                cond = create_binop_node(OP_EQ, tag_access, create_identifier_node(pattern->data.identifier.name));
             }
 
             if (!cond) {
@@ -661,8 +798,8 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %token TYPE_KW MATCH PIPE
 %token QUESTION
 %token LET MUT REF_KW
-%token IMPORT PUB
-%token <num_int> NUMBER_INT CHAR_LITERAL
+%token IMPORT PUB IMPL
+%token <num_int> NUMBER_INT CHAR_LITERAL BOOL_LITERAL
 %token <num_float> NUMBER_FLOAT
 %token PRINT INPUT TYPE_I32 TYPE_I64 TYPE_I8 TYPE_F32 TYPE_F64 TYPE_STR TYPE_PTR FN ARROW RETURN TYPE_VOID NIL EXTERN DOTDOTDOT
 %token AND OR
@@ -691,9 +828,10 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %type <node> literal identifier input_expression
 %type <node> block_statement if_rest expression_list
 
-%type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern
+%type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern match_arm_patterns
 %type <node> generic_param_list generic_type_args enum_variant
 %type <node> type_list
+%type <node> impl_block impl_method_list
 
 %nonassoc IF
 %nonassoc ELSE
@@ -781,18 +919,6 @@ statement
         }
         $$ = create_struct_def_node_with_yyltype($2, $4, (YYLTYPE*) &@$);
     }
-    | STRUCT IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LBRACE struct_fields RBRACE {
-        register_generic_arity($2, GENERIC_KIND_STRUCT, node_list_count($5));
-        {
-            int line = @2.first_line > 0 ? @2.first_line : yylineno;
-            int col = @2.first_column > 0 ? @2.first_column : 1;
-            set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
-            report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
-                "deprecated syntax: use 'type NAME[T] = struct {...}' instead of 'struct NAME[T] {...}'");
-        }
-        $$ = create_struct_def_node_with_yyltype($2, $8, (YYLTYPE*) &@$);
-        $$->data.struct_def.generic_params = $5;
-    }
     | PUB STRUCT IDENTIFIER LBRACE struct_fields RBRACE {
         register_generic_arity($3, GENERIC_KIND_STRUCT, 0);
         {
@@ -805,6 +931,18 @@ statement
         $$ = create_struct_def_node_with_yyltype($3, $5, (YYLTYPE*) &@$);
         $$->data.struct_def.is_public = 1;
     }
+    | STRUCT IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LBRACE struct_fields RBRACE {
+        register_generic_arity($2, GENERIC_KIND_STRUCT, node_list_count($5));
+        {
+            int line = @2.first_line > 0 ? @2.first_line : yylineno;
+            int col = @2.first_column > 0 ? @2.first_column : 1;
+            set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
+            report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
+                "deprecated syntax: use 'type NAME:[T] = struct {...}' instead of 'struct NAME:[T] {...}'");
+        }
+        $$ = create_struct_def_node_with_yyltype($2, $8, (YYLTYPE*) &@$);
+        $$->data.struct_def.generic_params = $5;
+    }
     | PUB STRUCT IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LBRACE struct_fields RBRACE {
         register_generic_arity($3, GENERIC_KIND_STRUCT, node_list_count($6));
         {
@@ -812,13 +950,14 @@ statement
             int col = @3.first_column > 0 ? @3.first_column : 1;
             set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
             report_simple_error(ERROR_LEVEL_WARNING, ERROR_WARNING,
-                "deprecated syntax: use 'pub type NAME[T] = struct {...}' instead of 'pub struct NAME[T] {...}'");
+                "deprecated syntax: use 'pub type NAME:[T] = struct {...}' instead of 'pub struct NAME:[T] {...}'");
         }
         $$ = create_struct_def_node_with_yyltype($3, $9, (YYLTYPE*) &@$);
         $$->data.struct_def.generic_params = $6;
         $$->data.struct_def.is_public = 1;
     }
     | type_definition              { $$ = $1; }
+    | impl_block                   { $$ = $1; }
     | match_statement              { $$ = $1; }
     | RETURN expression            { $$ = create_return_node_with_yyltype($2, (YYLTYPE*) &@$); }
     | RETURN                       { $$ = create_return_node_with_yyltype(NULL, (YYLTYPE*) &@$); }
@@ -876,6 +1015,126 @@ type_definition
         $$->data.struct_def.generic_params = $6;
         $$->data.struct_def.is_public = 1;
     }
+
+    ;
+
+impl_block
+    : IMPL IDENTIFIER LBRACE impl_method_list RBRACE {
+        ASTNode* prog = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* methods = $4;
+        /* Normalize type name: "String" -> "string", "I32" -> "i32", etc. */
+        char* normalized_type = strdup($2);
+        if (normalized_type) {
+            for (char* p = normalized_type; *p; p++) {
+                *p = tolower((unsigned char)*p);
+            }
+        }
+        const char* reg_type = normalized_type ? normalized_type : $2;
+        if (methods && methods->type == AST_EXPRESSION_LIST) {
+            int cnt = methods->data.expression_list.expression_count;
+            for (int i = 0; i < cnt; i++) {
+                ASTNode* fn = methods->data.expression_list.expressions[i];
+                if (fn && fn->type == AST_FUNCTION && fn->data.function.name) {
+                    char mangled[512];
+                    snprintf(mangled, sizeof(mangled), "%s.%s", $2, fn->data.function.name);
+                    register_impl_method(reg_type, fn->data.function.name, mangled);
+                    free(fn->data.function.name);
+                    fn->data.function.name = strdup(mangled);
+                    add_statement_to_program(prog, fn);
+                }
+            }
+        }
+        free(normalized_type);
+        free($2);
+        $$ = prog;
+    }
+    | IMPL TYPE_STR LBRACE impl_method_list RBRACE {
+        ASTNode* prog = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* methods = $4;
+        if (methods && methods->type == AST_EXPRESSION_LIST) {
+            int cnt = methods->data.expression_list.expression_count;
+            for (int i = 0; i < cnt; i++) {
+                ASTNode* fn = methods->data.expression_list.expressions[i];
+                if (fn && fn->type == AST_FUNCTION && fn->data.function.name) {
+                    char mangled[512];
+                    snprintf(mangled, sizeof(mangled), "string.%s", fn->data.function.name);
+                    register_impl_method("string", fn->data.function.name, mangled);
+                    free(fn->data.function.name);
+                    fn->data.function.name = strdup(mangled);
+                    add_statement_to_program(prog, fn);
+                }
+            }
+        }
+        $$ = prog;
+    }
+    | IMPL TYPE_I32 LBRACE impl_method_list RBRACE {
+        ASTNode* prog = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* methods = $4;
+        if (methods && methods->type == AST_EXPRESSION_LIST) {
+            int cnt = methods->data.expression_list.expression_count;
+            for (int i = 0; i < cnt; i++) {
+                ASTNode* fn = methods->data.expression_list.expressions[i];
+                if (fn && fn->type == AST_FUNCTION && fn->data.function.name) {
+                    char mangled[512];
+                    snprintf(mangled, sizeof(mangled), "i32.%s", fn->data.function.name);
+                    register_impl_method("i32", fn->data.function.name, mangled);
+                    free(fn->data.function.name);
+                    fn->data.function.name = strdup(mangled);
+                    add_statement_to_program(prog, fn);
+                }
+            }
+        }
+        $$ = prog;
+    }
+
+    | IMPL IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LBRACE impl_method_list RBRACE {
+        ASTNode* prog = create_program_node_with_yyltype((YYLTYPE*) &@$);
+        ASTNode* methods = $8;
+        int generic_arity = node_list_count($5);
+        /* Normalize type name */
+        char* normalized_type = strdup($2);
+        if (normalized_type) {
+            for (char* p = normalized_type; *p; p++) {
+                *p = tolower((unsigned char)*p);
+            }
+        }
+        const char* reg_type = normalized_type ? normalized_type : $2;
+        if (methods && methods->type == AST_EXPRESSION_LIST) {
+            int cnt = methods->data.expression_list.expression_count;
+            for (int i = 0; i < cnt; i++) {
+                ASTNode* fn = methods->data.expression_list.expressions[i];
+                if (fn && fn->type == AST_FUNCTION && fn->data.function.name) {
+                    char mangled[512];
+                    snprintf(mangled, sizeof(mangled), "%s.%s", $2, fn->data.function.name);
+                    register_impl_method(reg_type, fn->data.function.name, mangled);
+                    free(fn->data.function.name);
+                    fn->data.function.name = strdup(mangled);
+                    /* Propagate generic params to the method if not already set */
+                    if (!fn->data.function.generic_params || fn->data.function.generic_params->data.expression_list.expression_count == 0) {
+                        fn->data.function.generic_params = $5;
+                    }
+                    add_statement_to_program(prog, fn);
+                }
+            }
+        }
+        register_generic_arity($2, GENERIC_KIND_STRUCT, generic_arity);
+        free(normalized_type);
+        free($2);
+        $$ = prog;
+    }
+
+    ;
+
+impl_method_list
+    : /* empty */ { $$ = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); }
+    | impl_method_list function_definition {
+        add_expression_to_list($1, $2);
+        $$ = $1;
+    }
+    | impl_method_list pub_function_definition {
+        add_expression_to_list($1, $2);
+        $$ = $1;
+    }
     ;
 
 enum_variant_list
@@ -898,10 +1157,12 @@ enum_variant_list
 enum_variant
     : IDENTIFIER {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
+        g_adt_payload_types[g_adt_payload_type_count++] = NULL;
     }
     | IDENTIFIER LPAREN type RPAREN {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
         $$->mutability = (MutabilityType)1;
+        g_adt_payload_types[g_adt_payload_type_count++] = $3;
     }
     ;
 
@@ -937,6 +1198,9 @@ match_statement
 
 match_target
     : identifier { $$ = $1; }
+    | identifier DOT IDENTIFIER {
+        $$ = create_member_access_node_with_yyltype($1, create_identifier_node_with_yyltype($3, (YYLTYPE*) &@$), (YYLTYPE*) &@$);
+    }
     | literal { $$ = $1; }
     | LPAREN expression RPAREN { $$ = $2; }
     | IDENTIFIER LPAREN RPAREN {
@@ -964,6 +1228,26 @@ match_arms
 match_arm
     : match_arm_pattern ARROW match_arm_body {
         $$ = create_assign_node_with_yyltype($1, $3, (YYLTYPE*) &@$);
+    }
+    | match_arm_patterns PIPE match_arm_pattern ARROW match_arm_body {
+        // Multiple patterns: duplicate body for each pattern
+        // Store all patterns in $1, add $3
+        add_expression_to_list($1, $3);
+        $$ = create_assign_node_with_yyltype($1, $5, (YYLTYPE*) &@$);
+        // Mark this as a multi-pattern arm
+        $$->data.assign.is_multi_pattern = 1;
+    }
+    ;
+
+match_arm_patterns
+    : match_arm_pattern {
+        ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
+        add_expression_to_list(list, $1);
+        $$ = list;
+    }
+    | match_arm_patterns PIPE match_arm_pattern {
+        add_expression_to_list($1, $3);
+        $$ = $1;
     }
     ;
 
@@ -1076,18 +1360,14 @@ type
     | IDENTIFIER {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); 
     }
-    | IDENTIFIER LBRACKET generic_type_args RBRACKET {
-        check_generic_arity_usage($1, GENERIC_KIND_STRUCT, $3, (YYLTYPE*) &@$);
-        check_generic_arity_usage($1, GENERIC_KIND_TYPE, $3, (YYLTYPE*) &@$);
-        ASTNode* ctor = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
-        $$ = create_type_app_node_with_yyltype(ctor, $3, (YYLTYPE*) &@$);
-    }
+
     | IDENTIFIER COLON LBRACKET generic_type_args RBRACKET {
         check_generic_arity_usage($1, GENERIC_KIND_STRUCT, $4, (YYLTYPE*) &@$);
         check_generic_arity_usage($1, GENERIC_KIND_TYPE, $4, (YYLTYPE*) &@$);
         ASTNode* ctor = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
         $$ = create_type_app_node_with_yyltype(ctor, $4, (YYLTYPE*) &@$);
     }
+
     ;
 
 param_list
@@ -1181,6 +1461,7 @@ pub_function_definition
         register_generic_arity($3, GENERIC_KIND_FUNCTION, 0);
         $$ = create_public_function_node($3, $5, void_type, $8);
     }
+
     | PUB FN IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LPAREN RPAREN function_return_type LBRACE statement_list RBRACE {
         register_generic_arity($3, GENERIC_KIND_FUNCTION, node_list_count($6));
         $$ = create_public_function_node($3, NULL, $10, $12);
@@ -1203,6 +1484,7 @@ pub_function_definition
         $$ = create_public_function_node($3, $9, void_type, $12);
         $$->data.function.generic_params = $6;
     }
+
     ;
 
 function_definition
@@ -1244,6 +1526,8 @@ function_definition
         $$ = create_function_node($2, $4, void_type, $7);
         $$->data.function.is_public = 0;
     }
+
+
     | FN IDENTIFIER COLON LBRACKET generic_param_list RBRACKET LPAREN RPAREN function_return_type LBRACE statement_list RBRACE {
         register_generic_arity($2, GENERIC_KIND_FUNCTION, node_list_count($5));
         $$ = create_function_node($2, NULL, $9, $11);
@@ -1270,22 +1554,39 @@ function_definition
         $$->data.function.generic_params = $5;
         $$->data.function.is_public = 0;
     }
+
     ;
 
 extern_decl
     : FN IDENTIFIER LPAREN RPAREN function_return_type {
         $$ = create_extern_function_node($2, NULL, $5, NULL);
     }
+    | FN IDENTIFIER LPAREN RPAREN {
+        $$ = create_extern_function_node($2, NULL, NULL, NULL);
+    }
     | FN IDENTIFIER LPAREN param_list RPAREN function_return_type {
         $$ = create_extern_function_node($2, $4, $6, NULL);
+    }
+    | FN IDENTIFIER LPAREN param_list RPAREN {
+        $$ = create_extern_function_node($2, $4, NULL, NULL);
     }
     | FN IDENTIFIER LPAREN param_list COMMA DOTDOTDOT RPAREN function_return_type {
         ASTNode* fn = create_extern_function_node($2, $4, $8, NULL);
         fn->data.function.vararg = 1;
         $$ = fn;
     }
+    | FN IDENTIFIER LPAREN param_list COMMA DOTDOTDOT RPAREN {
+        ASTNode* fn = create_extern_function_node($2, $4, NULL, NULL);
+        fn->data.function.vararg = 1;
+        $$ = fn;
+    }
     | FN IDENTIFIER LPAREN DOTDOTDOT RPAREN function_return_type {
         ASTNode* fn = create_extern_function_node($2, NULL, $6, NULL);
+        fn->data.function.vararg = 1;
+        $$ = fn;
+    }
+    | FN IDENTIFIER LPAREN DOTDOTDOT RPAREN {
+        ASTNode* fn = create_extern_function_node($2, NULL, NULL, NULL);
         fn->data.function.vararg = 1;
         $$ = fn;
     }
@@ -1509,6 +1810,9 @@ factor_unary
         ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
         $$ = create_index_node_with_yyltype(id, $3, (YYLTYPE*) &@$);
     }
+    | IDENTIFIER LBRACE RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, list, (YYLTYPE*) &@$); }
+    | IDENTIFIER LBRACE struct_init_fields RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, $3, (YYLTYPE*) &@$); }
+
     | IDENTIFIER COLON LBRACKET generic_type_args RBRACKET LPAREN RPAREN {
         check_generic_arity_usage($1, GENERIC_KIND_FUNCTION, $4, (YYLTYPE*) &@$);
         ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
@@ -1521,8 +1825,6 @@ factor_unary
         $$ = create_call_node_with_yyltype(id, $7, (YYLTYPE*) &@$);
         $$->data.call.type_args = $4;
     }
-    | IDENTIFIER LBRACE RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, list, (YYLTYPE*) &@$); }
-    | IDENTIFIER LBRACE struct_init_fields RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, $3, (YYLTYPE*) &@$); }
     | IDENTIFIER COLON LBRACKET generic_type_args RBRACKET LBRACE RBRACE {
         check_generic_arity_usage($1, GENERIC_KIND_STRUCT, $4, (YYLTYPE*) &@$);
         ASTNode* type_id = create_type_app_node_with_yyltype(
@@ -1536,6 +1838,7 @@ factor_unary
             create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$), $4, (YYLTYPE*) &@$);
         $$ = create_struct_literal_node_with_yyltype(type_id, $7, (YYLTYPE*) &@$);
     }
+
     | IDENTIFIER {
         $$ = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
     }
@@ -1577,6 +1880,9 @@ factor_unary
             $$ = create_if_node_with_yyltype($3, $5, NULL, (YYLTYPE*) &@$);
         }
     }
+    | MATCH match_target LBRACE match_arms RBRACE {
+        $$ = build_match_desugared($2, $4);
+    }
     | PLUS factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_PLUS, $2, (YYLTYPE*) &@$); }
     | MINUS factor_unary            { $$ = create_unaryop_node_with_yyltype(OP_MINUS, $2, (YYLTYPE*) &@$); }
     | MULTIPLY factor_unary         { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
@@ -1586,6 +1892,10 @@ factor_unary
         $$->mutability = MUTABILITY_MUTABLE;
     }
     | AMPERSAND factor_unary        { $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $2, (YYLTYPE*) &@$); }
+    | MUT AMPERSAND factor_unary   {
+        $$ = create_unaryop_node_with_yyltype(OP_ADDRESS, $3, (YYLTYPE*) &@$);
+        $$->mutability = MUTABILITY_MUTABLE;
+    }
     | AT factor_unary               { $$ = create_unaryop_node_with_yyltype(OP_DEREF, $2, (YYLTYPE*) &@$); }
     | BANG factor_unary             { $$ = create_unaryop_node_with_yyltype(OP_NOT, $2, (YYLTYPE*) &@$); }
     | LPAREN expression RPAREN      { $$ = $2; }
@@ -1621,6 +1931,7 @@ factor_unary
 
 literal
     : NUMBER_INT                    { $$ = create_num_int_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | BOOL_LITERAL                  { $$ = create_bool_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | NUMBER_FLOAT                  { $$ = create_num_float_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | STRING                        { $$ = create_string_node_with_yyltype($1, (YYLTYPE*) &@$); }
     | CHAR_LITERAL                  { $$ = create_char_node_with_yyltype((char)$1, (YYLTYPE*) &@$); }

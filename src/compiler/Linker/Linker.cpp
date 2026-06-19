@@ -63,32 +63,51 @@ SysPaths probeSysPaths(const Triple &T) {
     SysPaths sp;
 
     StringRef arch = T.isArch64Bit() ? "x86_64" : (T.getArch() == Triple::aarch64 ? "aarch64" : "x86_64");
+    
+    // Try multiple GNU tuple variants (e.g. x86_64-linux-gnu, x86_64-pc-linux-gnu)
     std::string gnuTuple = arch.str() + "-linux-gnu";
+    std::string gnuTuplePc = arch.str() + "-pc-linux-gnu";
+    
+    auto findLibDir = [&](const std::string &tuple) -> std::string {
+        std::string dir = "/usr/lib/" + tuple;
+        if (fileExists(dir + "/crt1.o"))
+            return dir;
+        return {};
+    };
+    
+    auto findGccDir = [&](const std::string &tuple) -> std::string {
+        SmallString<256> gccBase("/usr/lib/gcc/" + tuple);
+        if (sys::fs::is_directory(gccBase)) {
+            std::string bestVer;
+            std::error_code ec;
+            for (sys::fs::directory_iterator it(gccBase, ec), end; it != end;
+                 it.increment(ec)) {
+                StringRef name = sys::path::filename(it->path());
+                if (name > bestVer)
+                    bestVer = name.str();
+            }
+            if (!bestVer.empty()) {
+                std::string cand = (gccBase + "/" + bestVer).str();
+                if (fileExists(cand + "/crtbegin.o"))
+                    return cand;
+            }
+        }
+        return {};
+    };
 
-    std::string libDir = "/usr/lib/" + gnuTuple;
-    if (!fileExists(libDir + "/crt1.o")) {
+    // Try standard tuple first, then -pc- variant
+    sp.sysLibDir = findLibDir(gnuTuple);
+    if (sp.sysLibDir.empty())
+        sp.sysLibDir = findLibDir(gnuTuplePc);
+    if (sp.sysLibDir.empty()) {
         std::string alt = "/usr/lib/" + std::string(T.isArch64Bit() ? "64" : "32");
         if (fileExists(alt + "/crt1.o"))
-            libDir = alt;
+            sp.sysLibDir = alt;
     }
-    sp.sysLibDir = libDir;
 
-    SmallString<256> gccBase("/usr/lib/gcc/" + gnuTuple);
-    if (sys::fs::is_directory(gccBase)) {
-        std::string bestVer;
-        std::error_code ec;
-        for (sys::fs::directory_iterator it(gccBase, ec), end; it != end;
-             it.increment(ec)) {
-            StringRef name = sys::path::filename(it->path());
-            if (name > bestVer)
-                bestVer = name.str();
-        }
-        if (!bestVer.empty()) {
-            std::string cand = (gccBase + "/" + bestVer).str();
-            if (fileExists(cand + "/crtbegin.o"))
-                sp.gccDir = cand;
-        }
-    }
+    sp.gccDir = findGccDir(gnuTuple);
+    if (sp.gccDir.empty())
+        sp.gccDir = findGccDir(gnuTuplePc);
 
     static const char *const ldCandidates[] = {
         "/lib64/ld-linux-x86-64.so.2",
@@ -518,18 +537,26 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
 
     // ── ELF sysroot (Linux only, non-bare) ────────────────────
     SysPaths elfSysPaths;
+    bool wantStatic = options && options->static_link;
     if (flavor == LinkFlavor::ELF && !bare) {
         elfSysPaths = probeSysPaths(T);
+
+        if (wantStatic) {
+            args.push_back("-static");
+            args.push_back("--exclude-libs=ALL");
+            args.push_back("--defsym");
+            args.push_back("_DYNAMIC=0");
+        }
 
         if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtbegin.o"))
             args.push_back(elfSysPaths.gccDir + "/crtbegin.o");
         if (!elfSysPaths.sysLibDir.empty()) {
-            if (fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
+            if (!wantStatic && fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crt1.o");
             if (fileExists(elfSysPaths.sysLibDir + "/crti.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crti.o");
         }
-        if (!elfSysPaths.dynamicLinker.empty()) {
+        if (!wantStatic && !elfSysPaths.dynamicLinker.empty()) {
             args.push_back("--dynamic-linker");
             args.push_back(elfSysPaths.dynamicLinker);
         }
@@ -541,6 +568,15 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
         args.push_back("-L/usr/lib");
     }
 
+    // ── User-specified library paths (-L) ──────────────────────
+    if (options && options->lib_paths && options->lib_path_count > 0) {
+        for (int i = 0; i < options->lib_path_count; i++) {
+            if (options->lib_paths[i] && options->lib_paths[i][0]) {
+                args.push_back("-L" + std::string(options->lib_paths[i]));
+            }
+        }
+    }
+
     // ── Input / output ────────────────────────────────────────
     args.push_back(obj_file);
     args.push_back("-o");
@@ -548,17 +584,30 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
 
     // ── System libraries (ELF non-bare only, others handled above) ─
     if (!bare && flavor == LinkFlavor::ELF) {
+        if (wantStatic) {
+            args.push_back("-lgcc");
+            args.push_back("-lgcc_eh");
+        }
         args.push_back("-lc");
         args.push_back("-lm");
         args.push_back("-ldl");
         args.push_back("-lpthread");
         args.push_back("-lstdc++");
+        if (wantStatic) {
+            args.push_back("-lgcc");
+            args.push_back("-lgcc_eh");
+        }
         if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtend.o"))
             args.push_back(elfSysPaths.gccDir + "/crtend.o");
         if (!elfSysPaths.sysLibDir.empty() && fileExists(elfSysPaths.sysLibDir + "/crtn.o"))
             args.push_back(elfSysPaths.sysLibDir + "/crtn.o");
-        if (options && options->static_link)
-            args.push_back("-static");
+    }
+
+    // ── Extra libraries from -l flags ─────────────────────────
+    if (options && options->extra_libs && options->extra_lib_count > 0) {
+        for (int i = 0; i < options->extra_lib_count; i++) {
+            args.push_back(std::string("-l") + options->extra_libs[i]);
+        }
     }
 
     // ── Convert to const char* array for LLD API ──────────────
@@ -662,18 +711,26 @@ extern "C" int vix_link_multi(const char **obj_files, int obj_count,
     }
 
     SysPaths elfSysPaths;
+    bool wantStatic = options && options->static_link;
     if (flavor == LinkFlavor::ELF && !bare) {
         elfSysPaths = probeSysPaths(T);
+
+        if (wantStatic) {
+            args.push_back("-static");
+            args.push_back("--exclude-libs=ALL");
+            args.push_back("--defsym");
+            args.push_back("_DYNAMIC=0");
+        }
 
         if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtbegin.o"))
             args.push_back(elfSysPaths.gccDir + "/crtbegin.o");
         if (!elfSysPaths.sysLibDir.empty()) {
-            if (fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
+            if (!wantStatic && fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crt1.o");
             if (fileExists(elfSysPaths.sysLibDir + "/crti.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crti.o");
         }
-        if (!elfSysPaths.dynamicLinker.empty()) {
+        if (!wantStatic && !elfSysPaths.dynamicLinker.empty()) {
             args.push_back("--dynamic-linker");
             args.push_back(elfSysPaths.dynamicLinker);
         }
@@ -685,6 +742,15 @@ extern "C" int vix_link_multi(const char **obj_files, int obj_count,
         args.push_back("-L/usr/lib");
     }
 
+    // ── User-specified library paths (-L) ──────────────────────
+    if (options && options->lib_paths && options->lib_path_count > 0) {
+        for (int i = 0; i < options->lib_path_count; i++) {
+            if (options->lib_paths[i] && options->lib_paths[i][0]) {
+                args.push_back("-L" + std::string(options->lib_paths[i]));
+            }
+        }
+    }
+
     for (int i = 0; i < obj_count; i++) {
         args.push_back(obj_files[i]);
     }
@@ -692,17 +758,30 @@ extern "C" int vix_link_multi(const char **obj_files, int obj_count,
     args.push_back(output_file);
 
     if (!bare && flavor == LinkFlavor::ELF) {
+        if (wantStatic) {
+            args.push_back("-lgcc");
+            args.push_back("-lgcc_eh");
+        }
         args.push_back("-lc");
         args.push_back("-lm");
         args.push_back("-ldl");
         args.push_back("-lpthread");
         args.push_back("-lstdc++");
+        if (wantStatic) {
+            args.push_back("-lgcc");
+            args.push_back("-lgcc_eh");
+        }
         if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtend.o"))
             args.push_back(elfSysPaths.gccDir + "/crtend.o");
         if (!elfSysPaths.sysLibDir.empty() && fileExists(elfSysPaths.sysLibDir + "/crtn.o"))
             args.push_back(elfSysPaths.sysLibDir + "/crtn.o");
-        if (options && options->static_link)
-            args.push_back("-static");
+    }
+
+    // ── Extra libraries from -l flags ─────────────────────────
+    if (options && options->extra_libs && options->extra_lib_count > 0) {
+        for (int i = 0; i < options->extra_lib_count; i++) {
+            args.push_back(std::string("-l") + options->extra_libs[i]);
+        }
     }
 
     std::vector<const char *> rawArgs;

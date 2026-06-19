@@ -1,40 +1,299 @@
 #[no_main]
 import "ast.vix"
-import "ir-builder.vix"
+import "builder.vix"
 
-pub fn codegen_stmt(stmt: AstStmt): string
+pub fn codegen_type_is_numeric(ty: string): i32
 {
-    if (stmt.tag == "return")
-    {
-        return qbe_label("start") + qbe_ret_i32(stmt.direct_ret)
+    if (ty == "i32" or ty == "i64" or ty == "f32" or ty == "f64") { return 1 }
+    return 0
+}
+
+pub fn codegen_type_is_float(ty: string): i32
+{
+    if (ty == "f32" or ty == "f64") { return 1 }
+    return 0
+}
+
+pub fn codegen_numeric_result(left_ty: string, right_ty: string): string
+{
+    if (left_ty == "f64" or right_ty == "f64") { return "f64" }
+    if (left_ty == "f32" or right_ty == "f32") { return "f32" }
+    if (left_ty == "i64" or right_ty == "i64") { return "i64" }
+    return "i32"
+}
+
+pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
+{
+    return match expr.tag {
+        "int" -> "i32"
+        "float" -> "f64"
+        "bool" -> "bool"
+        "string" -> "string"
+        "ident" -> get_var_type(b, expr.text)
+        "unaryop" -> {
+            if (expr.text == "!") { "bool" } else { codegen_expr_type(b, es, expr_store_get(es, expr.left_idx)) }
+        }
+        "binop" -> {
+            if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=" or expr.text == "and" or expr.text == "or")
+            {
+                "bool"
+            }
+            else
+            {
+                let left_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
+                let right_ty = codegen_expr_type(b, es, expr_store_get(es, expr.right_idx))
+                codegen_numeric_result(left_ty, right_ty)
+            }
+        }
+        "call" -> get_function_return_type(expr.text)
+        _ -> "i32"
     }
-    if (stmt.tag == "if_eq_return")
-    {
-        return qbe_label("start") +
-               qbe_eq_string("%cmp", stmt.cond_left, stmt.cond_right) +
-               qbe_jnz("%cmp", "then", "else") +
-               qbe_label("then") +
-               qbe_ret_i32(stmt.then_ret) +
-               qbe_label("else") +
-               qbe_ret_i32(stmt.else_ret)
+}
+
+pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr, expected_ty: string): ptr
+{
+    return match expr.tag {
+        "int" -> {
+            if (expected_ty == "i64") { llvm_const_i64(expr.int_value) }
+            elif (expected_ty == "f32" or expected_ty == "f64") { llvm_const_float(i32_to_f64(expr.int_value), expected_ty) }
+            else { llvm_const_i32(expr.int_value) }
+        }
+        "float" -> {
+            if (expected_ty == "f32") { llvm_const_float(expr.float_value, "f32") } else { llvm_const_float(expr.float_value, "f64") }
+        }
+        "bool" -> {
+            if (expected_ty == "bool") { llvm_const_bool(expr.int_value) } else { llvm_const_i32(expr.int_value) }
+        }
+        "ident" -> llvm_cast_value(b, llvm_load_var(b, expr.text), get_var_type(b, expr.text), expected_ty)
+        "string" -> get_c_string_global(b, ".strlit" + llvm_temp(b, ""), expr.text)
+        "binop" -> {
+            let left_expr = expr_store_get(es, expr.left_idx)
+            let right_expr = expr_store_get(es, expr.right_idx)
+            let left_ty = codegen_expr_type(b, es, left_expr)
+            let right_ty = codegen_expr_type(b, es, right_expr)
+            let result_ty = if (expected_ty != "" and codegen_type_is_numeric(expected_ty) == 1 and expr.text != "==" and expr.text != "!=" and expr.text != "<" and expr.text != "<=" and expr.text != ">" and expr.text != ">=") { expected_ty } else { codegen_numeric_result(left_ty, right_ty) }
+            let left = codegen_expr_value_typed(b, es, left_expr, result_ty)
+            let right = codegen_expr_value_typed(b, es, right_expr, result_ty)
+            match expr.text {
+                "+" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fadd_value(b, left, right) } else { llvm_build_add_value(b, left, right) }
+                "-" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fsub_value(b, left, right) } else { llvm_build_sub_value(b, left, right) }
+                "*" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fmul_value(b, left, right) } else { llvm_build_mul_value(b, left, right) }
+                "/" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fdiv_value(b, left, right) } else { llvm_build_div_value(b, left, right) }
+                "%" -> llvm_build_mod_value(b, left, right)
+                "==" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fcmp_value(b, 1, left, right) } else { llvm_build_icmp_value(b, 32, left, right) }
+                "!=" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fcmp_value(b, 6, left, right) } else { llvm_build_icmp_value(b, 33, left, right) }
+                "<" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fcmp_value(b, 4, left, right) } else { llvm_build_icmp_value(b, 40, left, right) }
+                "<=" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fcmp_value(b, 5, left, right) } else { llvm_build_icmp_value(b, 41, left, right) }
+                ">" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fcmp_value(b, 2, left, right) } else { llvm_build_icmp_value(b, 38, left, right) }
+                ">=" -> if (codegen_type_is_float(result_ty) == 1) { llvm_build_fcmp_value(b, 3, left, right) } else { llvm_build_icmp_value(b, 39, left, right) }
+                "and" -> llvm_build_mul_value(b, left, right)
+                "or" -> {
+                    let sum = llvm_build_add_value(b, left, right)
+                    llvm_build_icmp_value(b, 33, sum, llvm_const_i32(0))
+                }
+                _ -> llvm_const_i32(0)
+            }
+        }
+        "unaryop" -> match expr.text {
+            "-" -> {
+                let operand_expr = expr_store_get(es, expr.left_idx)
+                let operand_ty = codegen_expr_type(b, es, operand_expr)
+                let operand = codegen_expr_value_typed(b, es, operand_expr, operand_ty)
+                if (codegen_type_is_float(operand_ty) == 1) { llvm_build_fneg_value(b, operand) } else { llvm_build_neg_value(b, operand) }
+            }
+            "!" -> {
+                let operand_expr = expr_store_get(es, expr.left_idx)
+                let operand = codegen_expr_value_typed(b, es, operand_expr, codegen_expr_type(b, es, operand_expr))
+                llvm_build_not_value(b, operand)
+            }
+            _ -> llvm_const_i32(0)
+        }
+        "call" -> {
+            let mut args: [ptr] = []
+            for (i in 0 .. expr.args.length)
+            {
+                let arg_expr = expr_store_get(es, expr.args[i])
+                let expected_arg_ty = get_function_param_type(expr.text, i)
+                let arg = codegen_expr_value_typed(b, es, arg_expr, expected_arg_ty)
+                args.push(arg)
+            }
+            let call_val = llvm_build_call_value(b, expr.text, args)
+            llvm_cast_value(b, call_val, get_function_return_type(expr.text), expected_ty)
+        }
+        _ -> llvm_const_i32(0)
     }
-    if (stmt.tag == "match_option_string")
-    {
-        return qbe_label("start") +
-               qbe_copy_i32("%has", stmt.value_expr.option_has_value) +
-               qbe_jnz("%has", "some", "none") +
-               qbe_label("some") +
-               "\t# bound string value available as %" + stmt.match_bind + "\n" +
-               qbe_eq_string("%strcmp_res", stmt.match_bind, stmt.match_compare_right) +
-               qbe_jnz("%strcmp_res", "then", "else") +
-               qbe_label("then") +
-               qbe_ret_i32(stmt.match_some_then_ret) +
-               qbe_label("else") +
-               qbe_ret_i32(stmt.match_some_else_ret) +
-               qbe_label("none") +
-               qbe_ret_i32(stmt.match_none_ret)
+}
+
+pub fn codegen_expr_value(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): ptr
+{
+    return codegen_expr_value_typed(b, es, expr, codegen_expr_type(b, es, expr))
+}
+
+pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32, break_block: ptr, continue_block: ptr)
+{
+    let stmt = stmt_store_get(store, stmt_idx)
+    match stmt.tag {
+        "return" -> llvm_emit_ret_value(b, llvm_const_i32(stmt.direct_ret))
+        "return_expr" -> {
+            let ret_ty = get_var_type(b, "__return")
+            let val = codegen_expr_value_typed(b, es, expr_store_get(es, stmt.value_idx), ret_ty)
+            llvm_emit_ret_value(b, val)
+        }
+        "let" -> {
+            let expr = expr_store_get(es, stmt.assign_idx)
+            let ty = if (stmt.type_text != "") { stmt.type_text } else { codegen_expr_type(b, es, expr) }
+            let val = codegen_expr_value_typed(b, es, expr, ty)
+            llvm_define_var(b, stmt.assign_name, ty, val)
+        }
+        "assign" -> {
+            let ty = get_var_type(b, stmt.assign_name)
+            let val = codegen_expr_value_typed(b, es, expr_store_get(es, stmt.assign_idx), ty)
+            llvm_store_value(b, val, stmt.assign_name)
+        }
+        "print" -> {
+            let expr = expr_store_get(es, stmt.print_idx)
+            let ty = codegen_expr_type(b, es, expr)
+            let val = codegen_expr_value_typed(b, es, expr, ty)
+            llvm_emit_printf_value(b, val, ty)
+        }
+        "expr" -> {
+            let ignored_expr_value = codegen_expr_value(b, es, expr_store_get(es, stmt.value_idx))
+        }
+        "break" -> {
+            if (break_block != nil)
+            {
+                llvm_emit_jmp_block(b, break_block)
+            }
+        }
+        "continue" -> {
+            if (continue_block != nil)
+            {
+                llvm_emit_jmp_block(b, continue_block)
+            }
+        }
+        "if_eq_return" -> {
+            let then_label = llvm_label_name(b, "L")
+            let else_label = llvm_label_name(b, "L")
+            let then_block = llvm_append_block(b, then_label)
+            let else_block = llvm_append_block(b, else_label)
+            let cmp = llvm_build_eq_string_value(b, stmt.cond_left, stmt.cond_right)
+            llvm_emit_condbr_blocks(b, cmp, then_block, else_block)
+            llvm_position_at_end(b, then_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.then_ret))
+            llvm_position_at_end(b, else_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.else_ret))
+        }
+        "match_option_string" -> {
+            let some_label = llvm_label_name(b, "L")
+            let none_label = llvm_label_name(b, "L")
+            let then_label = llvm_label_name(b, "L")
+            let else_label = llvm_label_name(b, "L")
+            let some_block = llvm_append_block(b, some_label)
+            let none_block = llvm_append_block(b, none_label)
+            let then_block = llvm_append_block(b, then_label)
+            let else_block = llvm_append_block(b, else_label)
+            let opt_expr = expr_store_get(es, stmt.value_idx)
+            llvm_emit_condbr_blocks(b, llvm_const_i32(opt_expr.option_has_value), some_block, none_block)
+            llvm_position_at_end(b, some_block)
+            let cmp = llvm_build_eq_string_value(b, stmt.match_bind, stmt.match_compare_right)
+            llvm_emit_condbr_blocks(b, cmp, then_block, else_block)
+            llvm_position_at_end(b, then_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.match_some_then_ret))
+            llvm_position_at_end(b, else_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.match_some_else_ret))
+            llvm_position_at_end(b, none_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.match_none_ret))
+        }
+        "while" -> {
+            let cond_label = llvm_label_name(b, "while.cond")
+            let body_label = llvm_label_name(b, "while.body")
+            let end_label = llvm_label_name(b, "while.end")
+            let cond_block = llvm_append_block(b, cond_label)
+            let body_block = llvm_append_block(b, body_label)
+            let end_block = llvm_append_block(b, end_label)
+
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, cond_block)
+            }
+
+            llvm_position_at_end(b, cond_block)
+            let cond_expr = expr_store_get(es, stmt.value_idx)
+            let cond_ty = codegen_expr_type(b, es, cond_expr)
+            let cond_val = codegen_expr_value_typed(b, es, cond_expr, cond_ty)
+            let cond_i1 = llvm_build_truthy_typed_i1(b, cond_val, cond_ty)
+            vix_LLVMBuildCondBr(b.builder, cond_i1, body_block, end_block)
+
+            llvm_position_at_end(b, body_block)
+            codegen_stmt_in_loop(b, es, store, stmt.body_idx, end_block, cond_block)
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, cond_block)
+            }
+
+            llvm_position_at_end(b, end_block)
+        }
+        "if" -> {
+            let then_label = llvm_label_name(b, "if.then")
+            let else_label = llvm_label_name(b, "if.else")
+            let end_label = llvm_label_name(b, "if.end")
+            let then_block = llvm_append_block(b, then_label)
+            let else_block = llvm_append_block(b, else_label)
+            let end_block = llvm_append_block(b, end_label)
+            let cond_expr = expr_store_get(es, stmt.value_idx)
+            let cond_ty = codegen_expr_type(b, es, cond_expr)
+            let cond_val = codegen_expr_value_typed(b, es, cond_expr, cond_ty)
+            let cond_i1 = llvm_build_truthy_typed_i1(b, cond_val, cond_ty)
+            vix_LLVMBuildCondBr(b.builder, cond_i1, then_block, else_block)
+
+            llvm_position_at_end(b, then_block)
+            codegen_stmt_in_loop(b, es, store, stmt.body_idx, break_block, continue_block)
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, end_block)
+            }
+
+            llvm_position_at_end(b, else_block)
+            if (stmt.assign_idx >= 0)
+            {
+                codegen_stmt_in_loop(b, es, store, stmt.assign_idx, break_block, continue_block)
+            }
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, end_block)
+            }
+
+            llvm_position_at_end(b, end_block)
+        }
+        "block" -> {
+            if (stmt.stmt_indices.length > 0)
+            {
+                for (i in 0 .. stmt.stmt_indices.length)
+                {
+                    if (llvm_current_block_terminated(b) == 0)
+                    {
+                        codegen_stmt_in_loop(b, es, store, stmt.stmt_indices[i], break_block, continue_block)
+                    }
+                }
+            }
+            else
+            {
+                for (i in 0 .. stmt.block_count)
+                {
+                    if (llvm_current_block_terminated(b) == 0)
+                    {
+                        codegen_stmt_in_loop(b, es, store, stmt.block_start + i, break_block, continue_block)
+                    }
+                }
+            }
+        }
+        _ -> {}
     }
-    return qbe_label("start") + qbe_ret_i32(0)
+}
+
+pub fn codegen_stmt(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32)
+{
+    codegen_stmt_in_loop(b, es, store, stmt_idx, nil, nil)
 }
 
 pub fn codegen_program(program: AstProgram): string
@@ -43,5 +302,26 @@ pub fn codegen_program(program: AstProgram): string
     {
         return program.error
     }
-    return qbe_function_header(program.function.name) + codegen_stmt(program.function.body) + qbe_end_function()
+    let b = llvm_new()
+    reset_function_sigs()
+    for (i in 0 .. program.functions.length)
+    {
+        register_function_sig(program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_types)
+    }
+    for (i in 0 .. program.functions.length)
+    {
+        llvm_emit_function_header_with_params(b, program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_names, program.functions[i].param_types)
+        set_var_type(b, "__return", program.functions[i].ret_ty)
+        codegen_stmt(b, program.expr_store, program.store, program.functions[i].body_idx)
+        if (llvm_current_block_terminated(b) == 0 and program.functions[i].ret_ty == "void")
+        {
+            llvm_emit_ret_void(b)
+        }
+        elif (llvm_current_block_terminated(b) == 0)
+        {
+            llvm_emit_ret_value(b, llvm_const_i32(0))
+        }
+        llvm_emit_end_function(b)
+    }
+    return llvm_get_code(b)
 }

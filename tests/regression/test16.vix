@@ -3,7 +3,6 @@ struct Box:[T]
     next: Box:[T],
     value: T
 }
-
 fn main(): i32
 {
     let x = Box:[i32]{ value: 11 }

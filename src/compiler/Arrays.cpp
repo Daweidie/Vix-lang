@@ -71,7 +71,14 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::computeIndexPtr(ASTNode* node)
 
     VisitResult targRes = visit(target);
     if (!targRes.value || !targRes.value->getType()->isPointerTy()) return VisitResult();
-    Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targRes.value->getType()), varName);
+    Type* elemType = nullptr;
+    auto hintIt = pointerElementHints.find(targRes.value);
+    if (hintIt != pointerElementHints.end() && hintIt->second) {
+        elemType = hintIt->second;
+    }
+    if (!elemType) {
+        elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targRes.value->getType()), varName);
+    }
     if (!elemType) return VisitResult();
     Value* gep = builder.CreateInBoundsGEP(elemType, targRes.value, idxVal, "lval_generic_gep");
     VisitResult res(gep, typeHelper.getValueTypeFromType(elemType));
@@ -198,7 +205,15 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndexAssign(ASTNode* node
         if (target->type == AST_IDENTIFIER) {
             varName = std::string(target->data.identifier.name);
         }
-        Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targRes.value->getType()), varName);
+        Type* elemType = nullptr;
+        auto hintIt = pointerElementHints.find(targRes.value);
+        if (hintIt != pointerElementHints.end() && hintIt->second) {
+            elemType = hintIt->second;
+        }
+        if (!elemType) {
+            elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(targRes.value->getType()), varName);
+        }
+        if (!elemType) return VisitResult();
 
         Value* gep = builder.CreateInBoundsGEP(elemType, targRes.value, idxVal, "arr_index_ptr");
 
@@ -313,7 +328,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
                 {ConstantInt::get(Type::getInt32Ty(context),0), idxVal}, "arr_index_ptr");
             Value* loaded = builder.CreateLoad(elemType, gep, "arr_index_load");
             ValueType vt = typeHelper.getValueTypeFromType(elemType);
-            return VisitResult(loaded, vt);
+            StructType* st = elemType->isStructTy() ? cast<StructType>(elemType) : nullptr;
+            return VisitResult(loaded, vt, st);
         }
         
         if (allocatedType && allocatedType->isPointerTy()) {
@@ -322,6 +338,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
             if (varName == "argv") {//处理argv特殊情况
                 elemType = PointerType::get(context, 0);
             }
+            StructType* elemStructType = elemType && elemType->isStructTy() ? cast<StructType>(elemType) : nullptr;
+            Type* storageElemType = elemStructType ? PointerType::get(context, 0) : elemType;
             ValueType vt = typeHelper.getValueTypeFromType(elemType);
 
             Function* fn = builder.GetInsertBlock() ? builder.GetInsertBlock()->getParent() : nullptr;
@@ -335,18 +353,22 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
             builder.CreateCondBr(isNull, nullBB, loadBB);
 
             builder.SetInsertPoint(nullBB);
-            Value* nullVal = Constant::getNullValue(elemType);
+            Value* nullVal = Constant::getNullValue(storageElemType);
             builder.CreateBr(contBB);
 
             builder.SetInsertPoint(loadBB);
-            Value* gep = builder.CreateInBoundsGEP(elemType, arrayPtr, idxVal, "ptr_index_ptr");
-            Value* loaded = builder.CreateLoad(elemType, gep, "ptr_index_load");
+            Value* gep = builder.CreateInBoundsGEP(storageElemType, arrayPtr, idxVal, "ptr_index_ptr");
+            Value* loaded = builder.CreateLoad(storageElemType, gep, "ptr_index_load");
             builder.CreateBr(contBB);
 
             builder.SetInsertPoint(contBB);
-            PHINode* result = builder.CreatePHI(elemType, 2, "idx_safe_val");
+            PHINode* result = builder.CreatePHI(storageElemType, 2, "idx_safe_val");
             result->addIncoming(nullVal, nullBB);
             result->addIncoming(loaded, loadBB);
+            if (elemStructType) {
+                pointerElementHints[result] = elemStructType;
+                return VisitResult(result, ValueType::POINTER, elemStructType);
+            }
             if (elemType->isPointerTy()) {
                 Type* inferredElem = getInferredPointerElementType(node);
                 pointerElementHints[result] = inferredElem ? inferredElem : Type::getInt32Ty(context);
@@ -366,7 +388,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
                 {ConstantInt::get(Type::getInt32Ty(context),0), idxVal}, "arr_index_ptr2");
             Value* loaded = builder.CreateLoad(elemType, gep, "arr_index_load2");
             ValueType vt = typeHelper.getValueTypeFromType(elemType);
-            return VisitResult(loaded, vt);
+            StructType* st = elemType->isStructTy() ? cast<StructType>(elemType) : nullptr;
+            return VisitResult(loaded, vt, st);
         }
     }
 
@@ -385,6 +408,8 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
         if (!elemType) {
             elemType = Type::getInt8Ty(context);
         }
+        StructType* elemStructType = elemType && elemType->isStructTy() ? cast<StructType>(elemType) : nullptr;
+        Type* storageElemType = elemStructType ? PointerType::get(context, 0) : elemType;
         ValueType vt = typeHelper.getValueTypeFromType(elemType);
 
         Function* fn = builder.GetInsertBlock() ? builder.GetInsertBlock()->getParent() : nullptr;
@@ -398,18 +423,22 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndex(ASTNode* node) {
         builder.CreateCondBr(isNull, nullBB, loadBB);
 
         builder.SetInsertPoint(nullBB);
-        Value* nullVal = Constant::getNullValue(elemType);
+        Value* nullVal = Constant::getNullValue(storageElemType);
         builder.CreateBr(contBB);
 
         builder.SetInsertPoint(loadBB);
-        Value* gep = builder.CreateInBoundsGEP(elemType, targetRes.value, idxVal, "arr_index_ptr3");
-        Value* loaded = builder.CreateLoad(elemType, gep, "arr_index_load3");
+        Value* gep = builder.CreateInBoundsGEP(storageElemType, targetRes.value, idxVal, "arr_index_ptr3");
+        Value* loaded = builder.CreateLoad(storageElemType, gep, "arr_index_load3");
         builder.CreateBr(contBB);
 
         builder.SetInsertPoint(contBB);
-        PHINode* result = builder.CreatePHI(elemType, 2, "idx_safe_val2");
+        PHINode* result = builder.CreatePHI(storageElemType, 2, "idx_safe_val2");
         result->addIncoming(nullVal, nullBB);
         result->addIncoming(loaded, loadBB);
+        if (elemStructType) {
+            pointerElementHints[result] = elemStructType;
+            return VisitResult(result, ValueType::POINTER, elemStructType);
+        }
         if (elemType->isPointerTy()) {
             Type* inferredElem = getInferredPointerElementType(node);
             pointerElementHints[result] = inferredElem ? inferredElem : Type::getInt32Ty(context);

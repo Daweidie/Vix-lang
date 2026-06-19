@@ -94,6 +94,15 @@ public:
 								  b->kind == TypeKind::F32 || b->kind == TypeKind::F64);
 				compatible = a_numeric && b_numeric;
 			}
+			// Struct vs App with empty args: treat Struct("X") as App(Struct("X"), [])
+			if (!compatible && a->kind == TypeKind::Struct && b->kind == TypeKind::App && b->data.app.args.empty()) {
+				unify(a, b->data.app.ctor);
+				return;
+			}
+			if (!compatible && b->kind == TypeKind::Struct && a->kind == TypeKind::App && a->data.app.args.empty()) {
+				unify(a->data.app.ctor, b);
+				return;
+			}
 			if (!compatible) {
 				throw std::runtime_error("expected type '" + pretty(a) + "', but got '" + pretty(b) + "'");
 			}
@@ -114,11 +123,19 @@ public:
 				unify(a->data.fixed_array.element, b->data.fixed_array.element);
 				break;
 			case TypeKind::Struct:
+				if (b->kind == TypeKind::App && b->data.app.args.empty()) {
+					unify(a, b->data.app.ctor);
+					return;
+				}
 				if (a->data.struct_data.name != b->data.struct_data.name) {
 					throw std::runtime_error("expected struct '" + a->data.struct_data.name + "', but got '" + b->data.struct_data.name + "'");
 				}
 				break;
 			case TypeKind::App:
+				if (b->kind == TypeKind::Struct && a->data.app.args.empty()) {
+					unify(a->data.app.ctor, b);
+					return;
+				}
 				unify(a->data.app.ctor, b->data.app.ctor);
 				if (a->data.app.args.size() != b->data.app.args.size()) {
 					throw std::runtime_error("type application arity mismatch");

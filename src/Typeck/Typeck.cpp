@@ -64,6 +64,7 @@ struct TypeChecker {
 	std::unordered_map<std::string, TypePtr> match_payloads;
 	std::unordered_map<std::string, TypePtr> match_payload_field_types;
 	std::unordered_map<std::string, TypePtr> generic_bindings;
+	std::set<std::string> making_type_info_for;
 	int error_count = 0;
 
 	TypePtr builtin_void = Type::make(TypeKind::Void);
@@ -449,7 +450,18 @@ struct TypeChecker {
 			case TypeKind::Ptr: {
 				TypeInfo* info = alloc_type_info(TYPEINFO_PTR);
 				if (!info) return nullptr;
-				info->element = make_type_info(resolved->data.ptr.pointee);
+				TypePtr pointee = resolved->data.ptr.pointee;
+				if (pointee && pointee->kind == TypeKind::Struct) {
+					std::string sname = pointee->data.struct_data.name;
+					if (!sname.empty() && making_type_info_for.count(sname)) {
+						info->element = alloc_type_info(TYPEINFO_STRUCT);
+						if (info->element) {
+							info->element->name = strdup(sname.c_str());
+						}
+						return info;
+					}
+				}
+				info->element = make_type_info(pointee);
 				return info;
 			}
 			case TypeKind::Struct: {
@@ -457,6 +469,23 @@ struct TypeChecker {
 				if (!info) return nullptr;
 				const std::string& name = resolved->data.struct_data.name;
 				info->name = name.empty() ? nullptr : strdup(name.c_str());
+				if (!name.empty() && making_type_info_for.count(name)) {
+					return info;
+				}
+				if (!name.empty()) {
+					making_type_info_for.insert(name);
+					const StructInfo* si = env.lookup_struct(name);
+					if (si && !si->fields.empty()) {
+						info->param_count = static_cast<int>(si->fields.size());
+						info->params = (TypeInfo**)calloc(info->param_count, sizeof(TypeInfo*));
+						if (info->params) {
+							for (int i = 0; i < info->param_count; i++) {
+								info->params[i] = make_type_info(si->fields[i].type);
+							}
+						}
+					}
+					making_type_info_for.erase(name);
+				}
 				return info;
 			}
 			case TypeKind::Array: {
@@ -836,7 +865,7 @@ struct TypeChecker {
 				}
 				if (all_extern && stmt->data.program.statement_count > 0) {
 					for (int j = 0; j < stmt->data.program.statement_count; j++) {
-						last = check_expr(stmt->data.program.statements[j]);
+						check_expr(stmt->data.program.statements[j]);
 					}
 					continue;
 				}
@@ -1009,7 +1038,14 @@ struct TypeChecker {
 				args.push_back(unify.fresh());
 			}
 			if (payload_count > 0) {
-				TypePtr payload = unify.fresh();
+				ASTNode* payload_type_node = vix_adt_ctor_payload_type_node(name);
+				TypePtr payload;
+				if (payload_type_node) {
+					payload = type_from_ast(payload_type_node);
+				}
+				if (!payload) {
+					payload = unify.fresh();
+				}
 				TypePtr result = Type::make_app(Type::make_struct(base_name ? base_name : "<anon>"), std::move(args));
 				env.register_ctor(name, Type::make_fn({payload}, result));
 			} else {
@@ -1050,7 +1086,11 @@ struct TypeChecker {
 				result = check_block(node, true);
 				break;
 			case AST_NUM_INT:
-				result = builtin_i32;
+				if (node->inferred_type && node->inferred_type->kind == TYPEINFO_BOOL) {
+					result = builtin_bool;
+				} else {
+					result = builtin_i32;
+				}
 				break;
 			case AST_NUM_FLOAT:
 				result = builtin_f64;
@@ -1332,10 +1372,14 @@ struct TypeChecker {
 			const char* ctor_name = nullptr;
 			ASTNode* left_node = node->data.binop.left;
 			ASTNode* right_node = node->data.binop.right;
-			if (left_node && left_node->type == AST_IDENTIFIER && is_builtin_ctor(left_node->data.identifier.name)) {
+			if (left_node && left_node->type == AST_IDENTIFIER &&
+				(is_builtin_ctor(left_node->data.identifier.name) ||
+				 vix_adt_ctor_index(left_node->data.identifier.name) >= 0)) {
 				ctor_name = left_node->data.identifier.name;
 				skip_unify = true;
-			} else if (right_node && right_node->type == AST_IDENTIFIER && is_builtin_ctor(right_node->data.identifier.name)) {
+			} else if (right_node && right_node->type == AST_IDENTIFIER &&
+				(is_builtin_ctor(right_node->data.identifier.name) ||
+				 vix_adt_ctor_index(right_node->data.identifier.name) >= 0)) {
 				ctor_name = right_node->data.identifier.name;
 				skip_unify = true;
 			}
@@ -1509,10 +1553,12 @@ struct TypeChecker {
 			ASTNode* ctor_node = nullptr;
 			ASTNode* scrutinee_node = nullptr;
 			bool is_nil_cmp = false;
-			if (lhs && lhs->type == AST_IDENTIFIER && is_builtin_ctor(lhs->data.identifier.name)) {
+			if (lhs && lhs->type == AST_IDENTIFIER && lhs->data.identifier.name &&
+				(is_builtin_ctor(lhs->data.identifier.name) || vix_adt_ctor_index(lhs->data.identifier.name) >= 0)) {
 				ctor_node = lhs;
 				scrutinee_node = rhs;
-			} else if (rhs && rhs->type == AST_IDENTIFIER && is_builtin_ctor(rhs->data.identifier.name)) {
+			} else if (rhs && rhs->type == AST_IDENTIFIER && rhs->data.identifier.name &&
+				(is_builtin_ctor(rhs->data.identifier.name) || vix_adt_ctor_index(rhs->data.identifier.name) >= 0)) {
 				ctor_node = rhs;
 				scrutinee_node = lhs;
 			} else if (lhs && lhs->type == AST_NIL && rhs && rhs->type == AST_IDENTIFIER) {
@@ -1553,15 +1599,21 @@ struct TypeChecker {
 								} else if (!is_ne && strcmp(ctor_name, "None") != 0) {
 									payload_type = resolved->data.app.args[0];
 								}
-							} else if (base == "Result" && resolved->data.app.args.size() == 2) {
-								if (is_ne) {
-									payload_type = resolved->data.app.args[0];
-								} else if (strcmp(ctor_name, "Ok") == 0) {
-									payload_type = resolved->data.app.args[0];
-								} else if (strcmp(ctor_name, "Err") == 0) {
-									payload_type = resolved->data.app.args[1];
-								}
+						} else if (base == "Result" && resolved->data.app.args.size() == 2) {
+							if (is_ne) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Ok") == 0) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Err") == 0) {
+								payload_type = resolved->data.app.args[1];
 							}
+						} else {
+							/* Custom ADT: look up payload type from ADT definition */
+							ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+							if (payload_node) {
+								payload_type = type_from_ast(payload_node);
+							}
+						}
 						}
 					}
 					if (payload_type) {
@@ -1584,11 +1636,13 @@ struct TypeChecker {
 			ASTNode* member_node = nullptr;
 			const char* ctor_name = nullptr;
 			if (lhs && lhs->type == AST_MEMBER_ACCESS && rhs && rhs->type == AST_IDENTIFIER &&
-				rhs->data.identifier.name && is_builtin_ctor(rhs->data.identifier.name)) {
+				rhs->data.identifier.name &&
+				(is_builtin_ctor(rhs->data.identifier.name) || vix_adt_ctor_index(rhs->data.identifier.name) >= 0)) {
 				member_node = lhs;
 				ctor_name = rhs->data.identifier.name;
 			} else if (rhs && rhs->type == AST_MEMBER_ACCESS && lhs && lhs->type == AST_IDENTIFIER &&
-				lhs->data.identifier.name && is_builtin_ctor(lhs->data.identifier.name)) {
+				lhs->data.identifier.name &&
+				(is_builtin_ctor(lhs->data.identifier.name) || vix_adt_ctor_index(lhs->data.identifier.name) >= 0)) {
 				member_node = rhs;
 				ctor_name = lhs->data.identifier.name;
 			}
@@ -1614,6 +1668,18 @@ struct TypeChecker {
 							if (strcmp(ctor_name, "Some") == 0) {
 								payload_type = resolved->data.app.args[0];
 							}
+						} else {
+							/* Custom ADT: look up payload type from ADT definition */
+							ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+							if (payload_node) {
+								payload_type = type_from_ast(payload_node);
+							}
+						}
+					} else if (resolved->kind == TypeKind::Struct) {
+						/* Custom ADT with Struct type (not App): look up payload type */
+						ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+						if (payload_node) {
+							payload_type = type_from_ast(payload_node);
 						}
 					}
 					if (payload_type) {
@@ -1743,6 +1809,13 @@ struct TypeChecker {
 								? node->data.member_access.field->data.identifier.name
 								: "";
 
+		auto set_member_type = [&](const TypePtr& t) -> TypePtr {
+			TypePtr r = t ? unify.apply(t) : unify.fresh();
+			node_types[node] = r;
+			store_inferred_type(node, r);
+			return r;
+		};
+
 		bool numeric_field = field && field[0] != '\0';
 		for (const char* p = field; numeric_field && *p; ++p) {
 			if (*p < '0' || *p > '9') {
@@ -1752,35 +1825,35 @@ struct TypeChecker {
 
 		if (numeric_field) {
 			if (resolved->kind == TypeKind::Array) {
-				return node_types[node] = resolved->data.array.element;
+				return set_member_type(resolved->data.array.element);
 			}
 			if (resolved->kind == TypeKind::FixedArray) {
-				return node_types[node] = resolved->data.fixed_array.element;
+				return set_member_type(resolved->data.fixed_array.element);
 			}
 			if (resolved->kind == TypeKind::Ptr) {
 				TypePtr pointee = unify.apply(resolved->data.ptr.pointee);
 				if (pointee->kind == TypeKind::Array) {
-					return node_types[node] = pointee->data.array.element;
+					return set_member_type(pointee->data.array.element);
 				}
 				if (pointee->kind == TypeKind::FixedArray) {
-					return node_types[node] = pointee->data.fixed_array.element;
+					return set_member_type(pointee->data.fixed_array.element);
 				}
-				return node_types[node] = pointee;
+				return set_member_type(pointee);
 			}
 			if (resolved->kind == TypeKind::Tuple) {
 				int idx = atoi(field);
 				if (idx >= 0 && idx < (int)resolved->data.tuple.elements.size()) {
-					return node_types[node] = resolved->data.tuple.elements[idx];
+					return set_member_type(resolved->data.tuple.elements[idx]);
 				}
 				report_semantic_error(node, "tuple index out of bounds");
-				return node_types[node] = unify.fresh();
+				return set_member_type(unify.fresh());
 			}
 			if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
 				resolved->data.app.ctor->kind == TypeKind::Struct) {
 				const std::string& base = resolved->data.app.ctor->data.struct_data.name;
 				int idx = atoi(field);
 				if (idx == 0) {
-					return node_types[node] = builtin_i32;
+					return set_member_type(builtin_i32);
 				}
 				if (idx == 1 && !resolved->data.app.args.empty()) {
 					// Check match_payload_field_types first (set by check_if for desugared match)
@@ -1789,14 +1862,25 @@ struct TypeChecker {
 						std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
 						auto it = match_payload_field_types.find(key);
 						if (it != match_payload_field_types.end()) {
-							return node_types[node] = it->second;
+							return set_member_type(it->second);
 						}
 					}
 					if (base == "Option" && resolved->data.app.args.size() >= 1) {
-						return node_types[node] = resolved->data.app.args[0];
+						return set_member_type(resolved->data.app.args[0]);
 					}
 					if (base == "Result" && resolved->data.app.args.size() >= 2) {
-						return node_types[node] = resolved->data.app.args[0];
+						return set_member_type(resolved->data.app.args[0]);
+					}
+					/* Custom ADT: look up payload type from ADT definition */
+					if (objectNode && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+						/* Try to find the constructor from the match context */
+						ASTNode* payload_node = vix_adt_ctor_payload_type_node(base.c_str());
+						if (!payload_node) {
+							payload_node = vix_adt_payload_type_for_base(base.c_str());
+						}
+						if (payload_node) {
+							return set_member_type(type_from_ast(payload_node));
+						}
 					}
 				}
 				{
@@ -1805,11 +1889,11 @@ struct TypeChecker {
 						std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
 						auto it = match_payload_field_types.find(key);
 						if (it != match_payload_field_types.end()) {
-							return node_types[node] = it->second;
+							return set_member_type(it->second);
 						}
 					}
 				}
-				return node_types[node] = unify.fresh();
+				return set_member_type(unify.fresh());
 			}
 			{
 				ASTNode* objectNode = node->data.member_access.object;
@@ -1817,7 +1901,7 @@ struct TypeChecker {
 					std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
 					auto it = match_payload_field_types.find(key);
 					if (it != match_payload_field_types.end()) {
-						return node_types[node] = it->second;
+						return set_member_type(it->second);
 					}
 				}
 			}
@@ -2150,6 +2234,95 @@ struct TypeChecker {
 	}
 
 	TypePtr check_call(ASTNode* node) {
+		/* Handle impl method calls: obj.method(args) or Type.method(args) */
+		if (node->data.call.func && node->data.call.func->type == AST_MEMBER_ACCESS) {
+			ASTNode* mem = node->data.call.func;
+			ASTNode* objectNode = mem->data.member_access.object;
+			ASTNode* fieldNode = mem->data.member_access.field;
+			if (objectNode && fieldNode && fieldNode->type == AST_IDENTIFIER && fieldNode->data.identifier.name) {
+				std::string methodName(fieldNode->data.identifier.name);
+				std::string typeName;
+				/* Check if object is a type name (e.g., Point.new) */
+				if (objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+					std::string objName(objectNode->data.identifier.name);
+					/* Check if it's a known type (struct or ADT) */
+					if (env.lookup_struct(objName) || vix_is_adt_definition(objName.c_str())) {
+						typeName = objName;
+					}
+				}
+				/* If not a type name, try to get the type from the object */
+				if (typeName.empty()) {
+					TypePtr objType = check_expr(objectNode);
+					TypePtr resolved = unify.apply(objType);
+					if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
+						resolved->data.app.ctor->kind == TypeKind::Struct) {
+						typeName = resolved->data.app.ctor->data.struct_data.name;
+					} else if (resolved->kind == TypeKind::Struct) {
+						typeName = resolved->data.struct_data.name;
+					} else if (resolved->kind == TypeKind::String) {
+						typeName = "string";
+					} else if (resolved->kind == TypeKind::I32) {
+						typeName = "i32";
+					} else if (resolved->kind == TypeKind::I64) {
+						typeName = "i64";
+					} else if (resolved->kind == TypeKind::F64) {
+						typeName = "f64";
+					} else if (resolved->kind == TypeKind::F32) {
+						typeName = "f32";
+					} else if (resolved->kind == TypeKind::I8) {
+						typeName = "i8";
+					}
+				}
+				if (!typeName.empty()) {
+					const char* mangledFunc = vix_lookup_impl_method(typeName.c_str(), methodName.c_str());
+					if (mangledFunc) {
+						/* Look up the mangled function in the environment */
+						TypePtr fnType = env.lookup_value(mangledFunc) ? env.lookup_value(mangledFunc)->type : TypePtr(nullptr);
+						if (fnType && fnType->kind == TypeKind::Fn) {
+							/* Check if function has 'self' parameter */
+							bool hasSelf = false;
+							/* Look at the function node to check parameter names */
+							/* For now, assume methods with first param named 'self' are instance methods */
+							/* We can check by looking at the function's parameter count vs args */
+							int totalParams = (int)fnType->data.fn.params.size();
+							int actualArgs = node->data.call.args ? node->data.call.args->data.expression_list.expression_count : 0;
+							/* If the function has more params than args, it might have a self param */
+							/* Actually, let's just try to match without self first, then with self */
+							int expectedArgs = totalParams;
+							/* Check if this is a static call (object is a type name) */
+							bool isStaticCall = false;
+							if (objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+								std::string objName(objectNode->data.identifier.name);
+								if (env.lookup_struct(objName) || vix_is_adt_definition(objName.c_str())) {
+									isStaticCall = true;
+								}
+							}
+							if (!isStaticCall && totalParams > 0) {
+								/* Instance method: subtract self from param count */
+								expectedArgs = totalParams - 1;
+							}
+							if (actualArgs != expectedArgs) {
+								report_semantic_error(node, std::string("method '") + methodName + "' expects " +
+									std::to_string(expectedArgs) + " arguments, but got " + std::to_string(actualArgs));
+							}
+							/* Unify arguments */
+							int paramOffset = isStaticCall ? 0 : 1;
+							for (int i = 0; i < actualArgs && i + paramOffset < totalParams; i++) {
+								ASTNode* arg = node->data.call.args->data.expression_list.expressions[i];
+								TypePtr argType = check_expr(arg);
+								try {
+									unify.unify(fnType->data.fn.params[i + paramOffset], argType);
+								} catch (const std::exception& ex) {
+									report_type_error(arg, ex.what());
+								}
+							}
+							return node_types[node] = fnType->data.fn.ret;
+						}
+					}
+				}
+			}
+		}
+
 		if (node->data.call.func && node->data.call.func->type == AST_IDENTIFIER) {
 			const char* cname = node->data.call.func->data.identifier.name;
 			if (cname && strcmp(cname, "Some") == 0) {
@@ -2249,6 +2422,14 @@ struct TypeChecker {
 				TypePtr param_type = unify.apply(fn_type->data.fn.params[i]);
 				TypePtr arg_type = unify.apply(arg_types[i]);
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::String) {
+					continue;
+				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::FixedArray) {
+					// Allow passing array to ptr parameter (array decays to pointer)
+					continue;
+				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::Array) {
+					// Allow passing array to ptr parameter (array decays to pointer)
 					continue;
 				}
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind != TypeKind::Ptr) {
@@ -2393,6 +2574,12 @@ struct TypeChecker {
 			}
 		}
 
+		if (node->data.function.is_extern) {
+			generic_bindings = std::move(saved_generics);
+			env.exit_scope();
+			return node_types[node] = fn_type;
+		}
+
 		if (node->data.function.params && node->data.function.params->type == AST_EXPRESSION_LIST) {
 			int count = node->data.function.params->data.expression_list.expression_count;
 			for (int i = 0; i < count; i++) {
@@ -2416,33 +2603,44 @@ struct TypeChecker {
 		warn_array_parameter_value_semantics(node);
 		TypePtr ret_type = type_from_ast(node->data.function.return_type);
 		if (!(node->data.function.is_extern && node->data.function.body == nullptr)) {
-			try {
-				unify.unify(ret_type, body_type);
-			} catch (const std::exception& ex) {
-				/* Try auto-deref: if body_type is Ptr[T] and ret_type is T, allow it */
-				TypePtr resolved_body = unify.apply(body_type);
-				TypePtr resolved_ret = unify.apply(ret_type);
-				bool auto_deref_ok = false;
-				if (resolved_body->kind == TypeKind::Ptr && resolved_body->data.ptr.pointee) {
-					try {
-						unify.unify(resolved_ret, resolved_body->data.ptr.pointee);
-						auto_deref_ok = true;
-					} catch (...) {}
+			TypePtr resolved_ret = unify.apply(ret_type);
+			TypePtr resolved_body = unify.apply(body_type);
+			/* For void functions, don't fail on implicit body type (e.g. last statement is a non-void call) */
+			bool skip_unify = false;
+			if (resolved_ret->kind == TypeKind::Void && resolved_body->kind != TypeKind::Void) {
+				/* Check if the body has explicit return statements with values */
+				bool has_explicit_return = find_return_node(node->data.function.body) != nullptr;
+				if (!has_explicit_return) {
+					skip_unify = true;
 				}
-				if (!auto_deref_ok && resolved_ret->kind == TypeKind::Ptr && resolved_ret->data.ptr.pointee) {
-					try {
-						unify.unify(resolved_body, resolved_ret->data.ptr.pointee);
-						auto_deref_ok = true;
-					} catch (...) {}
-				}
-				if (!auto_deref_ok) {
-					ASTNode* ret_node = find_return_node(node->data.function.body);
-					if (ret_node && ret_node->data.return_stmt.expr) {
-						report_type_error(ret_node->data.return_stmt.expr, ex.what());
-					} else if (ret_node) {
-						report_type_error(ret_node, ex.what());
-					} else {
-						report_type_error(node, ex.what());
+			}
+			if (!skip_unify) {
+				try {
+					unify.unify(ret_type, body_type);
+				} catch (const std::exception& ex) {
+					/* Try auto-deref: if body_type is Ptr[T] and ret_type is T, allow it */
+					bool auto_deref_ok = false;
+					if (resolved_body->kind == TypeKind::Ptr && resolved_body->data.ptr.pointee) {
+						try {
+							unify.unify(resolved_ret, resolved_body->data.ptr.pointee);
+							auto_deref_ok = true;
+						} catch (...) {}
+					}
+					if (!auto_deref_ok && resolved_ret->kind == TypeKind::Ptr && resolved_ret->data.ptr.pointee) {
+						try {
+							unify.unify(resolved_body, resolved_ret->data.ptr.pointee);
+							auto_deref_ok = true;
+						} catch (...) {}
+					}
+					if (!auto_deref_ok) {
+						ASTNode* ret_node = find_return_node(node->data.function.body);
+						if (ret_node && ret_node->data.return_stmt.expr) {
+							report_type_error(ret_node->data.return_stmt.expr, ex.what());
+						} else if (ret_node) {
+							report_type_error(ret_node, ex.what());
+						} else {
+							report_type_error(node, ex.what());
+						}
 					}
 				}
 			}
