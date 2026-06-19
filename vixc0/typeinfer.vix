@@ -74,9 +74,40 @@ pub fn type_is_truthy(ty: string): i32
     return 0
 }
 
+pub fn type_is_integer(ty: string): i32
+{
+    if (ty == "i32" or ty == "i64" or ty == "unknown") { return 1 }
+    return 0
+}
+
+pub fn type_is_float(ty: string): i32
+{
+    if (ty == "f32" or ty == "f64" or ty == "unknown") { return 1 }
+    return 0
+}
+
 pub fn type_is_numeric(ty: string): i32
 {
-    if (ty == "i32" or ty == "unknown") { return 1 }
+    if (type_is_integer(ty) == 1 or type_is_float(ty) == 1) { return 1 }
+    return 0
+}
+
+pub fn type_numeric_result(left_ty: string, right_ty: string): string
+{
+    if (left_ty == "unknown") { return right_ty }
+    if (right_ty == "unknown") { return left_ty }
+    if (left_ty == "f64" or right_ty == "f64") { return "f64" }
+    if (left_ty == "f32" or right_ty == "f32") { return "f32" }
+    if (left_ty == "i64" or right_ty == "i64") { return "i64" }
+    return "i32"
+}
+
+pub fn type_can_assign(target_ty: string, value_ty: string): i32
+{
+    if (target_ty == "" or target_ty == "unknown" or value_ty == "unknown") { return 1 }
+    if (target_ty == value_ty) { return 1 }
+    if (target_ty == "i64" and value_ty == "i32") { return 1 }
+    if ((target_ty == "f32" or target_ty == "f64") and (value_ty == "i32" or value_ty == "i64" or value_ty == "f32" or value_ty == "f64")) { return 1 }
     return 0
 }
 
@@ -88,6 +119,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
     {
         "int" -> "i32"
         "bool" -> "bool"
+        "float" -> "f64"
         "string" -> "string"
         "ident" -> symtable_lookup(env, expr.text)
         "option" -> "Option[string]"
@@ -119,7 +151,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
                 {
                     symtable_fail(env, "operator '-' expects numeric operand, got '" + inner_ty + "'")
                 }
-                "i32"
+                inner_ty
             }
             elif (expr.text == "!")
             {
@@ -141,7 +173,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
             if (env.ok == 0) { return "unknown" }
             if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=")
             {
-                if (left_ty != right_ty and left_ty != "unknown" and right_ty != "unknown")
+                if (left_ty != right_ty and left_ty != "unknown" and right_ty != "unknown" and (type_is_numeric(left_ty) == 0 or type_is_numeric(right_ty) == 0))
                 {
                     symtable_fail(env, "cannot compare '" + left_ty + "' with '" + right_ty + "'")
                 }
@@ -175,7 +207,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
                     {
                         symtable_fail(env, "operator '+' expects numeric operands")
                     }
-                    "i32"
+                    type_numeric_result(left_ty, right_ty)
                 }
             }
             else
@@ -184,29 +216,39 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
                 {
                     symtable_fail(env, "operator '" + expr.text + "' expects numeric operands")
                 }
-                "i32"
+                type_numeric_result(left_ty, right_ty)
             }
         }
         _ -> "unknown"
     }
 }
 
-pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string)
+pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string, loop_depth: i32)
 {
     if (stmt_idx < 0 or env.ok == 0) { return }
     let stmt = stmt_store_get(store, stmt_idx)
     match stmt.tag
     {
         "let" -> {
-            let ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
-            if (env.ok == 1) { symtable_declare(env, stmt.assign_name, ty) }
+            let mut ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
+            if (env.ok == 0) { return }
+            if (stmt.type_text != "")
+            {
+                if (type_can_assign(stmt.type_text, ty) == 0)
+                {
+                    symtable_fail(env, "cannot initialize '" + stmt.assign_name + "' of type '" + stmt.type_text + "' with '" + ty + "'")
+                    return
+                }
+                ty = stmt.type_text
+            }
+            symtable_declare(env, stmt.assign_name, ty)
         }
         "assign" -> {
             let current_ty = symtable_lookup(env, stmt.assign_name)
             if (env.ok == 0) { return }
             let value_ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
             if (env.ok == 0) { return }
-            if (current_ty != "unknown" and value_ty != "unknown" and current_ty != value_ty)
+            if (type_can_assign(current_ty, value_ty) == 0)
             {
                 symtable_fail(env, "cannot assign '" + value_ty + "' to '" + stmt.assign_name + "' of type '" + current_ty + "'")
             }
@@ -237,7 +279,7 @@ pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
             {
                 for (i in 0 .. stmt.stmt_indices.length)
                 {
-                    infer_stmt_type(env, funcs, es, store, stmt.stmt_indices[i], ret_ty)
+                    infer_stmt_type_in_loop(env, funcs, es, store, stmt.stmt_indices[i], ret_ty, loop_depth)
                     if (env.ok == 0)
                     {
                         symtable_pop_scope(env)
@@ -249,7 +291,7 @@ pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
             {
                 for (i in 0 .. stmt.block_count)
                 {
-                    infer_stmt_type(env, funcs, es, store, stmt.block_start + i, ret_ty)
+                    infer_stmt_type_in_loop(env, funcs, es, store, stmt.block_start + i, ret_ty, loop_depth)
                     if (env.ok == 0)
                     {
                         symtable_pop_scope(env)
@@ -267,7 +309,28 @@ pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
                 symtable_fail(env, "while condition must be bool or i32, got '" + cond_ty + "'")
                 return
             }
-            infer_stmt_type(env, funcs, es, store, stmt.body_idx, ret_ty)
+            infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
+        }
+        "break" | "continue" -> {
+            if (loop_depth <= 0)
+            {
+                symtable_fail(env, "'" + stmt.tag + "' used outside loop")
+            }
+        }
+        "if" -> {
+            let cond_ty = infer_expr_type(env, funcs, es, stmt.value_idx)
+            if (env.ok == 0) { return }
+            if (type_is_truthy(cond_ty) == 0)
+            {
+                symtable_fail(env, "if condition must be bool or i32, got '" + cond_ty + "'")
+                return
+            }
+            infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth)
+            if (env.ok == 0) { return }
+            if (stmt.assign_idx >= 0)
+            {
+                infer_stmt_type_in_loop(env, funcs, es, store, stmt.assign_idx, ret_ty, loop_depth)
+            }
         }
         "if_eq_return" -> {
             if (ret_ty != "i32" and ret_ty != "unknown")
@@ -283,6 +346,11 @@ pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
         }
         _ -> {}
     }
+}
+
+pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string)
+{
+    infer_stmt_type_in_loop(env, funcs, es, store, stmt_idx, ret_ty, 0)
 }
 
 pub fn infer_function(func: AstFunction, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore): TypeInferResult

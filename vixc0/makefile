@@ -13,6 +13,9 @@ $(TARGET): helper.o vixc0.o
 	vixc $^ -o $@ -L /usr/lib -l LLVM-22
 
 clean:
-	rm -f helper.o vixc0.o test test.ll 
+	rm -f helper.o vixc0.o $(TARGET) test test.ll 
 
-.PHONY: all clean
+test: $(TARGET)
+	python3 ../tests/vixc0_run.py
+
+.PHONY: all clean test

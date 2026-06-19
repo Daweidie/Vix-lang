@@ -31,6 +31,11 @@ pub fn parser_int(parser: &Parser): i32
     return stream_int_at(parser.stream, parser.pos)
 }
 
+pub fn parser_float(parser: &Parser): f64
+{
+    return stream_float_at(parser.stream, parser.pos)
+}
+
 pub fn parser_at_end(parser: &Parser): i32
 {
     if (parser_kind(parser) == tk_eof()) { return 1 }
@@ -165,7 +170,7 @@ pub fn parse_multiplicative(parser: &Parser): i32
 
 pub fn parse_unary(parser: &Parser): i32
 {
-    let result = match parser_text(parser) {
+    return match parser_text(parser) {
         "-" -> {
             parser_advance(parser)
             let operand = parse_unary(parser)
@@ -180,8 +185,6 @@ pub fn parse_unary(parser: &Parser): i32
         }
         _ -> parse_primary(parser)
     }
-    
-    return result
 }
 
 pub fn parse_primary(parser: &Parser): i32
@@ -192,6 +195,12 @@ pub fn parse_primary(parser: &Parser): i32
         let val = parser_int(parser)
         parser_advance(parser)
         return ast_expr_int(parser.expr_store, val)
+    }
+    if (kind == tk_float())
+    {
+        let val = parser_float(parser)
+        parser_advance(parser)
+        return ast_expr_float(parser.expr_store, val)
     }
     if (kind == tk_bool())
     {
@@ -330,27 +339,70 @@ pub fn parse_block_statement(parser: &Parser): i32
         indices.push(stmt_idx)
     }
     if (parser_expect_text(parser, "}") == 0) { return -1 }
-    if (indices.length == 1)
-    {
-        return indices[0]
-    }
     return ast_stmt_block_indices(parser.store, indices)
+}
+
+pub fn parse_if_rest(parser: &Parser): i32
+{
+    while (parser_text(parser) == ";")
+    {
+        parser_advance(parser)
+    }
+    return match parser_text(parser) {
+        "else" -> {
+            parser_advance(parser)
+            let else_idx = parse_block_statement(parser)
+            if (parser.ok == 0) { return -1 }
+            else_idx
+        }
+        "elif" -> parse_if_statement(parser)
+        _ -> -1
+    }
+}
+
+pub fn parse_if_statement(parser: &Parser): i32
+{
+    let keyword = parser_text(parser)
+    if (keyword != "if" and keyword != "elif")
+    {
+        parser_fail(parser, "expected if or elif, got '" + keyword + "'")
+        return -1
+    }
+    parser_advance(parser)
+    parser_expect_text(parser, "(")
+    if (parser.ok == 0) { return -1 }
+    let cond_idx = parse_expression(parser)
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, ")")
+    if (parser.ok == 0) { return -1 }
+    let then_idx = parse_block_statement(parser)
+    if (parser.ok == 0) { return -1 }
+    let else_idx = parse_if_rest(parser)
+    if (parser.ok == 0) { return -1 }
+    return ast_stmt_if(parser.store, cond_idx, then_idx, else_idx)
 }
 
 pub fn parse_statement(parser: &Parser): i32
 {
-    let result = match parser_text(parser) {
+    return match parser_text(parser) {
         "let" -> {
             parser_advance(parser)
             if (parser_text(parser) == "mut") { parser_advance(parser) }
             let name = parser_text(parser)
             if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
+            let mut type_text = ""
+            if (parser_text(parser) == ":")
+            {
+                parser_advance(parser)
+                type_text = parser_text(parser)
+                parser_advance(parser)
+            }
             parser_expect_text(parser, "=")
             if (parser.ok == 0) { return -1 }
             let expr_idx = parse_expression(parser)
             if (parser.ok == 0) { return -1 }
             parser_accept_text(parser, ";")
-            ast_stmt_let(parser.store, name, expr_idx)
+            ast_stmt_let_typed(parser.store, name, type_text, expr_idx)
         }
         "return" -> {
             parser_advance(parser)
@@ -390,14 +442,15 @@ pub fn parse_statement(parser: &Parser): i32
             if (parser.ok == 0) { return -1 }
             ast_stmt_while(parser.store, cond_idx, body_idx)
         }
+        "if" -> parse_if_statement(parser)
         "break" | "continue" -> {
+            let tag = parser_text(parser)
             parser_advance(parser)
             parser_accept_text(parser, ";")
-            ast_stmt_return(parser.store, parser.expr_store, 0)
+            ast_stmt_loop_control(parser.store, tag)
         }
         _ -> parse_statement_ident(parser)
     }
-    return result
 }
 
 pub fn parse_function(parser: &Parser): AstFunction

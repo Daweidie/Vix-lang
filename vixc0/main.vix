@@ -27,6 +27,7 @@ fn string_ends_with(text: string, suffix: string): i32
 
 fn compiler_mode(arg: string): ?string
 {
+    if (arg == "--tyinfer") { return Some("--typeinfer") }
     return match arg {
         "--lex" | "--parser" | "--ast" | "--typeinfer" | "codegen" -> Some(arg)
         _ -> None

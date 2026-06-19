@@ -15,13 +15,17 @@ extern "C"
     fn LLVMInt32Type(): ptr
     fn LLVMInt64Type(): ptr
     fn LLVMInt8Type(): ptr
+    fn LLVMFloatType(): ptr
+    fn LLVMDoubleType(): ptr
     fn LLVMPointerType(element_ty: ptr, address_space: i32): ptr
 
     fn vix_LLVMFunctionType0(ret_ty: ptr, is_var_arg: i32): ptr
     fn vix_LLVMFunctionType1(ret_ty: ptr, p0: ptr, is_var_arg: i32): ptr
     fn vix_LLVMFunctionType2(ret_ty: ptr, p0: ptr, p1: ptr, is_var_arg: i32): ptr
     fn vix_LLVMFunctionTypeI32N(ret_ty: ptr, param_count: i32, is_var_arg: i32): ptr
+    fn vix_LLVMFunctionTypeTypedN(ret_ty: ptr, param_types: ptr, param_count: i32, is_var_arg: i32): ptr
     fn vix_LLVMConstInt(ty: ptr, val: i64, sign_extend: i32): ptr
+    fn vix_LLVMConstReal(ty: ptr, val: f64): ptr
     fn vix_LLVMAddFunction(module: ptr, name: string, ty: ptr): ptr
     fn vix_LLVMGetParam(fn_ref: ptr, index: i32): ptr
     fn vix_LLVMGetNamedFunction(module: ptr, name: string): ptr
@@ -37,7 +41,12 @@ extern "C"
     fn vix_LLVMBuildMul(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildSDiv(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildSRem(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildFAdd(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildFSub(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildFMul(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildFDiv(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildNeg(builder: ptr, val: ptr, name: string): ptr
+    fn vix_LLVMBuildFNeg(builder: ptr, val: ptr, name: string): ptr
     fn vix_LLVMBuildRet(builder: ptr, val: ptr): ptr
     fn vix_LLVMBuildRetVoid(builder: ptr): ptr
     fn vix_LLVMBuildCall2(builder: ptr, ty: ptr, fn_ref: ptr, args: ptr, arg_count: i32, name: string): ptr
@@ -45,7 +54,11 @@ extern "C"
     fn vix_LLVMBuildStore(builder: ptr, val: ptr, ptr_val: ptr): ptr
     fn vix_LLVMBuildLoad2(builder: ptr, ty: ptr, ptr_val: ptr, name: string): ptr
     fn vix_LLVMBuildICmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildFCmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildZExt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildSIToFP(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildFPExt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildFPTrunc(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
     fn vix_LLVMBuildBr(builder: ptr, block: ptr): ptr
     fn vix_LLVMBuildCondBr(builder: ptr, cond: ptr, then_block: ptr, else_block: ptr): ptr
     fn vix_LLVMBuildGEP2(builder: ptr, ty: ptr, pointer: ptr, indices: ptr, num_indices: i32, name: string): ptr
@@ -56,6 +69,13 @@ extern "C"
     fn vix_reset_vars()
     fn vix_set_var(name: string, value: ptr)
     fn vix_get_var(name: string): ptr
+    fn vix_set_var_type(name: string, ty: string)
+    fn vix_get_var_type(name: string): string
+    fn vix_reset_function_sigs()
+    fn vix_register_function_sig(name: string, ret_ty: string, param_types: ptr, param_count: i32)
+    fn vix_get_function_return_type(name: string): string
+    fn vix_get_function_param_type(name: string, index: i32): string
+    fn vix_get_function_param_count(name: string): i32
 }
 
 pub fn i32_to_str(n: i32): string
@@ -66,6 +86,11 @@ pub fn i32_to_str(n: i32): string
 }
 
 pub fn i32_to_i64(n: i32): i64
+{
+    return n
+}
+
+pub fn i32_to_f64(n: i32): f64
 {
     return n
 }
@@ -101,20 +126,76 @@ pub fn set_var(b: &LlvmBuilder, name: string, value: ptr)
     vix_set_var(name, value)
 }
 
+pub fn get_var_type(b: &LlvmBuilder, name: string): string
+{
+    let ty = vix_get_var_type(name)
+    if (ty == nil) { return "i32" }
+    return ty
+}
+
+pub fn set_var_type(b: &LlvmBuilder, name: string, ty: string)
+{
+    vix_set_var_type(name, ty)
+}
+
+pub fn reset_function_sigs()
+{
+    vix_reset_function_sigs()
+}
+
+pub fn register_function_sig(name: string, ret_ty: string, param_types: [string])
+{
+    vix_register_function_sig(name, ret_ty, param_types, param_types.length)
+}
+
+pub fn get_function_return_type(name: string): string
+{
+    return vix_get_function_return_type(name)
+}
+
+pub fn get_function_param_type(name: string, index: i32): string
+{
+    return vix_get_function_param_type(name, index)
+}
+
+pub fn get_function_param_count(name: string): i32
+{
+    return vix_get_function_param_count(name)
+}
+
+pub fn llvm_type_for(ty: string): ptr
+{
+    return match ty {
+        "void" -> LLVMVoidType()
+        "bool" -> LLVMInt32Type()
+        "i64" -> LLVMInt64Type()
+        "f32" -> LLVMFloatType()
+        "f64" -> LLVMDoubleType()
+        "string" -> LLVMPointerType(LLVMInt8Type(), 0)
+        _ -> LLVMInt32Type()
+    }
+}
+
 pub fn get_fmt_string(b: &LlvmBuilder): ptr
 {
-    let mut global = vix_LLVMGetNamedGlobal(b.module, ".str")
+    return get_c_string_global(b, ".fmt.i32", "%d\n")
+}
+
+pub fn get_c_string_global(b: &LlvmBuilder, name: string, text: string): ptr
+{
+    let mut global = vix_LLVMGetNamedGlobal(b.module, name)
+    let str_len = text.length
     if (global == nil)
     {
-        let str_val = vix_LLVMConstString("%d\n", 3, 0)
-        let str_ty = vix_LLVMArrayType(LLVMInt8Type(), 4)
-        global = vix_LLVMAddGlobal(b.module, str_ty, ".str")
+        let str_val = vix_LLVMConstString(text, str_len, 0)
+        let str_ty = vix_LLVMArrayType(LLVMInt8Type(), str_len + 1)
+        global = vix_LLVMAddGlobal(b.module, str_ty, name)
         vix_LLVMSetInitializer(global, str_val)
         vix_LLVMSetGlobalConstant(global, 1)
         vix_LLVMSetLinkage(global, 8)
     }
     let indices = [vix_LLVMConstInt(LLVMInt32Type(), 0, 0), vix_LLVMConstInt(LLVMInt32Type(), 0, 0)]
-    return vix_LLVMBuildGEP2(b.builder, vix_LLVMArrayType(LLVMInt8Type(), 4), global, indices, 2, "fmt_ptr")
+    return vix_LLVMBuildGEP2(b.builder, vix_LLVMArrayType(LLVMInt8Type(), str_len + 1), global, indices, 2, "str_ptr")
 }
 
 pub fn llvm_new(): LlvmBuilder
@@ -156,8 +237,13 @@ pub fn llvm_emit_function_header(b: &LlvmBuilder, name: string, ret_ty: string)
 pub fn llvm_emit_function_header_with_params(b: &LlvmBuilder, name: string, ret_ty: string, param_names: [string], param_types: [string])
 {
     vix_reset_vars()
-    let llvm_ret_ty = if (ret_ty == "void") { LLVMVoidType() } else { LLVMInt32Type() }
-    let fn_ty = vix_LLVMFunctionTypeI32N(llvm_ret_ty, param_names.length, 0)
+    let llvm_ret_ty = llvm_type_for(ret_ty)
+    let mut llvm_param_types: [ptr] = []
+    for (i in 0 .. param_names.length)
+    {
+        llvm_param_types.push(llvm_type_for(param_types[i]))
+    }
+    let fn_ty = vix_LLVMFunctionTypeTypedN(llvm_ret_ty, llvm_param_types, param_names.length, 0)
     let mut fn_ref = vix_LLVMGetNamedFunction(b.module, name)
     if (fn_ref == nil)
     {
@@ -170,7 +256,7 @@ pub fn llvm_emit_function_header_with_params(b: &LlvmBuilder, name: string, ret_
     for (i in 0 .. param_names.length)
     {
         let param_value = vix_LLVMGetParam(b.current_fn, i)
-        let alloca = llvm_alloc_i32_var(b, param_names[i])
+        let alloca = llvm_alloc_var(b, param_names[i], param_types[i])
         vix_LLVMBuildStore(b.builder, param_value, alloca)
     }
 }
@@ -215,16 +301,42 @@ pub fn llvm_const_i32(value: i32): ptr
     return vix_LLVMConstInt(LLVMInt32Type(), i32_to_i64(value), 0)
 }
 
+pub fn llvm_const_i64(value: i32): ptr
+{
+    return vix_LLVMConstInt(LLVMInt64Type(), i32_to_i64(value), 0)
+}
+
+pub fn llvm_const_bool(value: i32): ptr
+{
+    return llvm_const_i32(value)
+}
+
+pub fn llvm_const_float(value: f64, ty: string): ptr
+{
+    return vix_LLVMConstReal(llvm_type_for(ty), value)
+}
+
 pub fn llvm_alloc_i32_var(b: &LlvmBuilder, name: string): ptr
 {
-    let alloca = vix_LLVMBuildAlloca(b.builder, LLVMInt32Type(), name)
+    return llvm_alloc_var(b, name, "i32")
+}
+
+pub fn llvm_alloc_var(b: &LlvmBuilder, name: string, ty: string): ptr
+{
+    let alloca = vix_LLVMBuildAlloca(b.builder, llvm_type_for(ty), name)
     set_var(b, name, alloca)
+    set_var_type(b, name, ty)
     return alloca
 }
 
 pub fn llvm_load_i32_var(b: &LlvmBuilder, name: string): ptr
 {
-    return vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), get_var(b, name), llvm_temp(b, "load"))
+    return llvm_load_var(b, name)
+}
+
+pub fn llvm_load_var(b: &LlvmBuilder, name: string): ptr
+{
+    return vix_LLVMBuildLoad2(b.builder, llvm_type_for(get_var_type(b, name)), get_var(b, name), llvm_temp(b, "load"))
 }
 
 pub fn llvm_store_value(b: &LlvmBuilder, value: ptr, target_name: string)
@@ -234,7 +346,12 @@ pub fn llvm_store_value(b: &LlvmBuilder, value: ptr, target_name: string)
 
 pub fn llvm_define_i32_var(b: &LlvmBuilder, name: string, value: ptr)
 {
-    let alloca = llvm_alloc_i32_var(b, name)
+    llvm_define_var(b, name, "i32", value)
+}
+
+pub fn llvm_define_var(b: &LlvmBuilder, name: string, ty: string, value: ptr)
+{
+    let alloca = llvm_alloc_var(b, name, ty)
     vix_LLVMBuildStore(b.builder, value, alloca)
 }
 
@@ -268,14 +385,76 @@ pub fn llvm_build_neg_value(b: &LlvmBuilder, value: ptr): ptr
     return vix_LLVMBuildNeg(b.builder, value, llvm_temp(b, "neg"))
 }
 
+pub fn llvm_build_fadd_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildFAdd(b.builder, left, right, llvm_temp(b, "fadd"))
+}
+
+pub fn llvm_build_fsub_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildFSub(b.builder, left, right, llvm_temp(b, "fsub"))
+}
+
+pub fn llvm_build_fmul_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildFMul(b.builder, left, right, llvm_temp(b, "fmul"))
+}
+
+pub fn llvm_build_fdiv_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildFDiv(b.builder, left, right, llvm_temp(b, "fdiv"))
+}
+
+pub fn llvm_build_fneg_value(b: &LlvmBuilder, value: ptr): ptr
+{
+    return vix_LLVMBuildFNeg(b.builder, value, llvm_temp(b, "fneg"))
+}
+
 pub fn llvm_build_icmp_value(b: &LlvmBuilder, op: i32, left: ptr, right: ptr): ptr
 {
     let cmp = vix_LLVMBuildICmp(b.builder, op, left, right, llvm_temp(b, "cmp"))
     return vix_LLVMBuildZExt(b.builder, cmp, LLVMInt32Type(), llvm_temp(b, "bool"))
 }
 
+pub fn llvm_build_fcmp_value(b: &LlvmBuilder, op: i32, left: ptr, right: ptr): ptr
+{
+    let cmp = vix_LLVMBuildFCmp(b.builder, op, left, right, llvm_temp(b, "fcmp"))
+    return vix_LLVMBuildZExt(b.builder, cmp, LLVMInt32Type(), llvm_temp(b, "bool"))
+}
+
+pub fn llvm_cast_value(b: &LlvmBuilder, value: ptr, from_ty: string, to_ty: string): ptr
+{
+    if (from_ty == to_ty) { return value }
+    if ((to_ty == "f32" or to_ty == "f64") and (from_ty == "i32" or from_ty == "i64"))
+    {
+        return vix_LLVMBuildSIToFP(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "sitofp"))
+    }
+    if (to_ty == "f64" and from_ty == "f32")
+    {
+        return vix_LLVMBuildFPExt(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "fpext"))
+    }
+    if (to_ty == "f32" and from_ty == "f64")
+    {
+        return vix_LLVMBuildFPTrunc(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "fptrunc"))
+    }
+    return value
+}
+
 pub fn llvm_build_truthy_i1(b: &LlvmBuilder, value: ptr): ptr
 {
+    return vix_LLVMBuildICmp(b.builder, 33, value, llvm_const_i32(0), llvm_temp(b, "cond"))
+}
+
+pub fn llvm_build_truthy_typed_i1(b: &LlvmBuilder, value: ptr, ty: string): ptr
+{
+    if (ty == "f32" or ty == "f64")
+    {
+        return vix_LLVMBuildFCmp(b.builder, 6, value, llvm_const_float(0.0, ty), llvm_temp(b, "cond"))
+    }
+    if (ty == "i64")
+    {
+        return vix_LLVMBuildICmp(b.builder, 33, value, vix_LLVMConstInt(LLVMInt64Type(), 0, 0), llvm_temp(b, "cond"))
+    }
     return vix_LLVMBuildICmp(b.builder, 33, value, llvm_const_i32(0), llvm_temp(b, "cond"))
 }
 
@@ -306,18 +485,41 @@ pub fn llvm_emit_condbr_blocks(b: &LlvmBuilder, cond_value: ptr, then_block: ptr
 pub fn llvm_build_call_value(b: &LlvmBuilder, func: string, args: [ptr]): ptr
 {
     let mut fn_ref = vix_LLVMGetNamedFunction(b.module, func)
-    let fn_ty = vix_LLVMFunctionTypeI32N(LLVMInt32Type(), args.length, 0)
+    let ret_ty = get_function_return_type(func)
+    let param_count = get_function_param_count(func)
+    let mut llvm_param_types: [ptr] = []
+    for (i in 0 .. param_count)
+    {
+        llvm_param_types.push(llvm_type_for(get_function_param_type(func, i)))
+    }
+    let fn_ty = vix_LLVMFunctionTypeTypedN(llvm_type_for(ret_ty), llvm_param_types, param_count, 0)
     if (fn_ref == nil)
     {
         fn_ref = vix_LLVMAddFunction(b.module, func, fn_ty)
     }
-    return vix_LLVMBuildCall2(b.builder, fn_ty, fn_ref, args, args.length, llvm_temp(b, "call"))
+    let call_name = if (ret_ty == "void") { "" } else { llvm_temp(b, "call") }
+    return vix_LLVMBuildCall2(b.builder, fn_ty, fn_ref, args, args.length, call_name)
 }
 
 pub fn llvm_emit_printf_i32_value(b: &LlvmBuilder, value: ptr)
 {
     let fmt_ptr = get_fmt_string(b)
     let args = [fmt_ptr, value]
+    let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
+}
+
+pub fn llvm_emit_printf_value(b: &LlvmBuilder, value: ptr, ty: string)
+{
+    let fmt = match ty {
+        "i64" -> "%ld\n"
+        "f32" | "f64" -> "%f\n"
+        "string" -> "%s\n"
+        "bool" -> "%d\n"
+        _ -> "%d\n"
+    }
+    let fmt_ptr = get_c_string_global(b, ".fmt." + ty, fmt)
+    let print_value = if (ty == "f32") { llvm_cast_value(b, value, "f32", "f64") } else { value }
+    let args = [fmt_ptr, print_value]
     let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
 }
 
