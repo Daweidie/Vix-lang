@@ -1,5 +1,14 @@
+fn add(a:i32,b:i32): i32
+{
+    return a + b
+}
 fn main(): i32
 {
-    let a = 10
-    return 0
+    let a = 6
+    while(a > 5)
+    {
+        return a
+    }
+    add(1, 2)
+    return 10
 }

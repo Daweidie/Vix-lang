@@ -472,6 +472,17 @@ Value* LLVMCodeGenerator::inferArrayLengthFromArgument(ASTNode* argNode) {
                 uint64_t numElements = cast<ArrayType>(allocatedType)->getNumElements();
                 return ConstantInt::get(Type::getInt32Ty(context), numElements);
             }
+            if (allocatedType && allocatedType->isPointerTy()) {
+                Value* dataPtr = builder.CreateLoad(allocatedType, alloc, varName + "_arr_ptr");
+                return emitLoadArrayLength(dataPtr, varName + "_arg_len");
+            }
+        }
+        if (GlobalVariable* global = findGlobalVariable(varName)) {
+            Type* globalType = global->getValueType();
+            if (globalType && globalType->isPointerTy()) {
+                Value* dataPtr = builder.CreateLoad(globalType, global, varName + "_arr_ptr");
+                return emitLoadArrayLength(dataPtr, varName + "_arg_len");
+            }
         }
         if (auto* arrayInfo = typeHelper.getArrayTypeInfo(varName)) {
             if (arrayInfo->second >= 0)
@@ -484,6 +495,18 @@ Value* LLVMCodeGenerator::inferArrayLengthFromArgument(ASTNode* argNode) {
     if (argNode && argNode->type == AST_EXPRESSION_LIST) {
         int count = argNode->data.expression_list.expression_count;
         return ConstantInt::get(Type::getInt32Ty(context), count);
+    }
+    if (argNode && argNode->type == AST_MEMBER_ACCESS) {
+        VisitResult memberRes = visit(argNode);
+        if (memberRes.value && memberRes.value->getType()->isPointerTy()) {
+            return emitLoadArrayLength(memberRes.value, "member_arg_len");
+        }
+    }
+    if (argNode && argNode->type == AST_INDEX) {
+        VisitResult indexRes = visit(argNode);
+        if (indexRes.value && indexRes.value->getType()->isPointerTy()) {
+            return emitLoadArrayLength(indexRes.value, "index_arg_len");
+        }
     }
     return ConstantInt::get(Type::getInt32Ty(context), 0);
 }

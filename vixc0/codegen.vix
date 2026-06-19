@@ -1,76 +1,57 @@
 #[no_main]
 import "ast.vix"
 import "builder.vix"
-pub fn codegen_expr(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
+pub fn codegen_expr_value(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): ptr
 {
     return match expr.tag {
-        "int" | "bool" -> {
-            let tmp = llvm_temp(b, "t")
-            llvm_emit_copy_i32(b, tmp, expr.int_value)
-            tmp
-        }
-        "ident" -> {
-            let tmp = llvm_temp(b, "t")
-            llvm_emit_loadw(b, tmp, expr.text)
-            tmp
-        }
-        "string" -> "@str_" + expr.text
+        "int" | "bool" -> llvm_const_i32(expr.int_value)
+        "ident" -> llvm_load_i32_var(b, expr.text)
+        "string" -> llvm_const_i32(0)
         "binop" -> {
-            let left = codegen_expr(b, es, expr_store_get(es, expr.left_idx))
-            let right = codegen_expr(b, es, expr_store_get(es, expr.right_idx))
-            let result = llvm_temp(b, "t")
+            let left = codegen_expr_value(b, es, expr_store_get(es, expr.left_idx))
+            let right = codegen_expr_value(b, es, expr_store_get(es, expr.right_idx))
             match expr.text {
-                "+" -> { llvm_emit_add(b, result, left, right) result }
-                "-" -> { llvm_emit_sub(b, result, left, right) result }
-                "*" -> { llvm_emit_mul(b, result, left, right) result }
-                "/" -> { llvm_emit_div(b, result, left, right) result }
-                "%" -> { llvm_emit_mod(b, result, left, right) result }
-                "==" -> { llvm_emit_eq(b, result, left, right) result }
-                "!=" -> { llvm_emit_ne(b, result, left, right) result }
-                "<" -> { llvm_emit_lt(b, result, left, right) result }
-                "<=" -> { llvm_emit_le(b, result, left, right) result }
-                ">" -> { llvm_emit_gt(b, result, left, right) result }
-                ">=" -> { llvm_emit_ge(b, result, left, right) result }
-                "and" -> { llvm_emit_mul(b, result, left, right) result }
+                "+" -> llvm_build_add_value(b, left, right)
+                "-" -> llvm_build_sub_value(b, left, right)
+                "*" -> llvm_build_mul_value(b, left, right)
+                "/" -> llvm_build_div_value(b, left, right)
+                "%" -> llvm_build_mod_value(b, left, right)
+                "==" -> llvm_build_icmp_value(b, 32, left, right)
+                "!=" -> llvm_build_icmp_value(b, 33, left, right)
+                "<" -> llvm_build_icmp_value(b, 40, left, right)
+                "<=" -> llvm_build_icmp_value(b, 41, left, right)
+                ">" -> llvm_build_icmp_value(b, 38, left, right)
+                ">=" -> llvm_build_icmp_value(b, 39, left, right)
+                "and" -> llvm_build_mul_value(b, left, right)
                 "or" -> {
-                    let sum = llvm_temp(b, "t")
-                    llvm_emit_add(b, sum, left, right)
-                    let cmp = llvm_temp(b, "t")
-                    llvm_emit_ne(b, cmp, sum, "0")
-                    llvm_emit_copy(b, result, cmp)
-                    result
+                    let sum = llvm_build_add_value(b, left, right)
+                    llvm_build_icmp_value(b, 33, sum, llvm_const_i32(0))
                 }
-                _ -> "0"
+                _ -> llvm_const_i32(0)
             }
         }
         "unaryop" -> match expr.text {
             "-" -> {
-                let operand = codegen_expr(b, es, expr_store_get(es, expr.left_idx))
-                let result = llvm_temp(b, "t")
-                llvm_emit_neg(b, result, operand)
-                result
+                let operand = codegen_expr_value(b, es, expr_store_get(es, expr.left_idx))
+                llvm_build_neg_value(b, operand)
             }
             "!" -> {
-                let operand = codegen_expr(b, es, expr_store_get(es, expr.left_idx))
-                let result = llvm_temp(b, "t")
-                llvm_emit_eq(b, result, operand, "0")
-                result
+                let operand = codegen_expr_value(b, es, expr_store_get(es, expr.left_idx))
+                llvm_build_not_value(b, operand)
             }
-            _ -> "0"
+            _ -> llvm_const_i32(0)
         }
         "call" -> {
-            let mut arg_temps: [string] = []
+            let mut args: [ptr] = []
             for (i in 0 .. expr.args.length)
             {
                 let arg_expr = expr_store_get(es, expr.args[i])
-                let arg = codegen_expr(b, es, arg_expr)
-                arg_temps.push(arg)
+                let arg = codegen_expr_value(b, es, arg_expr)
+                args.push(arg)
             }
-            let result = llvm_temp(b, "t")
-            llvm_emit_call(b, result, expr.text, arg_temps)
-            result
+            llvm_build_call_value(b, expr.text, args)
         }
-        _ -> "0"
+        _ -> llvm_const_i32(0)
     }
 }
 
@@ -78,69 +59,99 @@ pub fn codegen_stmt(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, stmt_idx
 {
     let stmt = stmt_store_get(store, stmt_idx)
     match stmt.tag {
-        "return" -> llvm_emit_ret_i32(b, i32_to_str(stmt.direct_ret))
+        "return" -> llvm_emit_ret_value(b, llvm_const_i32(stmt.direct_ret))
         "return_expr" -> {
-            let val = codegen_expr(b, es, expr_store_get(es, stmt.value_idx))
-            let loaded = llvm_temp(b, "ret_val")
-            llvm_emit_loadw(b, loaded, val)
-            llvm_emit_ret_i32(b, loaded)
+            let val = codegen_expr_value(b, es, expr_store_get(es, stmt.value_idx))
+            llvm_emit_ret_value(b, val)
         }
         "let" -> {
-            let val = codegen_expr(b, es, expr_store_get(es, stmt.assign_idx))
-            let offset = llvm_temp(b, "t")
-            llvm_emit_alloc4(b, offset)
-            llvm_emit_storew(b, val, offset)
+            let val = codegen_expr_value(b, es, expr_store_get(es, stmt.assign_idx))
+            llvm_define_i32_var(b, stmt.assign_name, val)
         }
         "assign" -> {
-            let val = codegen_expr(b, es, expr_store_get(es, stmt.assign_idx))
-            let offset = llvm_temp(b, "t")
-            llvm_emit_alloc4(b, offset)
-            llvm_emit_storew(b, val, offset)
+            let val = codegen_expr_value(b, es, expr_store_get(es, stmt.assign_idx))
+            llvm_store_value(b, val, stmt.assign_name)
         }
         "print" -> {
-            let val = codegen_expr(b, es, expr_store_get(es, stmt.print_idx))
-            llvm_emit_printf_i32(b, val)
+            let val = codegen_expr_value(b, es, expr_store_get(es, stmt.print_idx))
+            llvm_emit_printf_i32_value(b, val)
         }
         "expr" -> {
-            let _ = codegen_expr(b, es, expr_store_get(es, stmt.value_idx))
+            let ignored_expr_value = codegen_expr_value(b, es, expr_store_get(es, stmt.value_idx))
         }
         "if_eq_return" -> {
-            let start_label = llvm_label_name(b, "L")
             let then_label = llvm_label_name(b, "L")
             let else_label = llvm_label_name(b, "L")
-            llvm_emit_label(b, start_label)
-            llvm_emit_eq_string(b, "%cmp", stmt.cond_left, stmt.cond_right)
-            llvm_emit_jnz(b, "%cmp", then_label, else_label)
-            llvm_emit_label(b, then_label)
-            llvm_emit_ret_i32(b, i32_to_str(stmt.then_ret))
-            llvm_emit_label(b, else_label)
-            llvm_emit_ret_i32(b, i32_to_str(stmt.else_ret))
+            let then_block = llvm_append_block(b, then_label)
+            let else_block = llvm_append_block(b, else_label)
+            let cmp = llvm_build_eq_string_value(b, stmt.cond_left, stmt.cond_right)
+            llvm_emit_condbr_blocks(b, cmp, then_block, else_block)
+            llvm_position_at_end(b, then_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.then_ret))
+            llvm_position_at_end(b, else_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.else_ret))
         }
         "match_option_string" -> {
-            let start_label = llvm_label_name(b, "L")
             let some_label = llvm_label_name(b, "L")
             let none_label = llvm_label_name(b, "L")
             let then_label = llvm_label_name(b, "L")
             let else_label = llvm_label_name(b, "L")
-            llvm_emit_label(b, start_label)
+            let some_block = llvm_append_block(b, some_label)
+            let none_block = llvm_append_block(b, none_label)
+            let then_block = llvm_append_block(b, then_label)
+            let else_block = llvm_append_block(b, else_label)
             let opt_expr = expr_store_get(es, stmt.value_idx)
-            llvm_emit_copy_i32(b, "%has", opt_expr.option_has_value)
-            llvm_emit_jnz(b, "%has", some_label, none_label)
-            llvm_emit_label(b, some_label)
-            llvm_emit_comment(b, "bound string value available as %" + stmt.match_bind)
-            llvm_emit_eq_string(b, "%strcmp_res", stmt.match_bind, stmt.match_compare_right)
-            llvm_emit_jnz(b, "%strcmp_res", then_label, else_label)
-            llvm_emit_label(b, then_label)
-            llvm_emit_ret_i32(b, i32_to_str(stmt.match_some_then_ret))
-            llvm_emit_label(b, else_label)
-            llvm_emit_ret_i32(b, i32_to_str(stmt.match_some_else_ret))
-            llvm_emit_label(b, none_label)
-            llvm_emit_ret_i32(b, i32_to_str(stmt.match_none_ret))
+            llvm_emit_condbr_blocks(b, llvm_const_i32(opt_expr.option_has_value), some_block, none_block)
+            llvm_position_at_end(b, some_block)
+            let cmp = llvm_build_eq_string_value(b, stmt.match_bind, stmt.match_compare_right)
+            llvm_emit_condbr_blocks(b, cmp, then_block, else_block)
+            llvm_position_at_end(b, then_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.match_some_then_ret))
+            llvm_position_at_end(b, else_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.match_some_else_ret))
+            llvm_position_at_end(b, none_block)
+            llvm_emit_ret_value(b, llvm_const_i32(stmt.match_none_ret))
+        }
+        "while" -> {
+            let cond_label = llvm_label_name(b, "while.cond")
+            let body_label = llvm_label_name(b, "while.body")
+            let end_label = llvm_label_name(b, "while.end")
+            let cond_block = llvm_append_block(b, cond_label)
+            let body_block = llvm_append_block(b, body_label)
+            let end_block = llvm_append_block(b, end_label)
+
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, cond_block)
+            }
+
+            llvm_position_at_end(b, cond_block)
+            let cond_val = codegen_expr_value(b, es, expr_store_get(es, stmt.value_idx))
+            llvm_emit_condbr_blocks(b, cond_val, body_block, end_block)
+
+            llvm_position_at_end(b, body_block)
+            codegen_stmt(b, es, store, stmt.body_idx)
+            if (llvm_current_block_terminated(b) == 0)
+            {
+                llvm_emit_jmp_block(b, cond_block)
+            }
+
+            llvm_position_at_end(b, end_block)
         }
         "block" -> {
-            for (i in 0 .. stmt.block_count)
+            if (stmt.stmt_indices.length > 0)
             {
-                codegen_stmt(b, es, store, stmt.block_start + i)
+                for (i in 0 .. stmt.stmt_indices.length)
+                {
+                    codegen_stmt(b, es, store, stmt.stmt_indices[i])
+                }
+            }
+            else
+            {
+                for (i in 0 .. stmt.block_count)
+                {
+                    codegen_stmt(b, es, store, stmt.block_start + i)
+                }
             }
         }
         _ -> {}
@@ -154,16 +165,19 @@ pub fn codegen_program(program: AstProgram): string
         return program.error
     }
     let b = llvm_new()
-    llvm_emit_function_header(b, program.function.name, program.function.ret_ty)
-    codegen_stmt(b, program.expr_store, program.store, program.function.body_idx)
-    if (program.function.ret_ty == "void")
+    for (i in 0 .. program.functions.length)
     {
-        llvm_emit_ret_void(b)
+        llvm_emit_function_header_with_params(b, program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_names, program.functions[i].param_types)
+        codegen_stmt(b, program.expr_store, program.store, program.functions[i].body_idx)
+        if (llvm_current_block_terminated(b) == 0 and program.functions[i].ret_ty == "void")
+        {
+            llvm_emit_ret_void(b)
+        }
+        elif (llvm_current_block_terminated(b) == 0)
+        {
+            llvm_emit_ret_value(b, llvm_const_i32(0))
+        }
+        llvm_emit_end_function(b)
     }
-    else
-    {
-        llvm_emit_ret_i32(b, "0")
-    }
-    llvm_emit_end_function(b)
     return llvm_get_code(b)
 }

@@ -49,12 +49,25 @@ LLVMTypeRef vix_LLVMFunctionType2(LLVMTypeRef ret_ty, LLVMTypeRef p0, LLVMTypeRe
     return LLVMFunctionType(ret_ty, params, 2, is_var_arg);
 }
 
+LLVMTypeRef vix_LLVMFunctionTypeI32N(LLVMTypeRef ret_ty, unsigned param_count, int is_var_arg) {
+    LLVMTypeRef params[256];
+    if (param_count > 256) param_count = 256;
+    for (unsigned i = 0; i < param_count; i++) {
+        params[i] = LLVMInt32Type();
+    }
+    return LLVMFunctionType(ret_ty, params, param_count, is_var_arg);
+}
+
 LLVMValueRef vix_LLVMConstInt(LLVMTypeRef ty, long long val, int sign_extend) {
     return LLVMConstInt(ty, (unsigned long long)val, sign_extend);
 }
 
 LLVMValueRef vix_LLVMAddFunction(LLVMModuleRef m, const char *name, LLVMTypeRef ty) {
     return LLVMAddFunction(m, name, ty);
+}
+
+LLVMValueRef vix_LLVMGetParam(LLVMValueRef fn, unsigned index) {
+    return LLVMGetParam(fn, index);
 }
 
 LLVMValueRef vix_LLVMGetNamedFunction(LLVMModuleRef m, const char *name) {
@@ -147,6 +160,11 @@ LLVMValueRef vix_LLVMBuildICmp(LLVMBuilderRef builder, LLVMIntPredicate op,
     return LLVMBuildICmp(builder, op, l, r, name);
 }
 
+LLVMValueRef vix_LLVMBuildZExt(LLVMBuilderRef builder, LLVMValueRef val,
+                                LLVMTypeRef dest_ty, const char *name) {
+    return LLVMBuildZExt(builder, val, dest_ty, name);
+}
+
 LLVMValueRef vix_LLVMBuildBr(LLVMBuilderRef builder, LLVMValueRef dest) {
     return LLVMBuildBr(builder, (LLVMBasicBlockRef)dest);
 }
@@ -158,6 +176,10 @@ LLVMValueRef vix_LLVMBuildCondBr(LLVMBuilderRef builder, LLVMValueRef cond,
 
 void vix_LLVMPositionBuilderAtEnd(LLVMBuilderRef builder, LLVMValueRef block) {
     LLVMPositionBuilderAtEnd(builder, (LLVMBasicBlockRef)block);
+}
+
+LLVMValueRef vix_LLVMGetBasicBlockTerminator(LLVMValueRef block) {
+    return LLVMGetBasicBlockTerminator((LLVMBasicBlockRef)block);
 }
 
 void vix_LLVMSetInitializer(LLVMValueRef global, LLVMValueRef val) {

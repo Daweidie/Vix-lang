@@ -687,21 +687,85 @@ using namespace llvm;
                     auto objHintIt = pointerElementHints.find(objectRes.value);
                     if (objHintIt != pointerElementHints.end() && objHintIt->second) {
                         elemType = objHintIt->second;
+                    } else if (argRes.structType &&
+                               (argRes.value->getType()->isStructTy() ||
+                                (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER))) {
+                        elemType = argRes.structType;
+                    } else if (argRes.value && argRes.value->getType()->isStructTy()) {
+                        elemType = argRes.value->getType();
                     } else if (argRes.value) {
                         elemType = argRes.value->getType();
                     }
                 }
-
-                ValueType elemVT = typeHelper.getValueTypeFromType(elemType);
-                Value* argCast = typeHelper.castValue(builder, argRes.value, argRes.type, elemVT);
-                if (elemType->isStructTy() && argCast->getType()->isPointerTy()) {
-                    argCast = builder.CreateLoad(elemType, argCast, "push_arg_struct_load");
+                if (elemType && elemType->isPointerTy()) {
+                    if (argRes.structType &&
+                        (argRes.value->getType()->isStructTy() ||
+                         (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER))) {
+                        elemType = argRes.structType;
+                    } else if (argRes.value && argRes.value->getType()->isStructTy()) {
+                        elemType = argRes.value->getType();
+                    } else if (argRes.value && argRes.value->getType()->isPointerTy()) {
+                        auto argHintIt = pointerElementHints.find(argRes.value);
+                        if (argHintIt != pointerElementHints.end() && argHintIt->second &&
+                            argHintIt->second->isStructTy()) {
+                            elemType = argHintIt->second;
+                        } else if (auto* argAlloc = dyn_cast<AllocaInst>(argRes.value)) {
+                            Type* argAllocTy = getActualType(argAlloc);
+                            if (argAllocTy && argAllocTy->isStructTy()) {
+                                elemType = argAllocTy;
+                            }
+                        }
+                    }
                 }
-                if (argCast->getType() != elemType) {
-                    if (argCast->getType()->isPointerTy() && elemType->isPointerTy()) {
-                        argCast = builder.CreateBitCast(argCast, elemType, "push_arg_ptrcast");
-                    } else if (argCast->getType()->isIntegerTy() && elemType->isIntegerTy()) {
-                        argCast = builder.CreateIntCast(argCast, elemType, true, "push_arg_intcast");
+                if (argRes.structType &&
+                    (argRes.value->getType()->isStructTy() ||
+                     (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER))) {
+                    elemType = argRes.structType;
+                } else if (argRes.value && argRes.value->getType()->isStructTy()) {
+                    elemType = argRes.value->getType();
+                } else if (argRes.value && argRes.value->getType()->isPointerTy()) {
+                    if (auto* argAlloc = dyn_cast<AllocaInst>(argRes.value)) {
+                        Type* argAllocTy = getActualType(argAlloc);
+                        if (argAllocTy && argAllocTy->isStructTy()) {
+                            elemType = argAllocTy;
+                        }
+                    }
+                }
+
+                Type* storageElemType = elemType;
+                ValueType elemVT = typeHelper.getValueTypeFromType(elemType);
+                Value* argCast = nullptr;
+                if (elemType->isStructTy()) {
+                    storageElemType = PointerType::get(context, 0);
+                    Value* srcStructPtr = nullptr;
+                    if (argRes.value->getType()->isPointerTy()) {
+                        srcStructPtr = argRes.value;
+                    }
+
+                    Function* reallocFn = getOrCreateReallocFunction();
+                    uint64_t structBytes = module->getDataLayout().getTypeAllocSize(elemType);
+                    Value* heapI8 = builder.CreateCall(
+                        reallocFn,
+                        {ConstantPointerNull::get(PointerType::get(context, 0)),
+                         ConstantInt::get(Type::getInt64Ty(context), structBytes)},
+                        "push_struct_heap");
+                    Value* structPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "push_struct_ptr");
+                    if (srcStructPtr) {
+                        Value* srcValue = builder.CreateLoad(elemType, srcStructPtr, "push_struct_val");
+                        builder.CreateStore(srcValue, structPtr);
+                    } else {
+                        builder.CreateStore(argRes.value, structPtr);
+                    }
+                    pointerElementHints[structPtr] = elemType;
+                    argCast = structPtr;
+                } else {
+                    argCast = typeHelper.castValue(builder, argRes.value, argRes.type, elemVT);
+                }
+                if (argCast->getType() != storageElemType) {
+                    if (argCast->getType()->isPointerTy() && storageElemType->isPointerTy()) {
+                        argCast = builder.CreateBitCast(argCast, storageElemType, "push_arg_ptrcast");
+                    } else if (argCast->getType()->isIntegerTy() && storageElemType->isIntegerTy()) {
+                        argCast = builder.CreateIntCast(argCast, storageElemType, true, "push_arg_intcast");
                     }
                 }
 
@@ -710,12 +774,12 @@ using namespace llvm;
                     pushStateName = std::string("__tmp_push_") + std::to_string((uintptr_t)objectNode);
                 }
 
-                uint64_t elemBytes = module->getDataLayout().getTypeAllocSize(elemType);
+                uint64_t elemBytes = module->getDataLayout().getTypeAllocSize(storageElemType);
                 if (elemBytes == 0) {
                     elemBytes = 4;
-                    if (elemType->isIntegerTy(8)) elemBytes = 1;
-                    else if (elemType->isIntegerTy(64) || elemType->isDoubleTy() || elemType->isPointerTy()) elemBytes = 8;
-                    else if (elemType->isFloatTy()) elemBytes = 4;
+                    if (storageElemType->isIntegerTy(8)) elemBytes = 1;
+                    else if (storageElemType->isIntegerTy(64) || storageElemType->isDoubleTy() || storageElemType->isPointerTy()) elemBytes = 8;
+                    else if (storageElemType->isFloatTy()) elemBytes = 4;
                 }
 
                 Value* oldPtr = objectRes.value;
@@ -757,7 +821,7 @@ using namespace llvm;
                 Value* newDataI8 = builder.CreateInBoundsGEP(Type::getInt8Ty(context), newBaseI8, headerSizeVal, "push_new_data_i8");
                 Value* newPtr = builder.CreateBitCast(newDataI8, targetPtrTy, "push_new_ptr");
 
-                Value* dstPtr = builder.CreateInBoundsGEP(elemType, newPtr, oldLen, "push_dst_ptr");
+                Value* dstPtr = builder.CreateInBoundsGEP(storageElemType, newPtr, oldLen, "push_dst_ptr");
                 builder.CreateStore(argCast, dstPtr);
 
                 if (objectAlloc) {
@@ -1256,8 +1320,26 @@ using namespace llvm;
                     }
                     
                     ValueType expectedValueType = typeHelper.getValueTypeFromType(expectedType);
-                    
-                    Value* arg = typeHelper.castValue(builder, argRes.value, argRes.type, expectedValueType);
+
+                    Value* arg = nullptr;
+                    if (expectedType && expectedType->isPointerTy() &&
+                        argRes.value->getType()->isStructTy()) {
+                        StructType* argStructTy = cast<StructType>(argRes.value->getType());
+                        Value* sourcePtr = nullptr;
+                        if (auto* loadInst = dyn_cast<LoadInst>(argRes.value)) {
+                            sourcePtr = loadInst->getPointerOperand();
+                        }
+                        if (sourcePtr && sourcePtr->getType()->isPointerTy()) {
+                            arg = sourcePtr;
+                        } else {
+                            AllocaInst* tmpStructArg = builder.CreateAlloca(argStructTy, nullptr, "struct_arg_tmp");
+                            builder.CreateStore(argRes.value, tmpStructArg);
+                            arg = tmpStructArg;
+                        }
+                        pointerElementHints[arg] = argStructTy;
+                    } else {
+                        arg = typeHelper.castValue(builder, argRes.value, argRes.type, expectedValueType);
+                    }
                     if (expectedType && expectedType->isPointerTy() && arg->getType()->isPointerTy() &&
                         arg->getType() != expectedType) {
                         arg = builder.CreateBitCast(arg, expectedType, "arg_ptrcast");

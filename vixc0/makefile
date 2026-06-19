@@ -13,6 +13,6 @@ $(TARGET): helper.o vixc0.o
 	vixc $^ -o $@ -L /usr/lib -l LLVM-22
 
 clean:
-	rm -f helper.o vixc0.o test test.ll $(TARGET)
+	rm -f helper.o vixc0.o test test.ll 
 
 .PHONY: all clean

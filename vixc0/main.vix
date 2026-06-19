@@ -1,6 +1,7 @@
 import "lexer.vix"
 import "parser.vix"
 import "ast.vix"
+import "typeinfer.vix"
 import "codegen.vix"
 
 extern "C"
@@ -24,6 +25,69 @@ fn string_ends_with(text: string, suffix: string): i32
     return 1
 }
 
+fn compiler_mode(arg: string): ?string
+{
+    return match arg {
+        "--lex" | "--parser" | "--ast" | "--typeinfer" | "codegen" -> Some(arg)
+        _ -> None
+    }
+}
+
+fn source_file_arg(arg: string): ?string
+{
+    return match string_ends_with(arg, ".vix") {
+        1 -> Some(arg)
+        _ -> None
+    }
+}
+
+fn run_mode(mode: string, src: string): ?i32
+{
+    match mode
+    {
+        "--lex" -> {
+            print(tokenize_debug(src))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    let program = parse_program(src)
+
+    match mode
+    {
+        "--parser" -> {
+            print(ast_program_debug(program))
+            return Some(0)
+        }
+        "--ast" -> {
+            print(ast(program))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    let infer_result = infer(program)
+    match mode
+    {
+        "--typeinfer" -> {
+            print(typeinfer_result_debug(infer_result))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (infer_result.ok == 0)
+    {
+        print(typeinfer_result_debug(infer_result))
+        return Some(1)
+    }
+
+    let ir = codegen_program(program)
+    print(ir)
+    return None
+}
+
 fn read_source_file(path: ptr): string
 {
     let file = fopen(path, "r")
@@ -43,55 +107,26 @@ fn read_source_file(path: ptr): string
 
 fn main(argc: i32, argv: ptr): i32
 {
-    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30;  return 0 }"
+    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; while(a > 5) { return 0 } }"
     let mut mode = "codegen"
 
-    if (argc > 1)
+    for (i in 1 .. argc)
     {
-        let arg1 = argv[1]
-        if (string_ends_with(arg1, ".vix") == 1)
+        let arg = argv[i]
+        match compiler_mode(arg)
         {
-            src = read_source_file(arg1)
-        }
-        else
-        {
-            mode = arg1
-            if (argc > 2)
+            Some(next_mode) -> mode = next_mode
+            None -> match source_file_arg(arg)
             {
-                let arg2 = argv[2]
-                if (string_ends_with(arg2, ".vix") == 1)
-                {
-                    src = read_source_file(arg2)
-                }
-                else
-                {
-                    src = arg2
-                }
+                Some(path) -> src = read_source_file(path)
+                None -> src = arg
             }
         }
     }
 
-    if (mode == "--lex")
+    match run_mode(mode, src)
     {
-        print(tokenize_debug(src))
-        return 0
+        Some(code) -> return code
+        None -> return 0
     }
-
-    let program = parse_program(src)
-
-    if (mode == "--parser")
-    {
-        print(ast_program_debug(program))
-        return 0
-    }
-
-    if (mode == "--ast")
-    {
-        print(ast(program))
-        return 0
-    }
-    
-    let qbe = codegen_program(program)
-    print(qbe)
-    return 0
 }

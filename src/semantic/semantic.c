@@ -1077,6 +1077,24 @@ int is_variable_used_in_node(ASTNode* node, const char* var_name) {
             }
             break;
         }
+
+        case AST_STRUCT_LITERAL: {
+            ASTNode* fields = node->data.struct_literal.fields;
+            if (fields && fields->type == AST_EXPRESSION_LIST) {
+                for (int i = 0; i < fields->data.expression_list.expression_count; i++) {
+                    ASTNode* field = fields->data.expression_list.expressions[i];
+                    if (field && field->type == AST_ASSIGN) {
+                        if (is_variable_used_in_node(field->data.assign.right, var_name)) {
+                            return 1;
+                        }
+                    } else if (is_variable_used_in_node(field, var_name)) {
+                        return 1;
+                    }
+                }
+            }
+            break;
+        }
+
         case AST_INDEX: {
             return is_variable_used_in_node(node->data.index.target, var_name) || is_variable_used_in_node(node->data.index.index, var_name);
         }
@@ -1340,6 +1358,22 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
             }
             break;
         }
+
+        case AST_STRUCT_LITERAL: {
+            ASTNode* fields = node->data.struct_literal.fields;
+            if (fields && fields->type == AST_EXPRESSION_LIST) {
+                for (int i = 0; i < fields->data.expression_list.expression_count; i++) {
+                    ASTNode* field = fields->data.expression_list.expressions[i];
+                    if (field && field->type == AST_ASSIGN) {
+                        warnings_found += check_unused_variables_with_usage(field->data.assign.right, table, usage_list);
+                    } else {
+                        warnings_found += check_unused_variables_with_usage(field, table, usage_list);
+                    }
+                }
+            }
+            break;
+        }
+
         case AST_INDEX: {
             if (node->data.index.target) warnings_found += check_unused_variables_with_usage(node->data.index.target, table, usage_list);
             if (node->data.index.index && node->data.index.index->type != AST_IDENTIFIER) {

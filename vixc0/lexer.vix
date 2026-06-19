@@ -162,7 +162,7 @@ pub fn is_keyword(text: string): i32
         "fn" | "return" | "let" | "mut" | "if" | "elif" | "else" | "while" | "for" | "in" -> 1
         "match" | "struct" | "type" | "pub" | "import" | "extern" | "break" | "continue" -> 1
         "i32" | "i64" | "i8" | "f32" | "f64" | "string" | "void" | "nil" | "true" | "false" -> 1
-        "and" | "or" | "Some" | "None" | "print" -> 1
+        "and" | "or" | "print" -> 1
         _ -> 0
     }
 }
@@ -357,7 +357,36 @@ pub fn tokenize_debug(src: string): string
     let mut out = ""
     for (i in 0 .. stream_len(stream))
     {
-        out = out + "Token(kind=" + i32_to_str(stream_kind_at(stream, i)) + ", text='" + stream_text_at(stream, i) + "', int=" + i32_to_str(stream_int_at(stream, i)) + ")\n"
+        let kind = stream_kind_at(stream, i)
+        let text = stream_text_at(stream, i)
+        if (kind == tk_number())
+        {
+            out = out + "Token(kind=number, int=" + i32_to_str(stream_int_at(stream, i)) + ")\n"
+        }
+        elif (kind == tk_bool())
+        {
+            out = out + "Token(kind=bool, text='" + text + "', value=" + i32_to_str(stream_int_at(stream, i)) + ")\n"
+        }
+        elif (kind == tk_ident())
+        {
+            out = out + "Token(kind=ident, text='" + text + "')\n"
+        }
+        elif (kind == tk_keyword())
+        {
+            out = out + "Token(kind=keyword, text='" + text + "')\n"
+        }
+        elif (kind == tk_symbol())
+        {
+            out = out + "Token(kind=symbol, text='" + text + "')\n"
+        }
+        elif (kind == tk_string())
+        {
+            out = out + "Token(kind=string, text='" + text + "')\n"
+        }
+        else
+        {
+            out = out + "Token(kind=eof)\n"
+        }
     }
     return out
 }
