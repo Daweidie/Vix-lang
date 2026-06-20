@@ -2,6 +2,7 @@
 import "lexer.vix"
 import "ast.vix"
 import "error.vix"
+import "preprocess.vix"
 
 pub type Parser = struct {
     stream: TokenStream,
@@ -268,7 +269,18 @@ pub fn parse_postfix(parser: &Parser): i32
 {
     let mut expr = parse_primary(parser)
     if (parser.ok == 0) { return -1 }
-    while (parser_text(parser) == "[" or parser_text(parser) == ".")
+    return parse_postfix_continue(parser, expr)
+}
+
+pub fn parse_postfix_from(parser: &Parser, expr_idx: i32): i32
+{
+    return parse_postfix_continue(parser, expr_idx)
+}
+
+pub fn parse_postfix_continue(parser: &Parser, expr_idx: i32): i32
+{
+    let mut expr = expr_idx
+    while (parser_text(parser) == "[" or parser_text(parser) == "." or parser_text(parser) == "(")
     {
         if (parser_text(parser) == "[")
         {
@@ -281,7 +293,7 @@ pub fn parse_postfix(parser: &Parser): i32
             if (parser.ok == 0) { return -1 }
             expr = parser_expr_at(parser, ast_expr_index(parser.expr_store, expr, index_idx), line, col)
         }
-        else
+        elif (parser_text(parser) == ".")
         {
             let line = parser_line(parser)
             let col = parser_col(parser)
@@ -290,8 +302,127 @@ pub fn parse_postfix(parser: &Parser): i32
             if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
             expr = parser_expr_at(parser, ast_expr_field(parser.expr_store, expr, field_name), line, col)
         }
+        elif (parser_text(parser) == "(")
+        {
+            let line = parser_line(parser)
+            let col = parser_col(parser)
+            parser_advance(parser)
+            let mut args: [i32] = []
+            if (parser_text(parser) != ")")
+            {
+                let arg = parse_expression(parser)
+                if (parser.ok == 0) { return -1 }
+                args.push(arg)
+                while (parser_text(parser) == ",")
+                {
+                    parser_advance(parser)
+                    let arg2 = parse_expression(parser)
+                    if (parser.ok == 0) { return -1 }
+                    args.push(arg2)
+                }
+            }
+            parser_expect_text(parser, ")")
+            if (parser.ok == 0) { return -1 }
+            let func_expr = expr_store_get(parser.expr_store, expr)
+            let method_name = func_expr.text
+            let base_expr = expr_store_get(parser.expr_store, func_expr.left_idx)
+            if (method_name == "push")
+            {
+                expr = parser_expr_at(parser, ast_expr_method_call(parser.expr_store, func_expr.left_idx, "push", args), line, col)
+            }
+            else
+            {
+                expr = parser_expr_at(parser, ast_expr_call(parser.expr_store, func_expr.text, args), line, col)
+            }
+        }
     }
     return expr
+}
+
+pub fn parse_match_expr(parser: &Parser): i32
+{
+    let line = parser_line(parser)
+    let col = parser_col(parser)
+    parser_expect_text(parser, "match")
+    if (parser.ok == 0) { return -1 }
+    
+    let mut subject_idx = -1
+    if (parser_kind(parser) == tk_ident() and stream_text_at(parser.stream, parser.pos + 1) == "{")
+    {
+        let subject_name = parser_text(parser)
+        parser_advance(parser)
+        subject_idx = ast_expr_identifier(parser.expr_store, subject_name)
+    }
+    else
+    {
+        subject_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+    }
+    
+    parser_expect_text(parser, "{")
+    if (parser.ok == 0) { return -1 }
+    
+    let mut patterns: [i32] = []
+    let mut bodies: [i32] = []
+    
+    while (parser_text(parser) != "}" and parser_at_end(parser) == 0)
+    {
+        while (parser_text(parser) == ";") { parser_advance(parser) }
+        if (parser_text(parser) == "}" or parser_at_end(parser) == 1) { break }
+        
+        if (parser_text(parser) == "_")
+        {
+            parser_advance(parser)
+            patterns.push(-1)
+        }
+        else
+        {
+            let pattern_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            patterns.push(pattern_idx)
+        }
+        
+        while (parser_text(parser) == "|")
+        {
+            parser_advance(parser)
+            if (parser_text(parser) == "_")
+            {
+                patterns.push(-1)
+                parser_advance(parser)
+            }
+            else
+            {
+                let pat_idx = parse_expression(parser)
+                if (parser.ok == 0) { return -1 }
+                patterns.push(pat_idx)
+            }
+            bodies.push(-1)
+        }
+        
+        parser_expect_text(parser, "->")
+        if (parser.ok == 0) { return -1 }
+        
+        if (parser_text(parser) == "{")
+        {
+            let block_idx = parse_block_statement(parser)
+            if (parser.ok == 0) { return -1 }
+            let body_idx = ast_expr_block(parser.expr_store, block_idx)
+            bodies.push(body_idx)
+        }
+        else
+        {
+            let body_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            bodies.push(body_idx)
+        }
+        
+        parser_accept_text(parser, ",")
+    }
+    
+    parser_expect_text(parser, "}")
+    if (parser.ok == 0) { return -1 }
+    
+    return parser_expr_at(parser, ast_expr_match(parser.expr_store, subject_idx, patterns, bodies), line, col)
 }
 
 pub fn parse_primary(parser: &Parser): i32
@@ -399,6 +530,33 @@ pub fn parse_primary(parser: &Parser): i32
         parser_expect_text(parser, ")")
         return expr
     }
+    if (parser_text(parser) == "[")
+    {
+        let line = parser_line(parser)
+        let col = parser_col(parser)
+        parser_advance(parser)
+        let mut elements: [i32] = []
+        if (parser_text(parser) != "]")
+        {
+            let elem = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            elements.push(elem)
+            while (parser_text(parser) == ",")
+            {
+                parser_advance(parser)
+                let elem2 = parse_expression(parser)
+                if (parser.ok == 0) { return -1 }
+                elements.push(elem2)
+            }
+        }
+        parser_expect_text(parser, "]")
+        if (parser.ok == 0) { return -1 }
+        return parser_expr_at(parser, ast_expr_array(parser.expr_store, elements), line, col)
+    }
+    if (parser_text(parser) == "match")
+    {
+        return parse_match_expr(parser)
+    }
     parser_fail(parser, "unexpected token in expression: '" + parser_text(parser) + "'")
     return -1
 }
@@ -415,6 +573,30 @@ pub fn parse_statement_ident(parser: &Parser): i32
     let name = parser_text(parser)
     parser_advance(parser)
     let op = parser_text(parser)
+    if (op == ".")
+    {
+        let ident_idx = parser_expr_at(parser, ast_expr_identifier(parser.expr_store, name), line, col)
+        let expr_idx = parse_postfix_from(parser, ident_idx)
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_expr(parser.store, expr_idx), line, col)
+    }
+    if (op == "[")
+    {
+        parser_advance(parser)
+        let index_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_expect_text(parser, "]")
+        if (parser.ok == 0) { return -1 }
+        let ident_idx = parser_expr_at(parser, ast_expr_identifier(parser.expr_store, name), line, col)
+        let index_expr = parser_expr_at(parser, ast_expr_index(parser.expr_store, ident_idx, index_idx), line, col)
+        parser_expect_text(parser, "=")
+        if (parser.ok == 0) { return -1 }
+        let expr_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_store_deref(parser.store, index_expr, expr_idx), line, col)
+    }
     if (op == "=")
     {
         parser_advance(parser)
@@ -754,7 +936,19 @@ pub fn parse_statement(parser: &Parser): i32
             parser_accept_text(parser, ";")
             parser_stmt_at(parser, ast_stmt_loop_control(parser.store, tag), line, col)
         }
-        _ -> parse_statement_ident(parser)
+        _ -> {
+            if (parser_kind(parser) == tk_number() or parser_kind(parser) == tk_string() or parser_kind(parser) == tk_float() or parser_kind(parser) == tk_bool() or parser_text(parser) == "nil" or parser_text(parser) == "(" or parser_text(parser) == "-" or parser_text(parser) == "!" or parser_text(parser) == "match")
+            {
+                let expr_idx = parse_expression(parser)
+                if (parser.ok == 0) { return -1 }
+                parser_accept_text(parser, ";")
+                parser_stmt_at(parser, ast_stmt_expr(parser.store, expr_idx), line, col)
+            }
+            else
+            {
+                parse_statement_ident(parser)
+            }
+        }
     }
 }
 
@@ -944,6 +1138,7 @@ pub fn parse_struct_decl(parser: &Parser): AstStructDecl
 {
     let line = parser_line(parser)
     let col = parser_col(parser)
+    if (parser_text(parser) == "pub") { parser_advance(parser) }
     parser_expect_text(parser, "type")
     if (parser.ok == 0) { return AstStructDecl{ name: "", field_names: [], field_types: [], line: line, col: col } }
     let name = parser_text(parser)
@@ -979,28 +1174,26 @@ pub fn parse_struct_decl(parser: &Parser): AstStructDecl
 
 pub fn parse_program(src: string, filename: string): AstProgram
 {
-    let mut parser = parser_new(src, filename)
+    let mut imports = import_set_new()
+    let combined = preprocess_source(src, filename, &imports)
+
+    let mut parser = parser_new(combined, filename)
     if (parser_at_end(&parser) == 1) { return ast_program_err("empty source") }
     let mut functions: [AstFunction] = []
     let mut extern_functions: [AstFunction] = []
     let mut structs: [AstStructDecl] = []
+
     while (parser_text(&parser) == "extern")
     {
         parser_expect_text(&parser, "extern")
         if (parser.ok == 0) { return ast_program_err(parser.error) }
-        if (parser_kind(&parser) == tk_string())
-        {
-            parser_advance(&parser)
-        }
+        if (parser_kind(&parser) == tk_string()) { parser_advance(&parser) }
         parser_expect_text(&parser, "{")
         if (parser.ok == 0) { return ast_program_err(parser.error) }
         while (parser_text(&parser) != "}" and parser_at_end(&parser) == 0)
         {
-            if (parser_text(&parser) == ";")
-            {
-                parser_advance(&parser)
-                continue
-            }
+            if (parser_text(&parser) == ";") { parser_advance(&parser)
+                continue }
             let extern_func = parse_extern_function(&parser)
             if (parser.ok == 0) { return ast_program_err(parser.error) }
             extern_functions.push(extern_func)
@@ -1015,18 +1208,39 @@ pub fn parse_program(src: string, filename: string): AstProgram
         structs.push(decl)
         while (parser_text(&parser) == ";") { parser_advance(&parser) }
     }
-    if (parser_text(&parser) != "fn" and parser_text(&parser) != "pub")
+    while (parser_text(&parser) == "pub")
+    {
+        let next_text = stream_text_at(parser.stream, parser.pos + 1)
+        if (next_text == "type")
+        {
+            let decl = parse_struct_decl(&parser)
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            structs.push(decl)
+            while (parser_text(&parser) == ";") { parser_advance(&parser) }
+        }
+        else
+        {
+            let func = parse_function(&parser)
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            functions.push(func)
+        }
+    }
+    if (parser_text(&parser) == "fn" or parser_text(&parser) == "pub")
+    {
+        if (parser_text(&parser) == "pub") { parser_advance(&parser) }
+        let first_func = parse_function(&parser)
+        if (parser.ok == 0) { return ast_program_err(parser.error) }
+        functions.push(first_func)
+        while (parser_text(&parser) == "fn" or parser_text(&parser) == "pub")
+        {
+            let func = parse_function(&parser)
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            functions.push(func)
+        }
+    }
+    elif (functions.length == 0)
     {
         return ast_program_err("expected function")
-    }
-    let first_func = parse_function(&parser)
-    if (parser.ok == 0) { return ast_program_err(parser.error) }
-    functions.push(first_func)
-    while (parser_text(&parser) == "fn" or parser_text(&parser) == "pub")
-    {
-        let func = parse_function(&parser)
-        if (parser.ok == 0) { return ast_program_err(parser.error) }
-        functions.push(func)
     }
     return ast_program_ok_functions_with_externs_and_structs(functions, extern_functions, structs, parser.expr_store, parser.store)
 }

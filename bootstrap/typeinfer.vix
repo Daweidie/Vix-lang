@@ -405,6 +405,30 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                 type_numeric_result(left_ty, right_ty)
             }
         }
+        "array_literal" -> "unknown"
+        "block_expr" -> "i32"
+        "match_expr" -> {
+            let subject_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
+            if (env.ok == 0) { return "unknown" }
+            let mut result_ty = "unknown"
+            for (i in 0 .. expr.args.length)
+            {
+                let body_ty = infer_expr_type(env, funcs, structs, es, expr.args[i])
+                if (env.ok == 0) { return "unknown" }
+                if (result_ty == "unknown") { result_ty = body_ty }
+            }
+            result_ty
+        }
+        "method_call" -> {
+            let base_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
+            if (env.ok == 0) { return "unknown" }
+            for (i in 0 .. expr.args.length)
+            {
+                let _ = infer_expr_type(env, funcs, structs, es, expr.args[i])
+                if (env.ok == 0) { return "unknown" }
+            }
+            if (expr.text == "push") { "void" } else { "unknown" }
+        }
         _ -> "unknown"
     }
 }

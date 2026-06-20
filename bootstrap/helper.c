@@ -1,6 +1,7 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Types.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define MAX_VARS 1024
 #define MAX_FIELDS 32
@@ -513,4 +514,24 @@ void vix_LLVMSetGlobalConstant(LLVMValueRef global, int is_constant) {
 
 void vix_LLVMSetLinkage(LLVMValueRef global, int linkage) {
   LLVMSetLinkage(global, (LLVMLinkage)linkage);
+}
+
+int vix_array_len(void *arr) {
+  if (arr == NULL) return 0;
+  int *header = (int *)((char *)arr - 8);
+  return *header;
+}
+
+void *vix_array_push_i32(void *arr, int val) {
+  int old_len = vix_array_len(arr);
+  int new_len = old_len + 1;
+  void *base = (arr == NULL) ? NULL : (void *)((char *)arr - 8);
+  size_t data_bytes = new_len * sizeof(int);
+  size_t total_bytes = 8 + data_bytes;
+  void *new_block = realloc(base, total_bytes);
+  if (new_block == NULL) return NULL;
+  *(int *)new_block = new_len;
+  int *data = (int *)((char *)new_block + 8);
+  data[old_len] = val;
+  return (void *)((char *)new_block + 8);
 }

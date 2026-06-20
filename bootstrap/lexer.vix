@@ -5,6 +5,11 @@ extern "C"
     fn malloc(size: usize): string
     fn snprintf(buf: string, size: usize, fmt: string, ...): i32
     fn atof(text: string): f64
+    fn fopen(filename: ptr, mode: ptr): ptr
+    fn fclose(file: ptr): i32
+    fn fread(buf: ptr, size: i64, count: i64, file: ptr): i64
+    fn fseek(file: ptr, offset: i64, whence: i32): i32
+    fn ftell(file: ptr): i64
 }
 
 pub fn i32_to_str(n: i32): string
