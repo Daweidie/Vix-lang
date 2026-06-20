@@ -7,12 +7,14 @@ pub type SymbolTable = struct {
     depths: [i32],
     depth: i32,
     ok: i32,
-    error: string
+    error: string,
+    error_line: i32,
+    error_col: i32
 }
 
 pub fn symtable_new(): SymbolTable
 {
-    return SymbolTable{ names: [], types: [], mutable: [], depths: [], depth: 0, ok: 1, error: "" }
+    return SymbolTable{ names: [], types: [], mutable: [], depths: [], depth: 0, ok: 1, error: "", error_line: 0, error_col: 0 }
 }
 
 pub fn symtable_fail(table: &SymbolTable, message: string)
@@ -22,6 +24,21 @@ pub fn symtable_fail(table: &SymbolTable, message: string)
         table.ok = 0
         table.error = message
     }
+}
+
+pub fn symtable_set_error_loc(table: &SymbolTable, line: i32, col: i32)
+{
+    if (table.ok == 0 and table.error_line == 0)
+    {
+        table.error_line = line
+        table.error_col = col
+    }
+}
+
+pub fn symtable_fail_at(table: &SymbolTable, message: string, line: i32, col: i32)
+{
+    symtable_fail(table, message)
+    symtable_set_error_loc(table, line, col)
 }
 
 pub fn symtable_push_scope(table: &SymbolTable)

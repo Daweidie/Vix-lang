@@ -265,16 +265,39 @@ pub fn line_number_width(line: i32): i32
     return width
 }
 
+pub fn i32_digit_width(n: i32): i32
+{
+    if (n <= 0) { return 1 }
+    let mut width = 1
+    let mut value = n
+    while (value >= 10)
+    {
+        value = value / 10
+        width += 1
+    }
+    return width
+}
+
 pub fn line_num_str(line: i32, width: i32): string
 {
     let num = i32_to_str(line)
-    let padding = width - num.length
+    let padding = width - i32_digit_width(line)
     let mut out = ""
     for (_ in 0 .. padding)
     {
         out = out + " "
     }
     return out + num
+}
+
+pub fn line_blank_str(width: i32): string
+{
+    let mut out = ""
+    for (_ in 0 .. width)
+    {
+        out = out + " "
+    }
+    return out
 }
 
 pub fn show_source_context(src: string, line: i32, col: i32, length: i32, is_warning: i32): string
@@ -287,25 +310,25 @@ pub fn show_source_context(src: string, line: i32, col: i32, length: i32, is_war
     let reset = diag_reset()
     let mut out = ""
 
-    out = out + " " + gutter + line_num_str(width, width) + " |" + reset + "\n"
+    out = out + gutter + line_blank_str(width) + " |" + reset + "\n"
 
     if (line > 1)
     {
         let prev = source_get_line(src, line - 1)
         if (prev != "")
         {
-            out = out + " " + gutter + line_num_str(line - 1, width) + " | " + reset + prev + "\n"
+            out = out + gutter + line_num_str(line - 1, width) + " | " + reset + prev + "\n"
         }
     }
 
     let err_line = source_get_line(src, line)
     if (err_line != "")
     {
-        out = out + diag_bold() + " " + line_num_str(line, width) + gutter + " |" + reset + " "
+        out = out + diag_bold() + line_num_str(line, width) + gutter + " |" + reset + " "
         out = out + format_highlighted_line(err_line, col, length, highlight_color)
         out = out + "\n"
 
-        out = out + " " + gutter + line_num_str(width, width) + " |" + reset + " "
+        out = out + gutter + line_blank_str(width) + " |" + reset + " "
         out = out + format_caret_line(err_line, col, length, highlight_color)
         out = out + "\n"
     }
@@ -313,10 +336,10 @@ pub fn show_source_context(src: string, line: i32, col: i32, length: i32, is_war
     let next = source_get_line(src, line + 1)
     if (next != "")
     {
-        out = out + " " + gutter + line_num_str(line + 1, width) + " | " + reset + next + "\n"
+        out = out + gutter + line_num_str(line + 1, width) + " | " + reset + next + "\n"
     }
 
-    out = out + " " + gutter + line_num_str(width, width) + " |" + reset + "\n"
+    out = out + gutter + line_blank_str(width) + " |" + reset + "\n"
     return out
 }
 
@@ -344,7 +367,7 @@ pub fn format_diagnostic(src: string, filename: string, is_warning: i32, error_t
     let mut out = format_header(is_warning, error_type, message)
     if (filename != "" and line > 0)
     {
-        out = out + "  " + diag_blue() + "-->" + diag_reset() + " " + filename + ":" + i32_to_str(line) + ":" + i32_to_str(col) + "\n"
+        out = out + line_blank_str(line_number_width(line)) + diag_blue() + "-->" + diag_reset() + " " + filename + ":" + i32_to_str(line) + ":" + i32_to_str(col) + "\n"
         out = out + show_source_context(src, line, col, length, is_warning)
     }
     return out

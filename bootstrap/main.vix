@@ -145,11 +145,11 @@ fn run_mode(mode: string, src: string, filename: string): ?i32
         "--typeinfer" -> {
             if (infer_result.ok == 0)
             {
-                print(typeinfer_result_debug(infer_result, filename))
+                print(typeinfer_result_debug(infer_result, src, filename))
             }
             else
             {
-                print(typeinfer_result_debug(infer_result, filename))
+                print(typeinfer_result_debug(infer_result, src, filename))
             }
             return Some(0)
         }
@@ -158,7 +158,7 @@ fn run_mode(mode: string, src: string, filename: string): ?i32
 
     if (infer_result.ok == 0)
     {
-        print(typeinfer_result_debug(infer_result, filename))
+        print(typeinfer_result_debug(infer_result, src, filename))
         return Some(1)
     }
 

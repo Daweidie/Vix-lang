@@ -134,13 +134,17 @@ pub type AstFunction = struct {
     body_idx: i32,
     param_names: [string],
     param_types: [string],
-    is_var_arg: i32
+    is_var_arg: i32,
+    line: i32,
+    col: i32
 }
 
 pub type AstStructDecl = struct {
     name: string,
     field_names: [string],
-    field_types: [string]
+    field_types: [string],
+    line: i32,
+    col: i32
 }
 
 pub type AstProgram = struct {
@@ -339,22 +343,27 @@ pub fn ast_stmt_if(store: &StmtStore, cond_idx: i32, then_idx: i32, else_idx: i3
 
 pub fn ast_function(name: string, ret_ty: string, body_idx: i32): AstFunction
 {
-    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: [], param_types: [], is_var_arg: 0 }
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: [], param_types: [], is_var_arg: 0, line: 0, col: 0 }
 }
 
 pub fn ast_function_full(name: string, ret_ty: string, body_idx: i32, param_names: [string], param_types: [string]): AstFunction
 {
-    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types, is_var_arg: 0 }
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types, is_var_arg: 0, line: 0, col: 0 }
 }
 
 pub fn ast_function_full_vararg(name: string, ret_ty: string, body_idx: i32, param_names: [string], param_types: [string], is_var_arg: i32): AstFunction
 {
-    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types, is_var_arg: is_var_arg }
+    return AstFunction{ name: name, ret_ty: ret_ty, body_idx: body_idx, param_names: param_names, param_types: param_types, is_var_arg: is_var_arg, line: 0, col: 0 }
+}
+
+pub fn ast_function_with_loc(func: AstFunction, line: i32, col: i32): AstFunction
+{
+    return AstFunction{ name: func.name, ret_ty: func.ret_ty, body_idx: func.body_idx, param_names: func.param_names, param_types: func.param_types, is_var_arg: func.is_var_arg, line: line, col: col }
 }
 
 pub fn ast_program_ok(function: AstFunction, expr_store: ExprStore, store: StmtStore): AstProgram
 {
-    let entry = ast_function_full_vararg(function.name, function.ret_ty, function.body_idx, function.param_names, function.param_types, function.is_var_arg)
+    let entry = ast_function_with_loc(function, function.line, function.col)
     return AstProgram{ function: entry, functions: [function], extern_functions: [], structs: [], expr_store: expr_store, store: store, ok: 1, error: "" }
 }
 
