@@ -250,6 +250,10 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
         "field" -> {
             let base_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
             if (env.ok == 0) { return "unknown" }
+            if (base_ty == "string" and expr.text == "length")
+            {
+                return "i32"
+            }
             let field_ty = struct_symbols_field_type(structs, base_ty, expr.text)
             if (structs.ok == 0)
             {
@@ -316,6 +320,10 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             if (base_ty == "ptr" or base_ty == "unknown")
             {
                 return "string"
+            }
+            if (base_ty == "string")
+            {
+                return "i32"
             }
             symtable_fail_expr(env, "cannot index value of type '" + base_ty + "'", expr)
             "unknown"

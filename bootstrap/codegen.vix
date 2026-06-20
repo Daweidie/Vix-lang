@@ -27,6 +27,7 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
         "deref" -> "i32"
         "field" -> {
             let base_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
+            if (base_ty == "string" and expr.text == "length") { return "i32" }
             get_struct_field_type(base_ty, expr.text)
         }
         "struct_literal" -> expr.text
@@ -80,6 +81,11 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr, 
         "field" -> {
             let base_expr = expr_store_get(es, expr.left_idx)
             let base_ty = codegen_expr_type(b, es, base_expr)
+            if (base_ty == "string" and expr.text == "length")
+            {
+                let base = codegen_expr_value_typed(b, es, base_expr, "string")
+                return llvm_build_strlen(b, base)
+            }
             let field_index = get_struct_field_index(base_ty, expr.text)
             let base_val = codegen_expr_value_typed(b, es, base_expr, base_ty)
             let field_val = llvm_extract_value(b, base_val, field_index)
@@ -106,6 +112,10 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr, 
             if (base_ty == "ptr")
             {
                 llvm_load_ptr_index_as_string(b, base, index)
+            }
+            elif (base_ty == "string")
+            {
+                llvm_load_string_char(b, base, index)
             }
             else
             {
