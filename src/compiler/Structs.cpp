@@ -176,6 +176,12 @@ LLVMCodeGenerator::handleArrayLength(ASTNode *object) {
                           << "\n";
             return VisitResult(length, ValueType::INT32);
           }
+          if (elementCount < 0) {
+            Value *dataPtr = builder.CreateLoad(allocatedType, alloc, varName);
+            Value *runtimeLen = emitLoadArrayLength(dataPtr, varName + "_dyn_len");
+            VIX_DEBUG_LOG << "[DEBUG] Array length (dynamic from header)\n";
+            return VisitResult(runtimeLen, ValueType::INT32);
+          }
         }
         if (typeHelper.isStringVariable(varName)) {
           Value *strPtr = builder.CreateLoad(allocatedType, alloc, varName);

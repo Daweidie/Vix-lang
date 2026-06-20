@@ -232,7 +232,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
         }
         "option" -> "Option[string]"
         "addr" -> {
-            let _ = symtable_lookup(env, expr.text)
+            let __t0 = symtable_lookup(env, expr.text)
             if (env.ok == 0) { symtable_set_error_loc(env, expr.line, expr.col) }
             if (env.ok == 0) { return "unknown" }
             "ptr"
@@ -302,7 +302,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             }
             for (i in 0 .. expr.args.length)
             {
-                let _ = infer_expr_type(env, funcs, structs, es, expr.args[i])
+                let __t1 = infer_expr_type(env, funcs, structs, es, expr.args[i])
                 if (env.ok == 0) { return "unknown" }
             }
             function_symbols_return_type(funcs, expr.text)
@@ -317,16 +317,11 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                 symtable_fail_expr(env, "index expression expects integer index, got '" + index_ty + "'", expr)
                 return "unknown"
             }
-            if (base_ty == "ptr" or base_ty == "unknown")
-            {
-                return "string"
-            }
             if (base_ty == "string")
             {
                 return "i32"
             }
-            symtable_fail_expr(env, "cannot index value of type '" + base_ty + "'", expr)
-            "unknown"
+            "i32"
         }
         "unaryop" -> {
             let inner_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
@@ -424,7 +419,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             if (env.ok == 0) { return "unknown" }
             for (i in 0 .. expr.args.length)
             {
-                let _ = infer_expr_type(env, funcs, structs, es, expr.args[i])
+                let __t2 = infer_expr_type(env, funcs, structs, es, expr.args[i])
                 if (env.ok == 0) { return "unknown" }
             }
             if (expr.text == "push") { "void" } else { "unknown" }
@@ -486,6 +481,13 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                 symtable_fail_stmt(env, "cannot store '" + value_ty + "' through i32 pointer", stmt)
             }
         }
+        "store_index" -> {
+            let __t3 = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
+            if (env.ok == 0) { return }
+            let __t4 = infer_expr_type(env, funcs, structs, es, stmt.direct_ret)
+            if (env.ok == 0) { return }
+            let __t5 = infer_expr_type(env, funcs, structs, es, stmt.assign_idx)
+        }
         "return" -> {
             if (ret_ty != "i32" and ret_ty != "unknown")
             {
@@ -501,10 +503,10 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             }
         }
         "print" -> {
-            let _ = infer_expr_type(env, funcs, structs, es, stmt.print_idx)
+            let __t6 = infer_expr_type(env, funcs, structs, es, stmt.print_idx)
         }
         "expr" -> {
-            let _ = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
+            let __t7 = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
         }
         "block" -> {
             symtable_push_scope(env)

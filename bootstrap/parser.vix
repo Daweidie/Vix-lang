@@ -589,13 +589,12 @@ pub fn parse_statement_ident(parser: &Parser): i32
         parser_expect_text(parser, "]")
         if (parser.ok == 0) { return -1 }
         let ident_idx = parser_expr_at(parser, ast_expr_identifier(parser.expr_store, name), line, col)
-        let index_expr = parser_expr_at(parser, ast_expr_index(parser.expr_store, ident_idx, index_idx), line, col)
         parser_expect_text(parser, "=")
         if (parser.ok == 0) { return -1 }
         let expr_idx = parse_expression(parser)
         if (parser.ok == 0) { return -1 }
         parser_accept_text(parser, ";")
-        return parser_stmt_at(parser, ast_stmt_store_deref(parser.store, index_expr, expr_idx), line, col)
+        return parser_stmt_at(parser, ast_stmt_store_index(parser.store, ident_idx, index_idx, expr_idx), line, col)
     }
     if (op == "=")
     {
@@ -957,7 +956,7 @@ pub fn parse_type_text(parser: &Parser): string
     if (parser_text(parser) == "&")
     {
         parser_advance(parser)
-        let _ = parse_type_text(parser)
+        let __p0 = parse_type_text(parser)
         if (parser.ok == 0) { return "unknown" }
         return "ptr"
     }

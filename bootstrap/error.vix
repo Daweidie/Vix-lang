@@ -239,12 +239,12 @@ pub fn format_caret_line(line: string, col: i32, length: i32, color: string): st
     }
 
     let mut out = ""
-    for (_ in 0 .. display_col)
+    for (__c in 0 .. display_col)
     {
         out = out + " "
     }
     out = out + color + diag_bold()
-    for (_ in 0 .. safe_len)
+    for (__i in 0 .. safe_len)
     {
         out = out + "^"
     }
@@ -283,7 +283,7 @@ pub fn line_num_str(line: i32, width: i32): string
     let num = i32_to_str(line)
     let padding = width - i32_digit_width(line)
     let mut out = ""
-    for (_ in 0 .. padding)
+    for (__p in 0 .. padding)
     {
         out = out + " "
     }
@@ -293,7 +293,7 @@ pub fn line_num_str(line: i32, width: i32): string
 pub fn line_blank_str(width: i32): string
 {
     let mut out = ""
-    for (_ in 0 .. width)
+    for (__w in 0 .. width)
     {
         out = out + " "
     }

@@ -235,7 +235,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         let path = if (output != "") { output } else { base + ".o" }
         let cmd = "clang -c " + ll_path + " -o " + path
-        let _ = system(cmd)
+        let __m0 = system(cmd)
         print(path)
         return Some(0)
     }
@@ -243,7 +243,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         let path = if (output != "") { output } else { base + ".s" }
         let cmd = "clang -S " + ll_path + " -o " + path
-        let _ = system(cmd)
+        let __m1 = system(cmd)
         print(path)
         return Some(0)
     }
@@ -251,7 +251,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         let path = if (output != "") { output } else { "a.out" }
         let cmd = "clang " + ll_path + " -o " + path
-        let _ = system(cmd)
+        let __m2 = system(cmd)
         print(path)
         return Some(0)
     }

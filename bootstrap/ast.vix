@@ -318,6 +318,11 @@ pub fn ast_stmt_store_deref(store: &StmtStore, pointer_idx: i32, expr_idx: i32):
     return stmt_store_add(store, AstStmt{ tag: "store_deref", value_idx: pointer_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, is_mut: 0, assign_name: "", assign_idx: expr_idx, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1, type_text: "", stmt_indices: [], match_pattern_indices: [], match_body_indices: [], match_arms: [], line: 0, col: 0 })
 }
 
+pub fn ast_stmt_store_index(store: &StmtStore, base_idx: i32, index_idx: i32, expr_idx: i32): i32
+{
+    return stmt_store_add(store, AstStmt{ tag: "store_index", value_idx: base_idx, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: index_idx, is_mut: 0, assign_name: "", assign_idx: expr_idx, print_idx: -1, block_start: -1, block_count: 0, body_idx: -1, type_text: "", stmt_indices: [], match_pattern_indices: [], match_body_indices: [], match_arms: [], line: 0, col: 0 })
+}
+
 pub fn ast_stmt_print(store: &StmtStore, expr_idx: i32): i32
 {
     return stmt_store_add(store, AstStmt{ tag: "print", value_idx: -1, cond_left: "", cond_right: "", then_ret: 0, else_ret: 0, match_bind: "", match_compare_right: "", match_some_then_ret: 0, match_some_else_ret: 0, match_none_ret: 0, match_option_value: "", direct_ret: 0, is_mut: 0, assign_name: "", assign_idx: -1, print_idx: expr_idx, block_start: -1, block_count: 0, body_idx: -1, type_text: "", stmt_indices: [], match_pattern_indices: [], match_body_indices: [], match_arms: [], line: 0, col: 0 })
@@ -478,7 +483,7 @@ pub fn ast_program_debug(program: AstProgram): string
 pub fn yaml_indent(depth: i32): string
 {
     let mut out = ""
-    for (_ in 0 .. depth)
+    for (__d in 0 .. depth)
     {
         out = out + "  "
     }

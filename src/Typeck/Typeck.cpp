@@ -1792,7 +1792,14 @@ struct TypeChecker {
 			return node_types[node] = resolved->data.fixed_array.element;
 		}
 		if (resolved->kind == TypeKind::Ptr) {
-			return node_types[node] = resolved->data.ptr.pointee;
+			TypePtr pointee = unify.apply(resolved->data.ptr.pointee);
+			if (pointee->kind == TypeKind::Array) {
+				return node_types[node] = pointee->data.array.element;
+			}
+			if (pointee->kind == TypeKind::FixedArray) {
+				return node_types[node] = pointee->data.fixed_array.element;
+			}
+			return node_types[node] = pointee;
 		}
 		if (resolved->kind == TypeKind::String) {
 			return node_types[node] = builtin_i8;

@@ -1204,6 +1204,28 @@ using namespace llvm;
                                 << " for function '" << calleeName << "'\n";
                     return VisitResult();
                 }
+                // Fix: When passing `ref` of a pointer-type variable to a function,
+                // load the pointer value from the alloca instead of passing the alloca.
+                // This handles `quicksort(ref arr, 0, 5)` where `arr: &[i32]` —
+                // without this fix, the alloca address (not the data pointer) is passed,
+                // causing array indexing to read from stack memory and hang.
+                if (argNode && argNode->type == AST_UNARYOP &&
+                    argNode->data.unaryop.op == OP_ADDRESS &&
+                    argRes.value && argRes.value->getType()->isPointerTy()) {
+                    ASTNode* innerExpr = argNode->data.unaryop.expr;
+                    if (innerExpr && innerExpr->type == AST_IDENTIFIER && innerExpr->data.identifier.name) {
+                        std::string refVarName(innerExpr->data.identifier.name);
+                        AllocaInst* refVarAlloc = scopeManager.findVariable(refVarName);
+                        if (!refVarAlloc) refVarAlloc = findVariableInMain(refVarName);
+                        if (refVarAlloc) {
+                            Type* refAllocType = getActualType(refVarAlloc);
+                            if (refAllocType && refAllocType->isPointerTy()) {
+                                argRes.value = builder.CreateLoad(refAllocType, refVarAlloc, refVarName + "_ref_ptr");
+                                argRes.type = typeHelper.getValueTypeFromType(refAllocType);
+                            }
+                        }
+                    }
+                }
                 if (llvmParamIndex < expectedParamCount || isVarArg || isKnownVarArgFunc) {
                     Type* expectedType = nullptr;
                     if (llvmParamIndex < expectedParamCount) {

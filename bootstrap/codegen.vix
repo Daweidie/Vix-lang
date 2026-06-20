@@ -39,7 +39,7 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
         "struct_literal" -> expr.text
         "index" -> {
             let base_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
-            if (base_ty == "ptr") { "string" } else { "i32" }
+            if (base_ty == "string") { "i32" } else { "i32" }
         }
         "unaryop" -> {
             if (expr.text == "!") { "bool" } else { codegen_expr_type(b, es, expr_store_get(es, expr.left_idx)) }
@@ -123,17 +123,16 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
             let base_ty = codegen_expr_type(b, es, base_expr)
             let base = codegen_expr_value_typed(b, es, store, base_expr, base_ty)
             let index = codegen_expr_value_typed(b, es, store, index_expr, "i32")
-            if (base_ty == "ptr")
-            {
-                llvm_load_ptr_index_as_string(b, base, index)
-            }
-            elif (base_ty == "string")
+            if (base_ty == "string")
             {
                 llvm_load_string_char(b, base, index)
             }
             else
             {
-                llvm_const_i32(0)
+                let element_ty = LLVMInt32Type()
+                let indices = [index]
+                let slot = vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "idx"))
+                vix_LLVMBuildLoad2(b.builder, element_ty, slot, llvm_temp(b, "loadidx"))
             }
         }
         "binop" -> {
@@ -338,6 +337,15 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
             let ptr_val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.value_idx), "ptr")
             let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), "i32")
             llvm_store_i32_pointer(b, ptr_val, val)
+        }
+        "store_index" -> {
+            let base = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.value_idx), "ptr")
+            let index = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.direct_ret), "i32")
+            let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), "i32")
+            let element_ty = LLVMInt32Type()
+            let indices = [index]
+            let slot = vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "storeidx"))
+            vix_LLVMBuildStore(b.builder, val, slot)
         }
         "print" -> {
             let expr = expr_store_get(es, stmt.print_idx)

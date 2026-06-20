@@ -657,7 +657,7 @@ pub fn llvm_emit_printf_i32_value(b: &LlvmBuilder, value: ptr)
 {
     let fmt_ptr = get_fmt_string(b)
     let args = [fmt_ptr, value]
-    let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
+    let __b0 = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
 }
 
 pub fn llvm_emit_printf_value(b: &LlvmBuilder, value: ptr, ty: string)
@@ -672,7 +672,7 @@ pub fn llvm_emit_printf_value(b: &LlvmBuilder, value: ptr, ty: string)
     let fmt_ptr = get_c_string_global(b, ".fmt." + ty, fmt)
     let print_value = if (ty == "f32") { llvm_cast_value(b, value, "f32", "f64") } elif (ty == "i8" or ty == "u8" or ty == "char") { llvm_cast_value(b, value, ty, "i32") } else { value }
     let args = [fmt_ptr, print_value]
-    let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
+    let __b1 = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
 }
 
 pub fn llvm_build_eq_string_value(b: &LlvmBuilder, left: string, right_literal: string): ptr
