@@ -33,6 +33,7 @@ private:
     std::map<std::string, std::pair<llvm::Type*, int>> arrayTypes;
     std::map<std::string, int> variableArraySizes;
     std::map<std::string, bool> stringVariables;
+    std::map<std::string, llvm::Type*> arrayFieldElementTypes;
     std::map<std::string, llvm::Type*> genericTypeBindings;
     std::set<std::string> instantiating;
 
@@ -62,6 +63,8 @@ public:
     llvm::StructType* getStructType(const std::string& name);
     std::vector<std::pair<std::string, llvm::Type*>>* getStructFields(const std::string& name);
     int getFieldIndex(const std::string& structName, const std::string& fieldName);
+    void registerFieldArrayElementType(const std::string& structName, const std::string& fieldName, llvm::Type* elemType);
+    llvm::Type* getFieldArrayElementType(const std::string& structName, const std::string& fieldName);
 
     std::string typeNodeToToken(ASTNode* typeNode) const;
     std::string mangleStructInstanceName(const std::string& baseName, ASTNode* typeArgs) const;

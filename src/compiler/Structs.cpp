@@ -33,7 +33,7 @@ LLVMCodeGenerator::visitStructDef(ASTNode *node) {
       ASTNode *left = field->data.assign.left;
       ASTNode *right = field->data.assign.right;
 
-      if (left && left->type == AST_IDENTIFIER) {
+        if (left && left->type == AST_IDENTIFIER) {
         std::string fieldName(left->data.identifier.name);
         Type *fieldType = typeHelper.getTypeFromTypeNode(right);
         if (!fieldType)
@@ -42,6 +42,12 @@ LLVMCodeGenerator::visitStructDef(ASTNode *node) {
           reportCodegenSemanticError(
               node, "self-recursive struct fields must use pointer type");
           return VisitResult();
+        }
+        if (right && (right->type == AST_TYPE_LIST ||
+                      right->type == AST_TYPE_FIXED_SIZE_LIST)) {
+          typeHelper.registerFieldArrayElementType(
+              structName, fieldName,
+              typeHelper.getArrayElementTypeFromNode(right));
         }
         fieldTypes.push_back(fieldType);
         fieldInfo.push_back({fieldName, fieldType});
@@ -628,10 +634,16 @@ LLVMCodeGenerator::visitMemberAccess(ASTNode *node) {
     Type *inferredElem = getInferredPointerElementType(node);
     if (inferredElem) {
       pointerElementHints[fieldVal] = inferredElem;
-    } else if (fieldName == "scopes") {
-      pointerElementHints[fieldVal] = PointerType::get(context, 0);
     } else {
-      pointerElementHints[fieldVal] = Type::getInt32Ty(context);
+      std::string sname = structType->getName().str();
+      Type* fieldArrElem = typeHelper.getFieldArrayElementType(sname, fieldName);
+      if (fieldArrElem) {
+        pointerElementHints[fieldVal] = fieldArrElem;
+      } else if (fieldName == "scopes") {
+        pointerElementHints[fieldVal] = PointerType::get(context, 0);
+      } else {
+        pointerElementHints[fieldVal] = Type::getInt32Ty(context);
+      }
     }
   }
 

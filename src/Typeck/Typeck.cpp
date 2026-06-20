@@ -2009,9 +2009,10 @@ struct TypeChecker {
 								return a;
 						}
 					};
-					return node_types[node] = rewrite(f.type, rewrite);
+					TypePtr ft = rewrite(f.type, rewrite);
+					return set_member_type(ft);
 				}
-				return node_types[node] = f.type;
+				return set_member_type(f.type);
 			}
 		}
 		report_semantic_error(node, std::string("unknown field: ") + field);

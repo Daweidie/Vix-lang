@@ -101,6 +101,17 @@ int TypeHelper::getFieldIndex(const std::string& structName, const std::string& 
     return -1;
 }
 
+void TypeHelper::registerFieldArrayElementType(const std::string& structName, const std::string& fieldName, llvm::Type* elemType) {
+    if (!elemType) return;
+    arrayFieldElementTypes[structName + "." + fieldName] = elemType;
+}
+
+llvm::Type* TypeHelper::getFieldArrayElementType(const std::string& structName, const std::string& fieldName) {
+    auto it = arrayFieldElementTypes.find(structName + "." + fieldName);
+    if (it == arrayFieldElementTypes.end()) return nullptr;
+    return it->second;
+}
+
 std::string TypeHelper::typeNodeToToken(ASTNode* typeNode) const {
     auto sanitize = [](const std::string& raw) {
         std::string out;
@@ -213,6 +224,12 @@ Type* TypeHelper::instantiateStructType(const std::string& baseName, ASTNode* ty
         if (!left || left->type != AST_IDENTIFIER || !left->data.identifier.name) continue;
         Type* fieldType = getTypeFromTypeNode(right);
         if (!fieldType) fieldType = Type::getInt32Ty(context);
+        if (right && (right->type == AST_TYPE_LIST ||
+                      right->type == AST_TYPE_FIXED_SIZE_LIST)) {
+            registerFieldArrayElementType(mangledName,
+                left->data.identifier.name,
+                getArrayElementTypeFromNode(right));
+        }
         fieldTypes.push_back(fieldType);
         fieldInfo.push_back({left->data.identifier.name, fieldType});
     }
