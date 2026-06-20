@@ -956,9 +956,9 @@ pub fn parse_type_text(parser: &Parser): string
     if (parser_text(parser) == "&")
     {
         parser_advance(parser)
-        let __p0 = parse_type_text(parser)
+        let inner = parse_type_text(parser)
         if (parser.ok == 0) { return "unknown" }
-        return "ptr"
+        return "ptr:" + inner
     }
     if (parser_text(parser) == "[")
     {

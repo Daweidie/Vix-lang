@@ -136,7 +136,8 @@ static LLVMTypeRef vix_llvm_type_for_name(const char *type) {
   if (type[0] == '[' || strncmp(type, "Option[", 7) == 0) {
     return LLVMPointerType(LLVMInt8Type(), 0);
   }
-  if (strcmp(type, "string") == 0 || strcmp(type, "ptr") == 0) {
+  if (strcmp(type, "string") == 0 || strcmp(type, "ptr") == 0 ||
+      strncmp(type, "ptr:", 4) == 0) {
     return LLVMPointerType(LLVMInt8Type(), 0);
   }
   int idx = vix_find_struct_index(type);
@@ -168,11 +169,22 @@ void vix_register_struct_sig(const char *name, const char **field_names,
   }
 }
 
+int vix_get_struct_field_index_in_struct(int struct_idx, const char *field_name);
+int vix_find_field_in_any_struct(const char *field_name);
+
 int vix_get_struct_field_index(const char *struct_name,
-                               const char *field_name) {
-  int idx = vix_find_struct_index(struct_name);
-  if (idx < 0)
+                                const char *field_name) {
+  const char *actual_struct = struct_name;
+  if (strncmp(struct_name, "ptr:", 4) == 0)
+    actual_struct = struct_name + 4;
+  int idx = vix_find_struct_index(actual_struct);
+  if (idx < 0) {
+    if (strncmp(struct_name, "ptr:", 4) == 0) {
+      int fi = vix_find_field_in_any_struct(field_name);
+      if (fi >= 0) return vix_get_struct_field_index_in_struct(fi, field_name);
+    }
     return -1;
+  }
   for (int i = 0; i < structs[idx].field_count; i++) {
     if (strcmp(structs[idx].field_names[i], field_name) == 0)
       return i;
@@ -181,15 +193,50 @@ int vix_get_struct_field_index(const char *struct_name,
 }
 
 const char *vix_get_struct_field_type(const char *struct_name,
-                                      const char *field_name) {
-  int idx = vix_find_struct_index(struct_name);
-  if (idx < 0)
+                                       const char *field_name) {
+  const char *actual_struct = struct_name;
+  if (strncmp(struct_name, "ptr:", 4) == 0)
+    actual_struct = struct_name + 4;
+  if (strncmp(struct_name, "ptr<", 4) == 0) {
+    actual_struct = struct_name + 4;
+    int len = strlen(actual_struct);
+    if (len > 0 && actual_struct[len - 1] == '>')
+      ; /* handled by copying to temp below */
+  }
+  int idx = vix_find_struct_index(actual_struct);
+  if (idx < 0) {
+    if (strncmp(struct_name, "ptr:", 4) == 0 || strncmp(struct_name, "ptr<", 4) == 0) {
+      /* Search all structs for the field as fallback */
+      int fi = vix_find_field_in_any_struct(field_name);
+      if (fi >= 0) {
+        return structs[fi].field_types[vix_get_struct_field_index_in_struct(fi, field_name)];
+      }
+    }
     return "unknown";
+  }
   for (int i = 0; i < structs[idx].field_count; i++) {
     if (strcmp(structs[idx].field_names[i], field_name) == 0)
       return structs[idx].field_types[i];
   }
   return "unknown";
+}
+
+int vix_get_struct_field_index_in_struct(int struct_idx, const char *field_name) {
+  for (int i = 0; i < structs[struct_idx].field_count; i++) {
+    if (strcmp(structs[struct_idx].field_names[i], field_name) == 0)
+      return i;
+  }
+  return -1;
+}
+
+int vix_find_field_in_any_struct(const char *field_name) {
+  for (int s = 0; s < struct_count; s++) {
+    for (int i = 0; i < structs[s].field_count; i++) {
+      if (strcmp(structs[s].field_names[i], field_name) == 0)
+        return s;
+    }
+  }
+  return -1;
 }
 
 void vix_register_function_sig_vararg(const char *name, const char *return_type,
@@ -481,8 +528,13 @@ LLVMValueRef vix_LLVMBuildFPExt(LLVMBuilderRef builder, LLVMValueRef val,
 }
 
 LLVMValueRef vix_LLVMBuildFPTrunc(LLVMBuilderRef builder, LLVMValueRef val,
-                                  LLVMTypeRef dest_ty, const char *name) {
+                                   LLVMTypeRef dest_ty, const char *name) {
   return LLVMBuildFPTrunc(builder, val, dest_ty, name);
+}
+
+LLVMValueRef vix_LLVMBuildBitCast(LLVMBuilderRef builder, LLVMValueRef val,
+                                   LLVMTypeRef dest_ty, const char *name) {
+  return LLVMBuildBitCast(builder, val, dest_ty, name);
 }
 
 LLVMValueRef vix_LLVMBuildBr(LLVMBuilderRef builder, LLVMValueRef dest) {
@@ -532,6 +584,51 @@ void *vix_array_push_i32(void *arr, int val) {
   if (new_block == NULL) return NULL;
   *(int *)new_block = new_len;
   int *data = (int *)((char *)new_block + 8);
+  data[old_len] = val;
+  return (void *)((char *)new_block + 8);
+}
+
+void *vix_string_concat(const char *a, const char *b) {
+  if (a == NULL) a = "";
+  if (b == NULL) b = "";
+  size_t len_a = strlen(a);
+  size_t len_b = strlen(b);
+  size_t total = len_a + len_b + 1;
+  char *result = (char *)malloc(total);
+  if (result == NULL) return NULL;
+  memcpy(result, a, len_a);
+  memcpy(result + len_a, b, len_b);
+  result[len_a + len_b] = '\0';
+  return result;
+}
+
+int vix_is_ptr_type(const char *type) {
+  if (strcmp(type, "ptr") == 0) return 1;
+  if (strncmp(type, "ptr:", 4) == 0) return 1;
+  return 0;
+}
+
+const char *vix_ptr_pointee_type(const char *type) {
+  if (strncmp(type, "ptr:", 4) == 0) return type + 4;
+  return "unknown";
+}
+
+int vix_is_ptr_to_struct(const char *type) {
+  if (strncmp(type, "ptr:", 4) != 0) return 0;
+  const char *pointee = type + 4;
+  return vix_find_struct_index(pointee) >= 0;
+}
+
+void *vix_array_push_ptr(void *arr, void *val) {
+  int old_len = vix_array_len(arr);
+  int new_len = old_len + 1;
+  void *base = (arr == NULL) ? NULL : (void *)((char *)arr - 8);
+  size_t data_bytes = new_len * sizeof(void *);
+  size_t total_bytes = 8 + data_bytes;
+  void *new_block = realloc(base, total_bytes);
+  if (new_block == NULL) return NULL;
+  *(int *)new_block = new_len;
+  void **data = (void **)((char *)new_block + 8);
   data[old_len] = val;
   return (void *)((char *)new_block + 8);
 }

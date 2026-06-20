@@ -54,6 +54,23 @@ pub fn typeinfer_error_from_env(env: &SymbolTable, return_type: string, error_fu
     return typeinfer_error(env.error, return_type, error_func, env.error_line, env.error_col)
 }
 
+pub fn strip_ptr_prefix_typeinfer(ty: string): string
+{
+    if (ty.length > 4 and ty[0] == 'p' and ty[1] == 't' and ty[2] == 'r' and ty[3] == ':')
+    {
+        let mut result = ""
+        for (i in 4 .. ty.length)
+        {
+            let s: string = malloc(2)
+            s[0] = ty[i]
+            s[1] = '\0'
+            result = result + s
+        }
+        return result
+    }
+    return ty
+}
+
 pub fn symtable_fail_expr(env: &SymbolTable, message: string, expr: AstExpr)
 {
     symtable_fail_at(env, message, expr.line, expr.col)
@@ -254,7 +271,8 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             {
                 return "i32"
             }
-            let field_ty = struct_symbols_field_type(structs, base_ty, expr.text)
+            let struct_ty = strip_ptr_prefix_typeinfer(base_ty)
+            let field_ty = struct_symbols_field_type(structs, struct_ty, expr.text)
             if (structs.ok == 0)
             {
                 symtable_fail_expr(env, structs.error, expr)
