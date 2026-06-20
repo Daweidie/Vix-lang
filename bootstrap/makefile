@@ -18,6 +18,6 @@ clean:
 	rm -f helper.o vixc0.o $(TARGET) test test.ll 
 
 test: $(TARGET)
-	python3 ../tests/vixc0_run.py
+	python3 ../tests/c0_test.py
 
 .PHONY: all clean test
