@@ -698,8 +698,8 @@ pub fn parse_statement(parser: &Parser): i32
             if (parser_text(parser) == ":")
             {
                 parser_advance(parser)
-                type_text = parser_text(parser)
-                parser_advance(parser)
+                type_text = parse_type_text(parser)
+                if (parser.ok == 0) { return -1 }
             }
             parser_expect_text(parser, "=")
             if (parser.ok == 0) { return -1 }
@@ -763,13 +763,25 @@ pub fn parse_type_text(parser: &Parser): string
     if (parser_text(parser) == "&")
     {
         parser_advance(parser)
-        if (parser_kind(parser) != tk_ident() and parser_kind(parser) != tk_keyword())
-        {
-            parser_fail(parser, "expected type name after '&'")
-            return "unknown"
-        }
-        parser_advance(parser)
+        let _ = parse_type_text(parser)
+        if (parser.ok == 0) { return "unknown" }
         return "ptr"
+    }
+    if (parser_text(parser) == "[")
+    {
+        parser_advance(parser)
+        let inner = parse_type_text(parser)
+        if (parser.ok == 0) { return "unknown" }
+        parser_expect_text(parser, "]")
+        if (parser.ok == 0) { return "unknown" }
+        return "[" + inner + "]"
+    }
+    if (parser_text(parser) == "?")
+    {
+        parser_advance(parser)
+        let inner = parse_type_text(parser)
+        if (parser.ok == 0) { return "unknown" }
+        return "Option[" + inner + "]"
     }
     let ty = parser_text(parser)
     if (parser_kind(parser) != tk_ident() and parser_kind(parser) != tk_keyword())
@@ -955,8 +967,8 @@ pub fn parse_struct_decl(parser: &Parser): AstStructDecl
         if (parser_expect_kind(parser, tk_ident()) == 0) { return AstStructDecl{ name: name, field_names: field_names, field_types: field_types, line: line, col: col } }
         parser_expect_text(parser, ":")
         if (parser.ok == 0) { return AstStructDecl{ name: name, field_names: field_names, field_types: field_types, line: line, col: col } }
-        let field_type = parser_text(parser)
-        parser_advance(parser)
+        let field_type = parse_type_text(parser)
+        if (parser.ok == 0) { return AstStructDecl{ name: name, field_names: field_names, field_types: field_types, line: line, col: col } }
         field_names.push(field_name)
         field_types.push(field_type)
         parser_accept_text(parser, ",")
