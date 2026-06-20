@@ -758,6 +758,40 @@ pub fn parse_statement(parser: &Parser): i32
     }
 }
 
+pub fn parse_type_text(parser: &Parser): string
+{
+    if (parser_text(parser) == "&")
+    {
+        parser_advance(parser)
+        if (parser_kind(parser) != tk_ident() and parser_kind(parser) != tk_keyword())
+        {
+            parser_fail(parser, "expected type name after '&'")
+            return "unknown"
+        }
+        parser_advance(parser)
+        return "ptr"
+    }
+    let ty = parser_text(parser)
+    if (parser_kind(parser) != tk_ident() and parser_kind(parser) != tk_keyword())
+    {
+        parser_fail(parser, "expected type name, got '" + ty + "'")
+        return "unknown"
+    }
+    parser_advance(parser)
+    return ty
+}
+
+pub fn parse_param_name(parser: &Parser): string
+{
+    if (parser_text(parser) == "mut")
+    {
+        parser_advance(parser)
+    }
+    let name = parser_text(parser)
+    if (parser_expect_kind(parser, tk_ident()) == 0) { return "" }
+    return name
+}
+
 pub fn parse_function(parser: &Parser): AstFunction
 {
     let line = parser_line(parser)
@@ -772,21 +806,21 @@ pub fn parse_function(parser: &Parser): AstFunction
     let mut param_types: [string] = []
     if (parser_text(parser) != ")")
     {
-        let param_name = parser_text(parser)
-        if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function("main", "i32", -1) }
+        let param_name = parse_param_name(parser)
+        if (parser.ok == 0) { return ast_function("main", "i32", -1) }
         if (parser_expect_text(parser, ":") == 0) { return ast_function("main", "i32", -1) }
-        let param_ty = parser_text(parser)
-        parser_advance(parser)
+        let param_ty = parse_type_text(parser)
+        if (parser.ok == 0) { return ast_function("main", "i32", -1) }
         param_names.push(param_name)
         param_types.push(param_ty)
         while (parser_text(parser) == ",")
         {
             parser_advance(parser)
-            let next_name = parser_text(parser)
-            if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function("main", "i32", -1) }
+            let next_name = parse_param_name(parser)
+            if (parser.ok == 0) { return ast_function("main", "i32", -1) }
             if (parser_expect_text(parser, ":") == 0) { return ast_function("main", "i32", -1) }
-            let next_ty = parser_text(parser)
-            parser_advance(parser)
+            let next_ty = parse_type_text(parser)
+            if (parser.ok == 0) { return ast_function("main", "i32", -1) }
             param_names.push(next_name)
             param_types.push(next_ty)
         }
@@ -796,8 +830,7 @@ pub fn parse_function(parser: &Parser): AstFunction
     if (parser_text(parser) == ":")
     {
         parser_advance(parser)
-        ret_ty = parser_text(parser)
-        parser_advance(parser)
+        ret_ty = parse_type_text(parser)
     }
     let mut body_idx = parse_block_statement(parser)
     if (parser.ok == 0) { return ast_function("main", "i32", -1) }
@@ -822,11 +855,11 @@ pub fn parse_function_params_and_return(parser: &Parser, name: string): AstFunct
         }
         else
         {
-            let param_name = parser_text(parser)
-            if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function(name, "i32", -1) }
+            let param_name = parse_param_name(parser)
+            if (parser.ok == 0) { return ast_function(name, "i32", -1) }
             if (parser_expect_text(parser, ":") == 0) { return ast_function(name, "i32", -1) }
-            let param_ty = parser_text(parser)
-            parser_advance(parser)
+            let param_ty = parse_type_text(parser)
+            if (parser.ok == 0) { return ast_function(name, "i32", -1) }
             param_names.push(param_name)
             param_types.push(param_ty)
             while (parser_text(parser) == ",")
@@ -838,11 +871,11 @@ pub fn parse_function_params_and_return(parser: &Parser, name: string): AstFunct
                     parser_advance(parser)
                     break
                 }
-                let next_name = parser_text(parser)
-                if (parser_expect_kind(parser, tk_ident()) == 0) { return ast_function(name, "i32", -1) }
+                let next_name = parse_param_name(parser)
+                if (parser.ok == 0) { return ast_function(name, "i32", -1) }
                 if (parser_expect_text(parser, ":") == 0) { return ast_function(name, "i32", -1) }
-                let next_ty = parser_text(parser)
-                parser_advance(parser)
+                let next_ty = parse_type_text(parser)
+                if (parser.ok == 0) { return ast_function(name, "i32", -1) }
                 param_names.push(next_name)
                 param_types.push(next_ty)
             }
@@ -853,8 +886,7 @@ pub fn parse_function_params_and_return(parser: &Parser, name: string): AstFunct
     if (parser_text(parser) == ":")
     {
         parser_advance(parser)
-        ret_ty = parser_text(parser)
-        parser_advance(parser)
+        ret_ty = parse_type_text(parser)
     }
     return ast_function_full_vararg(name, ret_ty, -1, param_names, param_types, is_var_arg)
 }
