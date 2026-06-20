@@ -6,9 +6,9 @@ all: $(TARGET)
 helper.o: helper.c
 	gcc -c $< -o $@ $(LLVM_CFLAGS)
 
-VIX_SOURCES = main.vix lexer.vix parser.vix ast.vix typeinfer.vix semantic.vix symtable.vix codegen.vix builder.vix error.vix
+SOURCES = main.vix lexer.vix parser.vix ast.vix typeinfer.vix semantic.vix symtable.vix codegen.vix builder.vix error.vix
 
-vixc0.o: $(VIX_SOURCES)
+vixc0.o: $(SOURCES)
 	vixc $< -obj $@ -opt=l2
 
 $(TARGET): helper.o vixc0.o

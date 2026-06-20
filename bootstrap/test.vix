@@ -1,4 +1,5 @@
 fn main()
 {
-    print(a)
+    let a = 10
+    a = 20
 }

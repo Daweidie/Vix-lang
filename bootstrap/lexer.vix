@@ -279,41 +279,45 @@ pub fn tokenize(src: string): TokenStream
                         stream_push(&stream, tk_number(), "", value, line, start_col)
                     }
                 }
-                elif (c == '"')
+                elif (c == '\'')
                 {
                     let start_col = column
-                    let mut text = ""
                     pos += 1
                     column += 1
-                    while (pos < src.length and src[pos] != '"')
+                    let mut value: i32 = 0
+                    if (pos < src.length)
                     {
                         if (src[pos] == '\\' and pos + 1 < src.length)
                         {
                             let next = src[pos + 1]
-                            text = text + match next {
-                                'n' -> char_string('\n')
-                                't' -> char_string('\t')
-                                '\\' -> char_string('\\')
-                                '"' -> char_string('"')
-                                _ -> char_string(next)
+                            value = match next {
+                                'n' -> 10
+                                't' -> 9
+                                'r' -> 13
+                                '0' -> 0
+                                '\\' -> 92
+                                '\'' -> 39
+                                '"' -> 34
+                                _ -> next
                             }
                             pos += 2
                             column += 2
                         }
                         else
                         {
-                            text = text + char_string(src[pos])
+                            value = src[pos]
                             pos += 1
                             column += 1
                         }
                     }
-                    if (pos < src.length and src[pos] == '"')
+                    if (pos < src.length and src[pos] == '\'')
                     {
                         pos += 1
                         column += 1
                     }
-                    stream_push(&stream, tk_string(), text, 0, line, start_col)
+                    stream_push(&stream, tk_number(), "", value, line, start_col)
                 }
+                elif (c == '"')
                 elif (c == '=' and pos + 1 < src.length and src[pos + 1] == '>')
                 {
                     stream_push(&stream, tk_symbol(), "=>", 0, line, column)
