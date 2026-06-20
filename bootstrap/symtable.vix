@@ -46,10 +46,35 @@ pub fn symtable_push_scope(table: &SymbolTable)
     table.depth += 1
 }
 
+pub fn symtable_truncate(table: &SymbolTable, keep: i32)
+{
+    let mut new_names: [string] = []
+    let mut new_types: [string] = []
+    let mut new_mutable: [i32] = []
+    let mut new_depths: [i32] = []
+    for (i in 0 .. keep)
+    {
+        new_names.push(table.names[i])
+        new_types.push(table.types[i])
+        new_mutable.push(table.mutable[i])
+        new_depths.push(table.depths[i])
+    }
+    table.names = new_names
+    table.types = new_types
+    table.mutable = new_mutable
+    table.depths = new_depths
+}
+
 pub fn symtable_pop_scope(table: &SymbolTable)
 {
     if (table.depth > 0)
     {
+        let mut keep = table.names.length
+        while (keep > 0 and table.depths[keep - 1] >= table.depth)
+        {
+            keep -= 1
+        }
+        symtable_truncate(table, keep)
         table.depth -= 1
     }
 }
