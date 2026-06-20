@@ -171,6 +171,18 @@ pub fn parse_multiplicative(parser: &Parser): i32
 pub fn parse_unary(parser: &Parser): i32
 {
     return match parser_text(parser) {
+        "ref" | "&" -> {
+            parser_advance(parser)
+            let name = parser_text(parser)
+            if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
+            ast_expr_addr(parser.expr_store, name)
+        }
+        "@" -> {
+            parser_advance(parser)
+            let operand = parse_unary(parser)
+            if (parser.ok == 0) { return -1 }
+            ast_expr_deref(parser.expr_store, operand)
+        }
         "-" -> {
             parser_advance(parser)
             let operand = parse_unary(parser)
@@ -183,8 +195,34 @@ pub fn parse_unary(parser: &Parser): i32
             if (parser.ok == 0) { return -1 }
             ast_expr_unaryop(parser.expr_store, "!", operand)
         }
-        _ -> parse_primary(parser)
+        _ -> parse_postfix(parser)
     }
+}
+
+pub fn parse_postfix(parser: &Parser): i32
+{
+    let mut expr = parse_primary(parser)
+    if (parser.ok == 0) { return -1 }
+    while (parser_text(parser) == "[" or parser_text(parser) == ".")
+    {
+        if (parser_text(parser) == "[")
+        {
+            parser_advance(parser)
+            let index_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_expect_text(parser, "]")
+            if (parser.ok == 0) { return -1 }
+            expr = ast_expr_index(parser.expr_store, expr, index_idx)
+        }
+        else
+        {
+            parser_advance(parser)
+            let field_name = parser_text(parser)
+            if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
+            expr = ast_expr_field(parser.expr_store, expr, field_name)
+        }
+    }
+    return expr
 }
 
 pub fn parse_primary(parser: &Parser): i32
@@ -218,6 +256,32 @@ pub fn parse_primary(parser: &Parser): i32
     {
         let name = parser_text(parser)
         parser_advance(parser)
+        if (parser_text(parser) == "{")
+        {
+            parser_advance(parser)
+            let mut field_names: [string] = []
+            let mut field_values: [i32] = []
+            while (parser_text(parser) != "}" and parser_at_end(parser) == 0)
+            {
+                if (parser_text(parser) == ",")
+                {
+                    parser_advance(parser)
+                    continue
+                }
+                let field_name = parser_text(parser)
+                if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
+                parser_expect_text(parser, ":")
+                if (parser.ok == 0) { return -1 }
+                let field_value = parse_expression(parser)
+                if (parser.ok == 0) { return -1 }
+                field_names.push(field_name)
+                field_values.push(field_value)
+                parser_accept_text(parser, ",")
+            }
+            parser_expect_text(parser, "}")
+            if (parser.ok == 0) { return -1 }
+            return ast_expr_struct_literal(parser.expr_store, name, field_names, field_values)
+        }
         if (parser_text(parser) == "(")
         {
             parser_advance(parser)
@@ -404,12 +468,136 @@ pub fn parse_for_statement(parser: &Parser): i32
     return ast_stmt_for_range(parser.store, name, start_idx, end_idx, body_idx)
 }
 
+pub fn parse_match_pattern(parser: &Parser): i32
+{
+    if (parser_text(parser) == "_")
+    {
+        parser_advance(parser)
+        return -1
+    }
+    return parse_expression(parser)
+}
+
+pub fn parse_match_arm_body(parser: &Parser): i32
+{
+    if (parser_text(parser) == "{")
+    {
+        return parse_block_statement(parser)
+    }
+    return parse_statement(parser)
+}
+
+pub fn parse_match_arms_desugared(parser: &Parser, subject_name: string): i32
+{
+    while (parser_text(parser) == ";")
+    {
+        parser_advance(parser)
+    }
+    if (parser_text(parser) == "}" or parser_at_end(parser) == 1)
+    {
+        return ast_stmt_block_indices(parser.store, [])
+    }
+
+    let first_pattern = parse_match_pattern(parser)
+    if (parser.ok == 0) { return -1 }
+    let mut is_default = 0
+    if (first_pattern < 0) { is_default = 1 }
+    let subject_expr = ast_expr_identifier(parser.expr_store, subject_name)
+    let mut cond_idx = if (is_default == 1) { -1 } else { ast_expr_binop(parser.expr_store, "==", subject_expr, first_pattern) }
+    while (parser_text(parser) == "|")
+    {
+        parser_advance(parser)
+        let next_pattern = parse_match_pattern(parser)
+        if (parser.ok == 0) { return -1 }
+        if (next_pattern < 0)
+        {
+            is_default = 1
+        }
+        else
+        {
+            let next_subject_expr = ast_expr_identifier(parser.expr_store, subject_name)
+            let next_cond = ast_expr_binop(parser.expr_store, "==", next_subject_expr, next_pattern)
+            if (cond_idx < 0)
+            {
+                cond_idx = next_cond
+            }
+            else
+            {
+                cond_idx = ast_expr_binop(parser.expr_store, "or", cond_idx, next_cond)
+            }
+        }
+    }
+    parser_expect_text(parser, "->")
+    if (parser.ok == 0) { return -1 }
+    let body_idx = parse_match_arm_body(parser)
+    if (parser.ok == 0) { return -1 }
+    parser_accept_text(parser, ",")
+    while (parser_text(parser) == ";")
+    {
+        parser_advance(parser)
+    }
+    if (is_default == 1 or cond_idx < 0)
+    {
+        return body_idx
+    }
+    let else_idx = parse_match_arms_desugared(parser, subject_name)
+    if (parser.ok == 0) { return -1 }
+    return ast_stmt_if(parser.store, cond_idx, body_idx, else_idx)
+}
+
+pub fn parse_match_statement(parser: &Parser): i32
+{
+    parser_expect_text(parser, "match")
+    if (parser.ok == 0) { return -1 }
+    let mut subject_idx = -1
+    if (parser_kind(parser) == tk_ident() and stream_text_at(parser.stream, parser.pos + 1) == "{")
+    {
+        let subject_name = parser_text(parser)
+        parser_advance(parser)
+        subject_idx = ast_expr_identifier(parser.expr_store, subject_name)
+    }
+    else
+    {
+        subject_idx = parse_expression(parser)
+    }
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, "{")
+    if (parser.ok == 0) { return -1 }
+    let tmp_name = "__match" + ast_i32(parser.pos)
+    let body_idx = parse_match_arms_desugared(parser, tmp_name)
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, "}")
+    if (parser.ok == 0) { return -1 }
+    let bind_idx = ast_stmt_let(parser.store, tmp_name, subject_idx)
+    return ast_stmt_block_indices(parser.store, [bind_idx, body_idx])
+}
+
 pub fn parse_statement(parser: &Parser): i32
 {
+    if (parser_text(parser) == "match")
+    {
+        return parse_match_statement(parser)
+    }
     return match parser_text(parser) {
+        "@" -> {
+            parser_advance(parser)
+            let pointer_idx = parse_unary(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_expect_text(parser, "=")
+            if (parser.ok == 0) { return -1 }
+            let expr_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_accept_text(parser, ";")
+            ast_stmt_store_deref(parser.store, pointer_idx, expr_idx)
+        }
         "let" -> {
             parser_advance(parser)
-            if (parser_text(parser) == "mut") { parser_advance(parser) }
+            let mut is_mut = 0
+            if (parser_text(parser) == "mut")
+            {
+                is_mut = 1
+                parser_advance(parser)
+            }
             let name = parser_text(parser)
             if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
             let mut type_text = ""
@@ -424,7 +612,7 @@ pub fn parse_statement(parser: &Parser): i32
             let expr_idx = parse_expression(parser)
             if (parser.ok == 0) { return -1 }
             parser_accept_text(parser, ";")
-            ast_stmt_let_typed(parser.store, name, type_text, expr_idx)
+            ast_stmt_let_typed_mut(parser.store, name, type_text, expr_idx, is_mut)
         }
         "return" -> {
             parser_advance(parser)
@@ -610,12 +798,48 @@ pub fn parse_extern_block(parser: &Parser): AstFunction
     return func
 }
 
+pub fn parse_struct_decl(parser: &Parser): AstStructDecl
+{
+    parser_expect_text(parser, "type")
+    if (parser.ok == 0) { return AstStructDecl{ name: "", field_names: [], field_types: [] } }
+    let name = parser_text(parser)
+    if (parser_expect_kind(parser, tk_ident()) == 0) { return AstStructDecl{ name: "", field_names: [], field_types: [] } }
+    parser_expect_text(parser, "=")
+    if (parser.ok == 0) { return AstStructDecl{ name: name, field_names: [], field_types: [] } }
+    parser_expect_text(parser, "struct")
+    if (parser.ok == 0) { return AstStructDecl{ name: name, field_names: [], field_types: [] } }
+    parser_expect_text(parser, "{")
+    if (parser.ok == 0) { return AstStructDecl{ name: name, field_names: [], field_types: [] } }
+    let mut field_names: [string] = []
+    let mut field_types: [string] = []
+    while (parser_text(parser) != "}" and parser_at_end(parser) == 0)
+    {
+        if (parser_text(parser) == ",")
+        {
+            parser_advance(parser)
+            continue
+        }
+        let field_name = parser_text(parser)
+        if (parser_expect_kind(parser, tk_ident()) == 0) { return AstStructDecl{ name: name, field_names: field_names, field_types: field_types } }
+        parser_expect_text(parser, ":")
+        if (parser.ok == 0) { return AstStructDecl{ name: name, field_names: field_names, field_types: field_types } }
+        let field_type = parser_text(parser)
+        parser_advance(parser)
+        field_names.push(field_name)
+        field_types.push(field_type)
+        parser_accept_text(parser, ",")
+    }
+    parser_expect_text(parser, "}")
+    return AstStructDecl{ name: name, field_names: field_names, field_types: field_types }
+}
+
 pub fn parse_program(src: string): AstProgram
 {
     let mut parser = parser_new(src)
     if (parser_at_end(&parser) == 1) { return ast_program_err("empty source") }
     let mut functions: [AstFunction] = []
     let mut extern_functions: [AstFunction] = []
+    let mut structs: [AstStructDecl] = []
     while (parser_text(&parser) == "extern")
     {
         parser_expect_text(&parser, "extern")
@@ -640,6 +864,13 @@ pub fn parse_program(src: string): AstProgram
         parser_expect_text(&parser, "}")
         if (parser.ok == 0) { return ast_program_err(parser.error) }
     }
+    while (parser_text(&parser) == "type")
+    {
+        let decl = parse_struct_decl(&parser)
+        if (parser.ok == 0) { return ast_program_err(parser.error) }
+        structs.push(decl)
+        while (parser_text(&parser) == ";") { parser_advance(&parser) }
+    }
     if (parser_text(&parser) != "fn" and parser_text(&parser) != "pub")
     {
         return ast_program_err("expected function")
@@ -653,5 +884,5 @@ pub fn parse_program(src: string): AstProgram
         if (parser.ok == 0) { return ast_program_err(parser.error) }
         functions.push(func)
     }
-    return ast_program_ok_functions_with_externs(functions, extern_functions, parser.expr_store, parser.store)
+    return ast_program_ok_functions_with_externs_and_structs(functions, extern_functions, structs, parser.expr_store, parser.store)
 }

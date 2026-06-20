@@ -3,6 +3,7 @@
 pub type SymbolTable = struct {
     names: [string],
     types: [string],
+    mutable: [i32],
     depths: [i32],
     depth: i32,
     ok: i32,
@@ -11,7 +12,7 @@ pub type SymbolTable = struct {
 
 pub fn symtable_new(): SymbolTable
 {
-    return SymbolTable{ names: [], types: [], depths: [], depth: 0, ok: 1, error: "" }
+    return SymbolTable{ names: [], types: [], mutable: [], depths: [], depth: 0, ok: 1, error: "" }
 }
 
 pub fn symtable_fail(table: &SymbolTable, message: string)
@@ -64,6 +65,11 @@ pub fn symtable_lookup_index(table: &SymbolTable, name: string): i32
 
 pub fn symtable_declare(table: &SymbolTable, name: string, ty: string)
 {
+    symtable_declare_mut(table, name, ty, 0)
+}
+
+pub fn symtable_declare_mut(table: &SymbolTable, name: string, ty: string, is_mut: i32)
+{
     if (symtable_find_current(table, name) >= 0)
     {
         symtable_fail(table, "duplicate symbol '" + name + "'")
@@ -71,6 +77,7 @@ pub fn symtable_declare(table: &SymbolTable, name: string, ty: string)
     }
     table.names.push(name)
     table.types.push(ty)
+    table.mutable.push(is_mut)
     table.depths.push(table.depth)
 }
 
@@ -94,4 +101,15 @@ pub fn symtable_lookup(table: &SymbolTable, name: string): string
     }
     symtable_fail(table, "undefined symbol '" + name + "'")
     return "unknown"
+}
+
+pub fn symtable_is_mutable(table: &SymbolTable, name: string): i32
+{
+    let idx = symtable_lookup_index(table, name)
+    if (idx >= 0)
+    {
+        return table.mutable[idx]
+    }
+    symtable_fail(table, "undefined symbol '" + name + "'")
+    return 0
 }

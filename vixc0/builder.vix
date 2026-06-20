@@ -26,6 +26,7 @@ extern "C"
     fn vix_LLVMFunctionTypeTypedN(ret_ty: ptr, param_types: ptr, param_count: i32, is_var_arg: i32): ptr
     fn vix_LLVMConstInt(ty: ptr, val: i64, sign_extend: i32): ptr
     fn vix_LLVMConstReal(ty: ptr, val: f64): ptr
+    fn vix_LLVMGetUndef(ty: ptr): ptr
     fn vix_LLVMAddFunction(module: ptr, name: string, ty: ptr): ptr
     fn vix_LLVMGetParam(fn_ref: ptr, index: i32): ptr
     fn vix_LLVMGetNamedFunction(module: ptr, name: string): ptr
@@ -53,6 +54,8 @@ extern "C"
     fn vix_LLVMBuildAlloca(builder: ptr, ty: ptr, name: string): ptr
     fn vix_LLVMBuildStore(builder: ptr, val: ptr, ptr_val: ptr): ptr
     fn vix_LLVMBuildLoad2(builder: ptr, ty: ptr, ptr_val: ptr, name: string): ptr
+    fn vix_LLVMBuildInsertValue(builder: ptr, agg: ptr, val: ptr, index: i32, name: string): ptr
+    fn vix_LLVMBuildExtractValue(builder: ptr, agg: ptr, index: i32, name: string): ptr
     fn vix_LLVMBuildICmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildFCmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildZExt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
@@ -78,6 +81,13 @@ extern "C"
     fn vix_get_function_param_type(name: string, index: i32): string
     fn vix_get_function_param_count(name: string): i32
     fn vix_get_function_is_var_arg(name: string): i32
+    fn vix_reset_struct_sigs()
+    fn vix_declare_struct_sig(name: string)
+    fn vix_register_struct_sig(name: string, field_names: ptr, field_types: ptr, field_count: i32)
+    fn vix_is_struct_type(name: string): i32
+    fn vix_get_llvm_type_for_struct(name: string): ptr
+    fn vix_get_struct_field_index(struct_name: string, field_name: string): i32
+    fn vix_get_struct_field_type(struct_name: string, field_name: string): string
 }
 
 pub fn i32_to_str(n: i32): string
@@ -110,7 +120,8 @@ pub type LlvmBuilder = struct {
     temp_counter: i32,
     label_counter: i32,
     printf_fn: ptr,
-    malloc_fn: ptr
+    malloc_fn: ptr,
+    strcmp_fn: ptr
 }
 
 pub fn get_var(b: &LlvmBuilder, name: string): ptr
@@ -175,14 +186,49 @@ pub fn get_function_is_var_arg(name: string): i32
     return vix_get_function_is_var_arg(name)
 }
 
+pub fn reset_struct_sigs()
+{
+    vix_reset_struct_sigs()
+}
+
+pub fn declare_struct_sig(name: string)
+{
+    vix_declare_struct_sig(name)
+}
+
+pub fn register_struct_sig(name: string, field_names: [string], field_types: [string])
+{
+    vix_register_struct_sig(name, field_names, field_types, field_names.length)
+}
+
+pub fn type_is_struct(name: string): i32
+{
+    return vix_is_struct_type(name)
+}
+
+pub fn get_struct_field_index(struct_name: string, field_name: string): i32
+{
+    return vix_get_struct_field_index(struct_name, field_name)
+}
+
+pub fn get_struct_field_type(struct_name: string, field_name: string): string
+{
+    return vix_get_struct_field_type(struct_name, field_name)
+}
+
 pub fn llvm_type_for(ty: string): ptr
 {
+    if (vix_is_struct_type(ty) == 1)
+    {
+        return vix_get_llvm_type_for_struct(ty)
+    }
     return match ty {
         "void" -> LLVMVoidType()
         "bool" -> LLVMInt32Type()
         "i64" -> LLVMInt64Type()
         "f32" -> LLVMFloatType()
         "f64" -> LLVMDoubleType()
+        "ptr" -> LLVMPointerType(LLVMInt8Type(), 0)
         "string" -> LLVMPointerType(LLVMInt8Type(), 0)
         _ -> LLVMInt32Type()
     }
@@ -219,7 +265,9 @@ pub fn llvm_new(): LlvmBuilder
     let printf_fn = vix_LLVMAddFunction(module, "printf", printf_ty)
     let malloc_ty = vix_LLVMFunctionType1(LLVMPointerType(LLVMInt8Type(), 0), LLVMInt64Type(), 0)
     let malloc_fn = vix_LLVMAddFunction(module, "malloc", malloc_ty)
-    return LlvmBuilder{ module: module, builder: builder, current_fn: nil, current_block: nil, temp_counter: 0, label_counter: 0, printf_fn: printf_fn, malloc_fn: malloc_fn }
+    let strcmp_ty = vix_LLVMFunctionType2(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), LLVMPointerType(LLVMInt8Type(), 0), 0)
+    let strcmp_fn = vix_LLVMAddFunction(module, "strcmp", strcmp_ty)
+    return LlvmBuilder{ module: module, builder: builder, current_fn: nil, current_block: nil, temp_counter: 0, label_counter: 0, printf_fn: printf_fn, malloc_fn: malloc_fn, strcmp_fn: strcmp_fn }
 }
 
 pub fn llvm_get_code(b: &LlvmBuilder): string
@@ -339,6 +387,11 @@ pub fn llvm_const_float(value: f64, ty: string): ptr
     return vix_LLVMConstReal(llvm_type_for(ty), value)
 }
 
+pub fn llvm_undef(ty: string): ptr
+{
+    return vix_LLVMGetUndef(llvm_type_for(ty))
+}
+
 pub fn llvm_alloc_i32_var(b: &LlvmBuilder, name: string): ptr
 {
     return llvm_alloc_var(b, name, "i32")
@@ -360,6 +413,39 @@ pub fn llvm_load_i32_var(b: &LlvmBuilder, name: string): ptr
 pub fn llvm_load_var(b: &LlvmBuilder, name: string): ptr
 {
     return vix_LLVMBuildLoad2(b.builder, llvm_type_for(get_var_type(b, name)), get_var(b, name), llvm_temp(b, "load"))
+}
+
+pub fn llvm_var_address(b: &LlvmBuilder, name: string): ptr
+{
+    return get_var(b, name)
+}
+
+pub fn llvm_load_i32_pointer(b: &LlvmBuilder, ptr_value: ptr): ptr
+{
+    return vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), ptr_value, llvm_temp(b, "deref"))
+}
+
+pub fn llvm_store_i32_pointer(b: &LlvmBuilder, ptr_value: ptr, value: ptr)
+{
+    vix_LLVMBuildStore(b.builder, value, ptr_value)
+}
+
+pub fn llvm_insert_value(b: &LlvmBuilder, agg: ptr, value: ptr, index: i32): ptr
+{
+    return vix_LLVMBuildInsertValue(b.builder, agg, value, index, llvm_temp(b, "insert"))
+}
+
+pub fn llvm_extract_value(b: &LlvmBuilder, agg: ptr, index: i32): ptr
+{
+    return vix_LLVMBuildExtractValue(b.builder, agg, index, llvm_temp(b, "extract"))
+}
+
+pub fn llvm_load_ptr_index_as_string(b: &LlvmBuilder, base: ptr, index: ptr): ptr
+{
+    let element_ty = LLVMPointerType(LLVMInt8Type(), 0)
+    let indices = [index]
+    let slot = vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "idx"))
+    return vix_LLVMBuildLoad2(b.builder, element_ty, slot, llvm_temp(b, "loadidx"))
 }
 
 pub fn llvm_store_value(b: &LlvmBuilder, value: ptr, target_name: string)
@@ -553,6 +639,13 @@ pub fn llvm_build_eq_string_value(b: &LlvmBuilder, left: string, right_literal: 
         return llvm_const_i32(1)
     }
     return llvm_build_icmp_value(b, 32, llvm_const_i32(0), llvm_const_i32(0))
+}
+
+pub fn llvm_build_string_eq_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    let args = [left, right]
+    let call = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType2(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), LLVMPointerType(LLVMInt8Type(), 0), 0), b.strcmp_fn, args, 2, llvm_temp(b, "strcmp"))
+    return llvm_build_icmp_value(b, 32, call, llvm_const_i32(0))
 }
 
 pub fn llvm_emit_jmp(b: &LlvmBuilder, label: string)

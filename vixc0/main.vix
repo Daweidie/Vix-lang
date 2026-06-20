@@ -12,6 +12,19 @@ extern "C"
     fn fseek(file: ptr, offset: i64, whence: i32): i32
     fn ftell(file: ptr): i64
     fn malloc(size: usize): string
+    fn vix_diag_red(): string
+    fn vix_diag_yellow(): string
+    fn vix_diag_reset(): string
+}
+
+fn diagnostic_error(text: string): string
+{
+    return vix_diag_red() + text + vix_diag_reset()
+}
+
+fn diagnostic_warning(text: string): string
+{
+    return vix_diag_yellow() + text + vix_diag_reset()
 }
 
 fn string_ends_with(text: string, suffix: string): i32
@@ -58,11 +71,27 @@ fn run_mode(mode: string, src: string): ?i32
     match mode
     {
         "--parser" -> {
-            print(ast_program_debug(program))
+            let text = ast_program_debug(program)
+            if (program.ok == 0)
+            {
+                print(diagnostic_error(text))
+            }
+            else
+            {
+                print(text)
+            }
             return Some(0)
         }
         "--ast" -> {
-            print(ast(program))
+            let text = ast(program)
+            if (program.ok == 0)
+            {
+                print(diagnostic_error(text))
+            }
+            else
+            {
+                print(text)
+            }
             return Some(0)
         }
         _ -> {}
@@ -72,7 +101,15 @@ fn run_mode(mode: string, src: string): ?i32
     match mode
     {
         "--typeinfer" -> {
-            print(typeinfer_result_debug(infer_result))
+            let text = typeinfer_result_debug(infer_result)
+            if (infer_result.ok == 0)
+            {
+                print(diagnostic_error(text))
+            }
+            else
+            {
+                print(text)
+            }
             return Some(0)
         }
         _ -> {}
@@ -80,7 +117,7 @@ fn run_mode(mode: string, src: string): ?i32
 
     if (infer_result.ok == 0)
     {
-        print(typeinfer_result_debug(infer_result))
+        print(diagnostic_error(typeinfer_result_debug(infer_result)))
         return Some(1)
     }
 

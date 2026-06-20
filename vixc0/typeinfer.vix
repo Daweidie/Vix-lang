@@ -11,6 +11,15 @@ pub type FunctionSymbols = struct {
     error: string
 }
 
+pub type StructSymbols = struct {
+    names: [string],
+    field_names: [string],
+    field_types: [string],
+    field_structs: [string],
+    ok: i32,
+    error: string
+}
+
 pub type TypeInferResult = struct {
     ok: i32,
     error: string,
@@ -20,6 +29,63 @@ pub type TypeInferResult = struct {
 pub fn function_symbols_new(): FunctionSymbols
 {
     return FunctionSymbols{ names: [], return_types: [], arg_counts: [], is_var_args: [], ok: 1, error: "" }
+}
+
+pub fn struct_symbols_new(): StructSymbols
+{
+    return StructSymbols{ names: [], field_names: [], field_types: [], field_structs: [], ok: 1, error: "" }
+}
+
+pub fn struct_symbols_fail(symbols: &StructSymbols, message: string)
+{
+    if (symbols.ok == 1)
+    {
+        symbols.ok = 0
+        symbols.error = message
+    }
+}
+
+pub fn struct_symbols_find(symbols: &StructSymbols, name: string): i32
+{
+    for (i in 0 .. symbols.names.length)
+    {
+        if (symbols.names[i] == name) { return i }
+    }
+    return -1
+}
+
+pub fn struct_symbols_declare(symbols: &StructSymbols, decl: AstStructDecl)
+{
+    if (struct_symbols_find(symbols, decl.name) >= 0)
+    {
+        struct_symbols_fail(symbols, "duplicate struct '" + decl.name + "'")
+        return
+    }
+    symbols.names.push(decl.name)
+    for (i in 0 .. decl.field_names.length)
+    {
+        symbols.field_structs.push(decl.name)
+        symbols.field_names.push(decl.field_names[i])
+        symbols.field_types.push(decl.field_types[i])
+    }
+}
+
+pub fn struct_symbols_field_type(symbols: &StructSymbols, struct_name: string, field_name: string): string
+{
+    if (struct_symbols_find(symbols, struct_name) < 0)
+    {
+        struct_symbols_fail(symbols, "unknown struct '" + struct_name + "'")
+        return "unknown"
+    }
+    for (i in 0 .. symbols.field_names.length)
+    {
+        if (symbols.field_structs[i] == struct_name and symbols.field_names[i] == field_name)
+        {
+            return symbols.field_types[i]
+        }
+    }
+    struct_symbols_fail(symbols, "unknown field '" + field_name + "' on struct '" + struct_name + "'")
+    return "unknown"
 }
 
 pub fn function_symbols_fail(symbols: &FunctionSymbols, message: string)
@@ -126,7 +192,7 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
     return 0
 }
 
-pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStore, idx: i32): string
+pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &StructSymbols, es: &ExprStore, idx: i32): string
 {
     if (idx < 0) { return "unknown" }
     let expr = expr_store_get(es, idx)
@@ -138,6 +204,57 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
         "string" -> "string"
         "ident" -> symtable_lookup(env, expr.text)
         "option" -> "Option[string]"
+        "addr" -> {
+            let _ = symtable_lookup(env, expr.text)
+            if (env.ok == 0) { return "unknown" }
+            "ptr"
+        }
+        "deref" -> {
+            let ptr_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
+            if (env.ok == 0) { return "unknown" }
+            if (ptr_ty != "ptr" and ptr_ty != "unknown")
+            {
+                symtable_fail(env, "cannot dereference value of type '" + ptr_ty + "'")
+                return "unknown"
+            }
+            "i32"
+        }
+        "field" -> {
+            let base_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
+            if (env.ok == 0) { return "unknown" }
+            let field_ty = struct_symbols_field_type(structs, base_ty, expr.text)
+            if (structs.ok == 0)
+            {
+                symtable_fail(env, structs.error)
+                return "unknown"
+            }
+            field_ty
+        }
+        "struct_literal" -> {
+            if (struct_symbols_find(structs, expr.text) < 0)
+            {
+                symtable_fail(env, "unknown struct '" + expr.text + "'")
+                return "unknown"
+            }
+            for (i in 0 .. expr.args.length)
+            {
+                let field_name = expr.field_names[i]
+                let expected_ty = struct_symbols_field_type(structs, expr.text, field_name)
+                if (structs.ok == 0)
+                {
+                    symtable_fail(env, structs.error)
+                    return "unknown"
+                }
+                let actual_ty = infer_expr_type(env, funcs, structs, es, expr.args[i])
+                if (env.ok == 0) { return "unknown" }
+                if (type_can_assign(expected_ty, actual_ty) == 0)
+                {
+                    symtable_fail(env, "cannot initialize field '" + field_name + "' of struct '" + expr.text + "' with '" + actual_ty + "'")
+                    return "unknown"
+                }
+            }
+            expr.text
+        }
         "call" -> {
             let expected_args = function_symbols_arg_count(funcs, expr.text)
             let is_var_arg = function_symbols_is_var_arg(funcs, expr.text)
@@ -153,13 +270,30 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
             }
             for (i in 0 .. expr.args.length)
             {
-                let _ = infer_expr_type(env, funcs, es, expr.args[i])
+                let _ = infer_expr_type(env, funcs, structs, es, expr.args[i])
                 if (env.ok == 0) { return "unknown" }
             }
             function_symbols_return_type(funcs, expr.text)
         }
+        "index" -> {
+            let base_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
+            if (env.ok == 0) { return "unknown" }
+            let index_ty = infer_expr_type(env, funcs, structs, es, expr.right_idx)
+            if (env.ok == 0) { return "unknown" }
+            if (type_is_integer(index_ty) == 0)
+            {
+                symtable_fail(env, "index expression expects integer index, got '" + index_ty + "'")
+                return "unknown"
+            }
+            if (base_ty == "ptr" or base_ty == "unknown")
+            {
+                return "string"
+            }
+            symtable_fail(env, "cannot index value of type '" + base_ty + "'")
+            "unknown"
+        }
         "unaryop" -> {
-            let inner_ty = infer_expr_type(env, funcs, es, expr.left_idx)
+            let inner_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
             if (env.ok == 0) { return "unknown" }
             if (expr.text == "-")
             {
@@ -183,9 +317,9 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
             }
         }
         "binop" -> {
-            let left_ty = infer_expr_type(env, funcs, es, expr.left_idx)
+            let left_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
             if (env.ok == 0) { return "unknown" }
-            let right_ty = infer_expr_type(env, funcs, es, expr.right_idx)
+            let right_ty = infer_expr_type(env, funcs, structs, es, expr.right_idx)
             if (env.ok == 0) { return "unknown" }
             if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=")
             {
@@ -239,14 +373,14 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStor
     }
 }
 
-pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string, loop_depth: i32)
+pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, structs: &StructSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string, loop_depth: i32)
 {
     if (stmt_idx < 0 or env.ok == 0) { return }
     let stmt = stmt_store_get(store, stmt_idx)
     match stmt.tag
     {
         "let" -> {
-            let mut ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
+            let mut ty = infer_expr_type(env, funcs, structs, es, stmt.assign_idx)
             if (env.ok == 0) { return }
             if (stmt.type_text != "")
             {
@@ -257,16 +391,36 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
                 }
                 ty = stmt.type_text
             }
-            symtable_declare(env, stmt.assign_name, ty)
+            symtable_declare_mut(env, stmt.assign_name, ty, stmt.is_mut)
         }
         "assign" -> {
             let current_ty = symtable_lookup(env, stmt.assign_name)
             if (env.ok == 0) { return }
-            let value_ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
+            if (symtable_is_mutable(env, stmt.assign_name) == 0)
+            {
+                symtable_fail(env, "cannot assign to immutable binding '" + stmt.assign_name + "'")
+                return
+            }
+            let value_ty = infer_expr_type(env, funcs, structs, es, stmt.assign_idx)
             if (env.ok == 0) { return }
             if (type_can_assign(current_ty, value_ty) == 0)
             {
                 symtable_fail(env, "cannot assign '" + value_ty + "' to '" + stmt.assign_name + "' of type '" + current_ty + "'")
+            }
+        }
+        "store_deref" -> {
+            let ptr_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
+            if (env.ok == 0) { return }
+            if (ptr_ty != "ptr" and ptr_ty != "unknown")
+            {
+                symtable_fail(env, "cannot store through value of type '" + ptr_ty + "'")
+                return
+            }
+            let value_ty = infer_expr_type(env, funcs, structs, es, stmt.assign_idx)
+            if (env.ok == 0) { return }
+            if (type_can_assign("i32", value_ty) == 0)
+            {
+                symtable_fail(env, "cannot store '" + value_ty + "' through i32 pointer")
             }
         }
         "return" -> {
@@ -276,7 +430,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             }
         }
         "return_expr" -> {
-            let value_ty = infer_expr_type(env, funcs, es, stmt.value_idx)
+            let value_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
             if (env.ok == 0) { return }
             if (ret_ty != "void" and ret_ty != "unknown" and value_ty != "unknown" and value_ty != ret_ty)
             {
@@ -284,10 +438,10 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             }
         }
         "print" -> {
-            let _ = infer_expr_type(env, funcs, es, stmt.print_idx)
+            let _ = infer_expr_type(env, funcs, structs, es, stmt.print_idx)
         }
         "expr" -> {
-            let _ = infer_expr_type(env, funcs, es, stmt.value_idx)
+            let _ = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
         }
         "block" -> {
             symtable_push_scope(env)
@@ -295,7 +449,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             {
                 for (i in 0 .. stmt.stmt_indices.length)
                 {
-                    infer_stmt_type_in_loop(env, funcs, es, store, stmt.stmt_indices[i], ret_ty, loop_depth)
+                    infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.stmt_indices[i], ret_ty, loop_depth)
                     if (env.ok == 0)
                     {
                         symtable_pop_scope(env)
@@ -307,7 +461,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             {
                 for (i in 0 .. stmt.block_count)
                 {
-                    infer_stmt_type_in_loop(env, funcs, es, store, stmt.block_start + i, ret_ty, loop_depth)
+                    infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.block_start + i, ret_ty, loop_depth)
                     if (env.ok == 0)
                     {
                         symtable_pop_scope(env)
@@ -318,14 +472,14 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             symtable_pop_scope(env)
         }
         "while" -> {
-            let cond_ty = infer_expr_type(env, funcs, es, stmt.value_idx)
+            let cond_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
             if (env.ok == 0) { return }
             if (type_is_truthy(cond_ty) == 0)
             {
                 symtable_fail(env, "while condition must be bool or i32, got '" + cond_ty + "'")
                 return
             }
-            infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
+            infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
         }
         "for_range" -> {
             if (symtable_lookup_index(env, stmt.assign_name) >= 0)
@@ -333,9 +487,9 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
                 symtable_fail(env, "for iterator '" + stmt.assign_name + "' conflicts with existing symbol")
                 return
             }
-            let start_ty = infer_expr_type(env, funcs, es, stmt.value_idx)
+            let start_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
             if (env.ok == 0) { return }
-            let end_ty = infer_expr_type(env, funcs, es, stmt.assign_idx)
+            let end_ty = infer_expr_type(env, funcs, structs, es, stmt.assign_idx)
             if (env.ok == 0) { return }
             if (type_is_integer(start_ty) == 0)
             {
@@ -348,13 +502,13 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
                 return
             }
             symtable_push_scope(env)
-            symtable_declare(env, stmt.assign_name, "i32")
+            symtable_declare_mut(env, stmt.assign_name, "i32", 1)
             if (env.ok == 0)
             {
                 symtable_pop_scope(env)
                 return
             }
-            infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
+            infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.body_idx, ret_ty, loop_depth + 1)
             symtable_pop_scope(env)
         }
         "break" | "continue" -> {
@@ -364,24 +518,44 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
             }
         }
         "if" -> {
-            let cond_ty = infer_expr_type(env, funcs, es, stmt.value_idx)
+            let cond_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
             if (env.ok == 0) { return }
             if (type_is_truthy(cond_ty) == 0)
             {
                 symtable_fail(env, "if condition must be bool or i32, got '" + cond_ty + "'")
                 return
             }
-            infer_stmt_type_in_loop(env, funcs, es, store, stmt.body_idx, ret_ty, loop_depth)
+            infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.body_idx, ret_ty, loop_depth)
             if (env.ok == 0) { return }
             if (stmt.assign_idx >= 0)
             {
-                infer_stmt_type_in_loop(env, funcs, es, store, stmt.assign_idx, ret_ty, loop_depth)
+                infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.assign_idx, ret_ty, loop_depth)
             }
         }
         "if_eq_return" -> {
             if (ret_ty != "i32" and ret_ty != "unknown")
             {
                 symtable_fail(env, "if return value type 'i32' does not match function return type '" + ret_ty + "'")
+            }
+        }
+        "match" -> {
+            let subject_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
+            if (env.ok == 0) { return }
+            for (i in 0 .. stmt.match_pattern_indices.length)
+            {
+                let pattern_idx = stmt.match_pattern_indices[i]
+                if (pattern_idx >= 0)
+                {
+                    let pattern_ty = infer_expr_type(env, funcs, structs, es, pattern_idx)
+                    if (env.ok == 0) { return }
+                    if (type_can_assign(subject_ty, pattern_ty) == 0 and type_can_assign(pattern_ty, subject_ty) == 0)
+                    {
+                        symtable_fail(env, "match pattern type '" + pattern_ty + "' does not match subject type '" + subject_ty + "'")
+                        return
+                    }
+                }
+                infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.match_body_indices[i], ret_ty, loop_depth)
+                if (env.ok == 0) { return }
             }
         }
         "match_option_string" -> {
@@ -394,12 +568,12 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, es: &
     }
 }
 
-pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string)
+pub fn infer_stmt_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &StructSymbols, es: &ExprStore, store: &StmtStore, stmt_idx: i32, ret_ty: string)
 {
-    infer_stmt_type_in_loop(env, funcs, es, store, stmt_idx, ret_ty, 0)
+    infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt_idx, ret_ty, 0)
 }
 
-pub fn infer_function(func: AstFunction, funcs: &FunctionSymbols, es: &ExprStore, store: &StmtStore): TypeInferResult
+pub fn infer_function(func: AstFunction, funcs: &FunctionSymbols, structs: &StructSymbols, es: &ExprStore, store: &StmtStore): TypeInferResult
 {
     let env = symtable_new()
     for (i in 0 .. func.param_names.length)
@@ -410,7 +584,7 @@ pub fn infer_function(func: AstFunction, funcs: &FunctionSymbols, es: &ExprStore
             return TypeInferResult{ ok: 0, error: env.error, return_type: func.ret_ty }
         }
     }
-    infer_stmt_type(&env, funcs, es, store, func.body_idx, func.ret_ty)
+    infer_stmt_type(&env, funcs, structs, es, store, func.body_idx, func.ret_ty)
     if (env.ok == 0)
     {
         return TypeInferResult{ ok: 0, error: env.error, return_type: func.ret_ty }
@@ -425,6 +599,15 @@ pub fn infer(program: AstProgram): TypeInferResult
         return TypeInferResult{ ok: 0, error: program.error, return_type: "unknown" }
     }
     let funcs = function_symbols_new()
+    let structs = struct_symbols_new()
+    for (i in 0 .. program.structs.length)
+    {
+        struct_symbols_declare(&structs, program.structs[i])
+        if (structs.ok == 0)
+        {
+            return TypeInferResult{ ok: 0, error: structs.error, return_type: "unknown" }
+        }
+    }
     for (i in 0 .. program.extern_functions.length)
     {
         function_symbols_declare_vararg(&funcs, program.extern_functions[i].name, program.extern_functions[i].ret_ty, program.extern_functions[i].param_names.length, program.extern_functions[i].is_var_arg)
@@ -445,7 +628,7 @@ pub fn infer(program: AstProgram): TypeInferResult
     let stmt_store = program.store
     for (i in 0 .. program.functions.length)
     {
-        let result = infer_function(program.functions[i], &funcs, &expr_store, &stmt_store)
+        let result = infer_function(program.functions[i], &funcs, &structs, &expr_store, &stmt_store)
         if (result.ok == 0)
         {
             return result
