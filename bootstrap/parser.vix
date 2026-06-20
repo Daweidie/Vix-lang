@@ -1,6 +1,7 @@
 #[no_main]
 import "lexer.vix"
 import "ast.vix"
+import "error.vix"
 
 pub type Parser = struct {
     stream: TokenStream,
@@ -8,12 +9,14 @@ pub type Parser = struct {
     ok: i32,
     error: string,
     expr_store: ExprStore,
-    store: StmtStore
+    store: StmtStore,
+    source: string,
+    filename: string
 }
 
-pub fn parser_new(src: string): Parser
+pub fn parser_new(src: string, filename: string): Parser
 {
-    return Parser{ stream: tokenize(src), pos: 0, ok: 1, error: "", expr_store: expr_store_new(), store: stmt_store_new() }
+    return Parser{ stream: tokenize(src), pos: 0, ok: 1, error: "", expr_store: expr_store_new(), store: stmt_store_new(), source: src, filename: filename }
 }
 
 pub fn parser_kind(parser: &Parser): i32
@@ -29,6 +32,16 @@ pub fn parser_text(parser: &Parser): string
 pub fn parser_int(parser: &Parser): i32
 {
     return stream_int_at(parser.stream, parser.pos)
+}
+
+pub fn parser_line(parser: &Parser): i32
+{
+    return stream_line_at(parser.stream, parser.pos)
+}
+
+pub fn parser_col(parser: &Parser): i32
+{
+    return stream_col_at(parser.stream, parser.pos)
 }
 
 pub fn parser_float(parser: &Parser): f64
@@ -55,7 +68,23 @@ pub fn parser_fail(parser: &Parser, message: string)
     if (parser.ok == 1)
     {
         parser.ok = 0
-        parser.error = message
+        let mut line = parser_line(parser)
+        let mut col = parser_col(parser)
+        let text = parser_text(parser)
+        let mut length = 1
+        if (text != "" and text != ";" and text != "," and text != "{" and text != "}" and text != "(" and text != ")" and text != "[" and text != "]" and text != "=>" and text != "->" and text != ".." and text != "..." and text != "==" and text != "!=" and text != "<=" and text != ">=" and text != "+=" and text != "-=")
+        {
+            length = text.length
+        }
+        if (parser_kind(parser) == tk_eof())
+        {
+            if (parser.pos > 0)
+            {
+                line = stream_line_at(parser.stream, parser.pos - 1)
+                col = stream_col_at(parser.stream, parser.pos - 1)
+            }
+        }
+        parser.error = format_diagnostic(parser.source, parser.filename, 0, "ParseError", message, line, col, length)
     }
 }
 
@@ -833,9 +862,9 @@ pub fn parse_struct_decl(parser: &Parser): AstStructDecl
     return AstStructDecl{ name: name, field_names: field_names, field_types: field_types }
 }
 
-pub fn parse_program(src: string): AstProgram
+pub fn parse_program(src: string, filename: string): AstProgram
 {
-    let mut parser = parser_new(src)
+    let mut parser = parser_new(src, filename)
     if (parser_at_end(&parser) == 1) { return ast_program_err("empty source") }
     let mut functions: [AstFunction] = []
     let mut extern_functions: [AstFunction] = []

@@ -1,10 +1,11 @@
 #[no_main]
 import "ast.vix"
 import "builder.vix"
+import "semantic.vix"
 
 pub fn codegen_type_is_numeric(ty: string): i32
 {
-    if (ty == "i32" or ty == "i64" or ty == "f32" or ty == "f64") { return 1 }
+    if (type_is_concrete_int(ty) == 1 or ty == "f32" or ty == "f64") { return 1 }
     return 0
 }
 
@@ -12,14 +13,6 @@ pub fn codegen_type_is_float(ty: string): i32
 {
     if (ty == "f32" or ty == "f64") { return 1 }
     return 0
-}
-
-pub fn codegen_numeric_result(left_ty: string, right_ty: string): string
-{
-    if (left_ty == "f64" or right_ty == "f64") { return "f64" }
-    if (left_ty == "f32" or right_ty == "f32") { return "f32" }
-    if (left_ty == "i64" or right_ty == "i64") { return "i64" }
-    return "i32"
 }
 
 pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
@@ -53,7 +46,7 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
             {
                 let left_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
                 let right_ty = codegen_expr_type(b, es, expr_store_get(es, expr.right_idx))
-                codegen_numeric_result(left_ty, right_ty)
+                type_numeric_result(left_ty, right_ty)
             }
         }
         "call" -> get_function_return_type(expr.text)
@@ -65,7 +58,7 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr, 
 {
     return match expr.tag {
         "int" -> {
-            if (expected_ty == "i64") { llvm_const_i64(expr.int_value) }
+            if (expected_ty == "i64" or expected_ty == "u64" or expected_ty == "usize") { llvm_const_i64(expr.int_value) }
             elif (expected_ty == "f32" or expected_ty == "f64") { llvm_const_float(i32_to_f64(expr.int_value), expected_ty) }
             else { llvm_const_i32(expr.int_value) }
         }
@@ -124,7 +117,7 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr, 
             let right_expr = expr_store_get(es, expr.right_idx)
             let left_ty = codegen_expr_type(b, es, left_expr)
             let right_ty = codegen_expr_type(b, es, right_expr)
-            let result_ty = if ((expr.text == "==" or expr.text == "!=") and left_ty == "string" and right_ty == "string") { "string" } elif (expected_ty != "" and codegen_type_is_numeric(expected_ty) == 1 and expr.text != "==" and expr.text != "!=" and expr.text != "<" and expr.text != "<=" and expr.text != ">" and expr.text != ">=") { expected_ty } else { codegen_numeric_result(left_ty, right_ty) }
+            let result_ty = if ((expr.text == "==" or expr.text == "!=") and left_ty == "string" and right_ty == "string") { "string" } elif (expected_ty != "" and codegen_type_is_numeric(expected_ty) == 1 and expr.text != "==" and expr.text != "!=" and expr.text != "<" and expr.text != "<=" and expr.text != ">" and expr.text != ">=") { expected_ty } else { type_numeric_result(left_ty, right_ty) }
             let left = codegen_expr_value_typed(b, es, left_expr, result_ty)
             let right = codegen_expr_value_typed(b, es, right_expr, result_ty)
             match expr.text {

@@ -2,7 +2,9 @@ import "lexer.vix"
 import "parser.vix"
 import "ast.vix"
 import "typeinfer.vix"
+import "semantic.vix"
 import "codegen.vix"
+import "error.vix"
 
 extern "C"
 {
@@ -42,7 +44,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "--tyinfer") { return Some("--typeinfer") }
     return match arg {
-        "--lex" | "--parser" | "--ast" | "--typeinfer" | "codegen" -> Some(arg)
+        "--lex" | "--parser" | "--ast" | "--typeinfer" | "--semantic" | "codegen" -> Some(arg)
         _ -> None
     }
 }
@@ -55,7 +57,7 @@ fn source_file_arg(arg: string): ?string
     }
 }
 
-fn run_mode(mode: string, src: string): ?i32
+fn run_mode(mode: string, src: string, filename: string): ?i32
 {
     match mode
     {
@@ -66,49 +68,52 @@ fn run_mode(mode: string, src: string): ?i32
         _ -> {}
     }
 
-    let program = parse_program(src)
+    let program = parse_program(src, filename)
 
     match mode
     {
         "--parser" -> {
-            let text = ast_program_debug(program)
             if (program.ok == 0)
             {
-                print(diagnostic_error(text))
+                print(program.error)
             }
             else
             {
-                print(text)
+                print(ast_program_debug(program))
             }
             return Some(0)
         }
         "--ast" -> {
-            let text = ast(program)
             if (program.ok == 0)
             {
-                print(diagnostic_error(text))
+                print(program.error)
             }
             else
             {
-                print(text)
+                print(ast(program))
             }
             return Some(0)
         }
         _ -> {}
     }
 
+    if (program.ok == 0)
+    {
+        print(program.error)
+        return Some(1)
+    }
+
     let infer_result = infer(program)
     match mode
     {
         "--typeinfer" -> {
-            let text = typeinfer_result_debug(infer_result)
             if (infer_result.ok == 0)
             {
-                print(diagnostic_error(text))
+                print(typeinfer_result_debug(infer_result, filename))
             }
             else
             {
-                print(text)
+                print(typeinfer_result_debug(infer_result, filename))
             }
             return Some(0)
         }
@@ -117,7 +122,23 @@ fn run_mode(mode: string, src: string): ?i32
 
     if (infer_result.ok == 0)
     {
-        print(diagnostic_error(typeinfer_result_debug(infer_result)))
+        print(typeinfer_result_debug(infer_result, filename))
+        return Some(1)
+    }
+
+    let semantic_result = semantic_check_program(program, src, filename)
+    match mode
+    {
+        "--semantic" -> {
+            print(semantic_result_debug(semantic_result))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (semantic_result.error_count > 0)
+    {
+        print(semantic_result_debug(semantic_result))
         return Some(1)
     }
 
@@ -147,6 +168,7 @@ fn main(argc: i32, argv: ptr): i32
 {
     let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; while(a > 5) { return 0 } }"
     let mut mode = "codegen"
+    let mut filename = "default"
 
     for (i in 1 .. argc)
     {
@@ -156,13 +178,16 @@ fn main(argc: i32, argv: ptr): i32
             Some(next_mode) -> mode = next_mode
             None -> match source_file_arg(arg)
             {
-                Some(path) -> src = read_source_file(path)
+                Some(path) -> {
+                    src = read_source_file(path)
+                    filename = path
+                }
                 None -> src = arg
             }
         }
     }
 
-    match run_mode(mode, src)
+    match run_mode(mode, src, filename)
     {
         Some(code) -> return code
         None -> return 0

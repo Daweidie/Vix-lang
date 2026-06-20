@@ -1,6 +1,8 @@
 #[no_main]
 import "ast.vix"
 import "symtable.vix"
+import "error.vix"
+import "semantic.vix"
 
 pub type FunctionSymbols = struct {
     names: [string],
@@ -23,7 +25,8 @@ pub type StructSymbols = struct {
 pub type TypeInferResult = struct {
     ok: i32,
     error: string,
-    return_type: string
+    return_type: string,
+    error_func: string
 }
 
 pub fn function_symbols_new(): FunctionSymbols
@@ -146,49 +149,6 @@ pub fn function_symbols_is_var_arg(symbols: &FunctionSymbols, name: string): i32
     let idx = function_symbols_find(symbols, name)
     if (idx >= 0) { return symbols.is_var_args[idx] }
     function_symbols_fail(symbols, "undefined function '" + name + "'")
-    return 0
-}
-
-pub fn type_is_truthy(ty: string): i32
-{
-    if (ty == "bool" or ty == "i32" or ty == "unknown") { return 1 }
-    return 0
-}
-
-pub fn type_is_integer(ty: string): i32
-{
-    if (ty == "i32" or ty == "i64" or ty == "unknown") { return 1 }
-    return 0
-}
-
-pub fn type_is_float(ty: string): i32
-{
-    if (ty == "f32" or ty == "f64" or ty == "unknown") { return 1 }
-    return 0
-}
-
-pub fn type_is_numeric(ty: string): i32
-{
-    if (type_is_integer(ty) == 1 or type_is_float(ty) == 1) { return 1 }
-    return 0
-}
-
-pub fn type_numeric_result(left_ty: string, right_ty: string): string
-{
-    if (left_ty == "unknown") { return right_ty }
-    if (right_ty == "unknown") { return left_ty }
-    if (left_ty == "f64" or right_ty == "f64") { return "f64" }
-    if (left_ty == "f32" or right_ty == "f32") { return "f32" }
-    if (left_ty == "i64" or right_ty == "i64") { return "i64" }
-    return "i32"
-}
-
-pub fn type_can_assign(target_ty: string, value_ty: string): i32
-{
-    if (target_ty == "" or target_ty == "unknown" or value_ty == "unknown") { return 1 }
-    if (target_ty == value_ty) { return 1 }
-    if (target_ty == "i64" and value_ty == "i32") { return 1 }
-    if ((target_ty == "f32" or target_ty == "f64") and (value_ty == "i32" or value_ty == "i64" or value_ty == "f32" or value_ty == "f64")) { return 1 }
     return 0
 }
 
@@ -581,22 +541,22 @@ pub fn infer_function(func: AstFunction, funcs: &FunctionSymbols, structs: &Stru
         symtable_declare(&env, func.param_names[i], func.param_types[i])
         if (env.ok == 0)
         {
-            return TypeInferResult{ ok: 0, error: env.error, return_type: func.ret_ty }
+            return TypeInferResult{ ok: 0, error: env.error, return_type: func.ret_ty, error_func: func.name }
         }
     }
     infer_stmt_type(&env, funcs, structs, es, store, func.body_idx, func.ret_ty)
     if (env.ok == 0)
     {
-        return TypeInferResult{ ok: 0, error: env.error, return_type: func.ret_ty }
+        return TypeInferResult{ ok: 0, error: env.error, return_type: func.ret_ty, error_func: func.name }
     }
-    return TypeInferResult{ ok: 1, error: "", return_type: func.ret_ty }
+    return TypeInferResult{ ok: 1, error: "", return_type: func.ret_ty, error_func: "" }
 }
 
 pub fn infer(program: AstProgram): TypeInferResult
 {
     if (program.ok == 0)
     {
-        return TypeInferResult{ ok: 0, error: program.error, return_type: "unknown" }
+        return TypeInferResult{ ok: 0, error: program.error, return_type: "unknown", error_func: "" }
     }
     let funcs = function_symbols_new()
     let structs = struct_symbols_new()
@@ -605,7 +565,7 @@ pub fn infer(program: AstProgram): TypeInferResult
         struct_symbols_declare(&structs, program.structs[i])
         if (structs.ok == 0)
         {
-            return TypeInferResult{ ok: 0, error: structs.error, return_type: "unknown" }
+            return TypeInferResult{ ok: 0, error: structs.error, return_type: "unknown", error_func: "" }
         }
     }
     for (i in 0 .. program.extern_functions.length)
@@ -613,7 +573,7 @@ pub fn infer(program: AstProgram): TypeInferResult
         function_symbols_declare_vararg(&funcs, program.extern_functions[i].name, program.extern_functions[i].ret_ty, program.extern_functions[i].param_names.length, program.extern_functions[i].is_var_arg)
         if (funcs.ok == 0)
         {
-            return TypeInferResult{ ok: 0, error: funcs.error, return_type: "unknown" }
+            return TypeInferResult{ ok: 0, error: funcs.error, return_type: "unknown", error_func: "" }
         }
     }
     for (i in 0 .. program.functions.length)
@@ -621,7 +581,7 @@ pub fn infer(program: AstProgram): TypeInferResult
         function_symbols_declare(&funcs, program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_names.length)
         if (funcs.ok == 0)
         {
-            return TypeInferResult{ ok: 0, error: funcs.error, return_type: "unknown" }
+            return TypeInferResult{ ok: 0, error: funcs.error, return_type: "unknown", error_func: "" }
         }
     }
     let expr_store = program.expr_store
@@ -637,11 +597,15 @@ pub fn infer(program: AstProgram): TypeInferResult
     return TypeInferResult{ ok: 1, error: "", return_type: program.function.ret_ty }
 }
 
-pub fn typeinfer_result_debug(result: TypeInferResult): string
+pub fn typeinfer_result_debug(result: TypeInferResult, filename: string): string
 {
     if (result.ok == 0)
     {
-        return "TypeError(" + result.error + ")"
+        if (result.error_func != "")
+        {
+            return format_diagnostic_no_loc(0, "TypeError", "in function " + result.error_func + ": " + result.error, filename)
+        }
+        return format_diagnostic_no_loc(0, "TypeError", result.error, filename)
     }
     return "TypeOk(return_type=" + result.return_type + ")"
 }

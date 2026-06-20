@@ -225,7 +225,8 @@ pub fn llvm_type_for(ty: string): ptr
     return match ty {
         "void" -> LLVMVoidType()
         "bool" -> LLVMInt32Type()
-        "i64" -> LLVMInt64Type()
+        "i8" | "u8" | "char" -> LLVMInt8Type()
+        "i64" | "u64" | "usize" -> LLVMInt64Type()
         "f32" -> LLVMFloatType()
         "f64" -> LLVMDoubleType()
         "ptr" -> LLVMPointerType(LLVMInt8Type(), 0)
@@ -546,6 +547,14 @@ pub fn llvm_cast_value(b: &LlvmBuilder, value: ptr, from_ty: string, to_ty: stri
     {
         return vix_LLVMBuildFPTrunc(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "fptrunc"))
     }
+    if ((to_ty == "i64" or to_ty == "u64" or to_ty == "usize") and (from_ty == "i32" or from_ty == "u32" or from_ty == "i8" or from_ty == "u8" or from_ty == "char"))
+    {
+        return vix_LLVMBuildZExt(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "zext"))
+    }
+    if ((to_ty == "i32" or to_ty == "u32") and (from_ty == "i8" or from_ty == "u8" or from_ty == "char"))
+    {
+        return vix_LLVMBuildZExt(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "zext"))
+    }
     return value
 }
 
@@ -620,14 +629,14 @@ pub fn llvm_emit_printf_i32_value(b: &LlvmBuilder, value: ptr)
 pub fn llvm_emit_printf_value(b: &LlvmBuilder, value: ptr, ty: string)
 {
     let fmt = match ty {
-        "i64" -> "%ld\n"
+        "i64" | "u64" | "usize" -> "%ld\n"
         "f32" | "f64" -> "%f\n"
         "string" -> "%s\n"
-        "bool" -> "%d\n"
+        "bool" | "u32" | "i8" | "u8" | "char" -> "%d\n"
         _ -> "%d\n"
     }
     let fmt_ptr = get_c_string_global(b, ".fmt." + ty, fmt)
-    let print_value = if (ty == "f32") { llvm_cast_value(b, value, "f32", "f64") } else { value }
+    let print_value = if (ty == "f32") { llvm_cast_value(b, value, "f32", "f64") } elif (ty == "i8" or ty == "u8" or ty == "char") { llvm_cast_value(b, value, ty, "i32") } else { value }
     let args = [fmt_ptr, print_value]
     let _ = vix_LLVMBuildCall2(b.builder, vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1), b.printf_fn, args, 2, "")
 }
