@@ -100,17 +100,26 @@ static int canonicalize_existing_path(const char* path, char* out, size_t out_si
     return 1;
 }
 
-static int resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size) {
+static int try_resolve_import_path(const char* base_dir, const char* module_path, char* out, size_t out_size) {
+    char candidate[1024];
+    snprintf(candidate, sizeof(candidate), "%s/%s", base_dir, module_path);
+    if (vix_file_exists(candidate)) {
+        return canonicalize_existing_path(candidate, out, out_size);
+    }
+    return 0;
+}
+
+int vix_resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size) {
     if (!module_path || !out || out_size == 0) return 0;
 
-    char candidate[1024];
+    // Priority 1: relative to current file's directory (existing behavior)
     if (module_path[0] == '/') {
-        strncpy(candidate, module_path, sizeof(candidate) - 1);
-        candidate[sizeof(candidate) - 1] = '\0';
-    } else {
-        const char* current = current_file ? current_file : ".";
+        if (vix_file_exists(module_path)) {
+            return canonicalize_existing_path(module_path, out, out_size);
+        }
+    } else if (current_file) {
         char dir_path[1024];
-        strncpy(dir_path, current, sizeof(dir_path) - 1);
+        strncpy(dir_path, current_file, sizeof(dir_path) - 1);
         dir_path[sizeof(dir_path) - 1] = '\0';
         char* last_slash = strrchr(dir_path, '/');
         if (last_slash) {
@@ -118,10 +127,37 @@ static int resolve_import_path(const char* current_file, const char* module_path
         } else {
             strcpy(dir_path, "./");
         }
+        char candidate[1024];
         snprintf(candidate, sizeof(candidate), "%s%s", dir_path, module_path);
+        if (vix_file_exists(candidate)) {
+            return canonicalize_existing_path(candidate, out, out_size);
+        }
     }
 
-    return canonicalize_existing_path(candidate, out, out_size);
+    // Priority 2: $VIX_HOME/std/
+    const char* vix_home = vix_getenv("VIX_HOME");
+    if (vix_home && vix_home[0] != '\0') {
+        char base[1024];
+        snprintf(base, sizeof(base), "%s/std", vix_home);
+        if (try_resolve_import_path(base, module_path, out, out_size)) return 1;
+    }
+
+    // Priority 3: .vix/libs/ (project-local packages)
+    if (try_resolve_import_path(".vix/libs", module_path, out, out_size)) return 1;
+
+    // Priority 4: $VIX_HOME/libs/
+    if (vix_home && vix_home[0] != '\0') {
+        char base[1024];
+        snprintf(base, sizeof(base), "%s/libs", vix_home);
+        if (try_resolve_import_path(base, module_path, out, out_size)) return 1;
+    }
+
+    return 0;
+}
+
+// Deprecated: use vix_resolve_import_path instead
+static int resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size) {
+    return vix_resolve_import_path(current_file, module_path, out, out_size);
 }
 
 static int import_cache_contains(const char* canonical_path) {
