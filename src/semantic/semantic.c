@@ -15,6 +15,7 @@
  */
 #include "../../include/semantic.h"
 #include "../../include/compiler.h"
+#include "../../include/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -864,25 +865,14 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
         
         case AST_IMPORT: {
             const char* module_path = node->data.import.module_path;
-            const char* current_file_dir = current_input_filename ? current_input_filename : ".";
-            char dir_path[1024];
-            strncpy(dir_path, current_file_dir, sizeof(dir_path) - 1);
-            dir_path[sizeof(dir_path) - 1] = '\0';
-            char* last_slash = strrchr(dir_path, '/');
-            if (last_slash) {
-                *(last_slash + 1) = '\0';
-            } else {
-                strcpy(dir_path, "./");
-            }
             char full_module_path[1024];
-            snprintf(full_module_path, sizeof(full_module_path), "%s%s", dir_path, module_path);
-            if (!vix_file_exists(full_module_path))//文件不存在
+            if (!vix_resolve_import_path(current_input_filename, module_path, full_module_path, sizeof(full_module_path)))
             {
                 const char* filename = current_input_filename ? current_input_filename : "unknown";
                 int line = (node->location.first_line > 0) ? node->location.first_line : 1;
                 char error_msg[512];
-                snprintf(error_msg, sizeof(error_msg), "Module file not found: %s", full_module_path);
-                report_semantic_error_with_location(error_msg, filename, line);//报告错误
+                snprintf(error_msg, sizeof(error_msg), "Module file not found: %s", module_path);
+                report_semantic_error_with_location(error_msg, filename, line);
                 errors_found++;
             }
             else 
