@@ -64,6 +64,10 @@ static inline int vix_is_stderr_tty(void) {
 #endif
 }
 
+static inline const char* vix_getenv(const char* name) {
+    return getenv(name);
+}
+
 static inline int vix_setenv(const char* name, const char* value, int overwrite) {
     if (!name || !value) return -1;
 #ifdef _WIN32

@@ -384,6 +384,9 @@ void print_ast(ASTNode* node, int indent);
 int get_array_length(ASTNode* node);
 // Inline imports: parse modules and inline their `pub` functions into the AST
 void inline_imports(ASTNode* node);
+// Resolve import path with VPM search priority.
+// Returns 1 on success and writes resolved path to 'out', 0 on failure.
+int vix_resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size);
 
 #ifdef __cplusplus
 }
