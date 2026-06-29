@@ -100,6 +100,9 @@ static int canonicalize_existing_path(const char* path, char* out, size_t out_si
 
     char resolved[1024];
     if (vix_realpath(path, resolved, sizeof(resolved)) != NULL) {
+        for (char* p = resolved; *p; p++) {
+            if (*p == '\\') *p = '/';
+        }
         strncpy(out, resolved, out_size - 1);
         out[out_size - 1] = '\0';
         return 1;
@@ -110,6 +113,16 @@ static int canonicalize_existing_path(const char* path, char* out, size_t out_si
     return 1;
 }
 
+static int try_resolve_import_path(const char* base_dir, const char* module_path, char* out, size_t out_size) {
+    char candidate[1024];
+    snprintf(candidate, sizeof(candidate), "%s/%s", base_dir, module_path);
+    if (vix_file_exists(candidate)) {
+        return canonicalize_existing_path(candidate, out, out_size);
+    }
+    return 0;
+}
+
+int vix_resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size) {
 static int vix_expand_package_name(const char* module_path, char* out, size_t out_size) {
     if (!module_path || !out || out_size == 0) return 0;
     if (strchr(module_path, '/') != NULL) return 0;
