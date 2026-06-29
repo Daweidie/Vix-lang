@@ -15,12 +15,19 @@
  */
 #include "../../include/semantic.h"
 #include "../../include/compiler.h"
+#include "../../include/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../../include/compat.h"
 #include <ctype.h>
 extern const char* current_input_filename;
+typedef struct VixVisitedModule VixVisitedModule;
+struct VixVisitedModule {
+    const char* path;
+    VixVisitedModule* next;
+};
+static int extract_public_functions_from_module_recurse(const char* module_path, SymbolTable* table, VixVisitedModule* visited);
 static int extract_public_functions_from_module(const char* module_path, SymbolTable* table);
 
 static int is_builtin_union_ctor_name(const char* name) {
@@ -879,25 +886,14 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
         
         case AST_IMPORT: {
             const char* module_path = node->data.import.module_path;
-            const char* current_file_dir = current_input_filename ? current_input_filename : ".";
-            char dir_path[1024];
-            strncpy(dir_path, current_file_dir, sizeof(dir_path) - 1);
-            dir_path[sizeof(dir_path) - 1] = '\0';
-            char* last_slash = strrchr(dir_path, '/');
-            if (last_slash) {
-                *(last_slash + 1) = '\0';
-            } else {
-                strcpy(dir_path, "./");
-            }
             char full_module_path[1024];
-            snprintf(full_module_path, sizeof(full_module_path), "%s%s", dir_path, module_path);
-            if (!vix_file_exists(full_module_path))//文件不存在
+            if (!vix_resolve_import_path(current_input_filename, module_path, full_module_path, sizeof(full_module_path)))
             {
                 const char* filename = current_input_filename ? current_input_filename : "unknown";
                 int line = (node->location.first_line > 0) ? node->location.first_line : 1;
                 char error_msg[512];
-                snprintf(error_msg, sizeof(error_msg), "Module file not found: %s", full_module_path);
-                report_semantic_error_with_location(error_msg, filename, line);//报告错误
+                snprintf(error_msg, sizeof(error_msg), "Module file not found: %s", module_path);
+                report_semantic_error_with_location(error_msg, filename, line);
                 errors_found++;
             }
             else 
@@ -1405,12 +1401,20 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
 int check_undefined_symbols_in_node(ASTNode* node, SymbolTable* table) {
     return check_undefined_symbols_in_node_with_visited(node, table, NULL);
 }
-static int extract_public_functions_from_module(const char* module_path, SymbolTable* table) {
+static int extract_public_functions_from_module_recurse(const char* module_path, SymbolTable* table, VixVisitedModule* visited) {
+    VixVisitedModule* v = visited;
+    while (v) {
+        if (v->path && strcmp(v->path, module_path) == 0) {
+            return 0;
+        }
+        v = v->next;
+    }
+
     FILE* file = fopen(module_path, "r");
     if (!file) {
-        return 0; //无法打开文件
+        return 0;
     }
-    fseek(file, 0, SEEK_END);//文件查看
+    fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
     
@@ -1424,9 +1428,13 @@ static int extract_public_functions_from_module(const char* module_path, SymbolT
     buffer[file_size] = '\0';
     fclose(file);
     
+    VixVisitedModule current_visited;
+    current_visited.path = module_path;
+    current_visited.next = visited;
+    
     int errors_found = 0;
     char* pos = buffer;
-    while ((pos = strstr(pos, "pub fn")) != NULL) { //跳过pub fn p1 u2 b3 4 f5 n6 6个字符
+    while ((pos = strstr(pos, "pub fn")) != NULL) {
         pos += 6;
         while (*pos && isspace(*pos)) {
             pos++;
@@ -1435,24 +1443,46 @@ static int extract_public_functions_from_module(const char* module_path, SymbolT
         int i = 0;
         if ((*pos >= 'a' && *pos <= 'z') || (*pos >= 'A' && *pos <= 'Z') || *pos == '_') {
             func_name[i++] = *pos++;
-            
             while ((*pos >= 'a' && *pos <= 'z') || 
                    (*pos >= 'A' && *pos <= 'Z') || 
                    (*pos >= '0' && *pos <= '9') || 
-                   *pos == '_') {//查找
+                   *pos == '_') {
                 if (i < (int)(sizeof(func_name) - 1)) {
                     func_name[i++] = *pos;
                 }
                 pos++;
             }
         }
-        
         if (i > 0) {
             func_name[i] = '\0';
-            add_symbol(table, func_name, SYMBOL_FUNCTION, TYPE_UNKNOWN);//add fn name to st
+            add_symbol(table, func_name, SYMBOL_FUNCTION, TYPE_UNKNOWN);
         }
     }
     
-    free(buffer);//福瑞
+    pos = buffer;
+    while ((pos = strstr(pos, "import \"")) != NULL) {
+        pos += 8;
+        char import_path[1024];
+        int i = 0;
+        while (*pos && *pos != '"' && i < (int)(sizeof(import_path) - 1)) {
+            import_path[i++] = *pos++;
+        }
+        import_path[i] = '\0';
+        if (*pos == '"') {
+            pos++;
+        }
+        if (i > 0) {
+            char resolved[1024];
+            if (vix_resolve_import_path(module_path, import_path, resolved, sizeof(resolved))) {
+                errors_found += extract_public_functions_from_module_recurse(resolved, table, &current_visited);
+            }
+        }
+    }
+    
+    free(buffer);
     return errors_found;
+}
+
+static int extract_public_functions_from_module(const char* module_path, SymbolTable* table) {
+    return extract_public_functions_from_module_recurse(module_path, table, NULL);
 }
