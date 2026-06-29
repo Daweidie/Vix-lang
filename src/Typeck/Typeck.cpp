@@ -13,17 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "../../include/typeck.h"
+//#include "../../include/typeck.h"
 
 #include <cstring>
 #include <cstdlib>
 #include <functional>
 #include <map>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "../../include/ast.h"
 #include "../../include/compiler.h"
@@ -64,6 +64,7 @@ struct TypeChecker {
 	std::unordered_map<std::string, TypePtr> match_payloads;
 	std::unordered_map<std::string, TypePtr> match_payload_field_types;
 	std::unordered_map<std::string, TypePtr> generic_bindings;
+	std::set<std::string> making_type_info_for;
 	int error_count = 0;
 
 	TypePtr builtin_void = Type::make(TypeKind::Void);
@@ -127,6 +128,270 @@ struct TypeChecker {
 		error_count++;
 	}
 
+	int node_span_length(const ASTNode* node, int fallback) {
+		if (node && node->location.first_line == node->location.last_line &&
+			node->location.last_column > node->location.first_column) {
+			return node->location.last_column - node->location.first_column;
+		}
+		return fallback > 0 ? fallback : 1;
+	}
+
+	void report_warning_at(const ASTNode* node, const std::string& message, int length = 1) {
+		const char* filename = node_file(node);
+		int line = node_line(node);
+		int col = node_col(node);
+		set_location_with_column(filename, line, col);
+		report_simple_error_with_length(ERROR_LEVEL_WARNING, ERROR_WARNING, message.c_str(), length);
+	}
+
+	void report_warning_at_snippet(const ASTNode* node, const std::string& message, const std::string& snippet) {
+		report_warning_with_location_and_snippet(message.c_str(), node_file(node), node_line(node), snippet.c_str());
+	}
+
+	struct ArrayParamUsage {
+		std::string name;
+		ASTNode* declaration = nullptr;
+		ASTNode* first_modify = nullptr;
+		int first_modify_length = 1;
+		std::string first_modify_snippet;
+		ASTNode* first_length_read = nullptr;
+		int first_length_read_length = 1;
+		std::string first_length_read_snippet;
+		ASTNode* first_length_read_after_modify = nullptr;
+		bool used = false;
+		bool modified = false;
+		bool returned = false;
+		bool warned_modify_after_length = false;
+	};
+
+	bool is_array_like_type(const TypePtr& type) {
+		if (!type) {
+			return false;
+		}
+		TypePtr resolved = unify.apply(type);
+		return resolved->kind == TypeKind::Array || resolved->kind == TypeKind::FixedArray;
+	}
+
+	ArrayParamUsage* find_array_param(std::vector<ArrayParamUsage>& params, const char* name) {
+		if (!name) {
+			return nullptr;
+		}
+		for (auto& param : params) {
+			if (param.name == name) {
+				return &param;
+			}
+		}
+		return nullptr;
+	}
+
+	const char* identifier_name(ASTNode* node) {
+		return node && node->type == AST_IDENTIFIER ? node->data.identifier.name : nullptr;
+	}
+
+	int member_expr_length(const char* object_name, const char* field_name) {
+		int object_len = object_name ? (int)strlen(object_name) : 1;
+		int field_len = field_name ? (int)strlen(field_name) : 0;
+		return object_len + (field_len > 0 ? field_len + 1 : 0);
+	}
+
+	std::string member_expr_snippet(const char* object_name, const char* field_name) {
+		std::string snippet = object_name ? object_name : "";
+		if (field_name && *field_name) {
+			snippet += ".";
+			snippet += field_name;
+		}
+		return snippet;
+	}
+
+	void scan_array_param_usage(ASTNode* node, std::vector<ArrayParamUsage>& params, bool in_return) {
+		if (!node) {
+			return;
+		}
+
+		switch (node->type) {
+			case AST_IDENTIFIER: {
+				if (ArrayParamUsage* usage = find_array_param(params, node->data.identifier.name)) {
+					usage->used = true;
+					if (in_return) {
+						usage->returned = true;
+					}
+				}
+				break;
+			}
+			case AST_RETURN:
+				scan_array_param_usage(node->data.return_stmt.expr, params, true);
+				break;
+			case AST_CALL: {
+				ASTNode* func = node->data.call.func;
+				bool handled_push_receiver = false;
+				if (func && func->type == AST_MEMBER_ACCESS) {
+					ASTNode* object = func->data.member_access.object;
+					const char* object_name = identifier_name(object);
+					const char* field_name = identifier_name(func->data.member_access.field);
+					if (ArrayParamUsage* usage = find_array_param(params, object_name)) {
+						usage->used = true;
+						if (field_name && strcmp(field_name, "push") == 0) {
+							usage->modified = true;
+							if (!usage->first_modify) {
+								usage->first_modify = object ? object : node;
+								usage->first_modify_length = member_expr_length(object_name, field_name);
+								usage->first_modify_snippet = member_expr_snippet(object_name, field_name);
+							}
+							if (usage->first_length_read && !usage->warned_modify_after_length) {
+					report_warning_at_snippet(usage->first_length_read,
+						"array parameter '" + usage->name +
+						"' is modified after reading its length\n"
+						"  note: the length was read at line " + std::to_string(node_line(usage->first_length_read)) +
+						", but modifications to the copy won't affect the original",
+						usage->first_length_read_snippet);
+								usage->warned_modify_after_length = true;
+							}
+							handled_push_receiver = true;
+						}
+					}
+				}
+				if (!handled_push_receiver) {
+					scan_array_param_usage(func, params, in_return);
+				}
+				if (node->data.call.args && node->data.call.args->type == AST_EXPRESSION_LIST) {
+					int count = node->data.call.args->data.expression_list.expression_count;
+					for (int i = 0; i < count; i++) {
+						scan_array_param_usage(node->data.call.args->data.expression_list.expressions[i], params, in_return);
+					}
+				}
+				break;
+			}
+			case AST_MEMBER_ACCESS: {
+				ASTNode* object = node->data.member_access.object;
+				const char* object_name = identifier_name(object);
+				const char* field_name = identifier_name(node->data.member_access.field);
+				if (ArrayParamUsage* usage = find_array_param(params, object_name)) {
+					usage->used = true;
+					if (field_name && (strcmp(field_name, "length") == 0 || strcmp(field_name, "size") == 0)) {
+						if (!usage->first_length_read) {
+							usage->first_length_read = object ? object : node;
+							usage->first_length_read_length = member_expr_length(object_name, field_name);
+							usage->first_length_read_snippet = member_expr_snippet(object_name, field_name);
+						}
+						if (usage->modified && !usage->first_length_read_after_modify) {
+							usage->first_length_read_after_modify = node;
+						}
+					}
+				} else {
+					scan_array_param_usage(object, params, in_return);
+				}
+				break;
+			}
+			case AST_PROGRAM:
+				for (int i = 0; i < node->data.program.statement_count; i++) {
+					scan_array_param_usage(node->data.program.statements[i], params, in_return);
+				}
+				break;
+			case AST_ASSIGN:
+			case AST_CONST:
+				scan_array_param_usage(node->data.assign.left, params, in_return);
+				scan_array_param_usage(node->data.assign.right, params, in_return);
+				break;
+			case AST_BINOP:
+				scan_array_param_usage(node->data.binop.left, params, in_return);
+				scan_array_param_usage(node->data.binop.right, params, in_return);
+				break;
+			case AST_UNARYOP:
+				scan_array_param_usage(node->data.unaryop.expr, params, in_return);
+				break;
+			case AST_IF:
+				scan_array_param_usage(node->data.if_stmt.condition, params, in_return);
+				scan_array_param_usage(node->data.if_stmt.then_body, params, in_return);
+				scan_array_param_usage(node->data.if_stmt.else_body, params, in_return);
+				break;
+			case AST_WHILE:
+				scan_array_param_usage(node->data.while_stmt.condition, params, in_return);
+				scan_array_param_usage(node->data.while_stmt.body, params, in_return);
+				break;
+			case AST_FOR:
+				scan_array_param_usage(node->data.for_stmt.start, params, in_return);
+				scan_array_param_usage(node->data.for_stmt.end, params, in_return);
+				scan_array_param_usage(node->data.for_stmt.body, params, in_return);
+				break;
+			case AST_INDEX:
+				scan_array_param_usage(node->data.index.target, params, in_return);
+				scan_array_param_usage(node->data.index.index, params, in_return);
+				break;
+			case AST_STRUCT_LITERAL:
+				scan_array_param_usage(node->data.struct_literal.fields, params, in_return);
+				break;
+			case AST_EXPRESSION_LIST:
+				for (int i = 0; i < node->data.expression_list.expression_count; i++) {
+					scan_array_param_usage(node->data.expression_list.expressions[i], params, in_return);
+				}
+				break;
+			case AST_PRINT:
+				scan_array_param_usage(node->data.print.expr, params, in_return);
+				break;
+			case AST_TOINT:
+				scan_array_param_usage(node->data.toint.expr, params, in_return);
+				break;
+			case AST_TOFLOAT:
+				scan_array_param_usage(node->data.tofloat.expr, params, in_return);
+				break;
+			default:
+				break;
+		}
+	}
+
+	std::vector<ArrayParamUsage> collect_array_params(ASTNode* fn) {
+		std::vector<ArrayParamUsage> params;
+		if (!fn || !fn->data.function.params || fn->data.function.params->type != AST_EXPRESSION_LIST) {
+			return params;
+		}
+		int count = fn->data.function.params->data.expression_list.expression_count;
+		for (int i = 0; i < count; i++) {
+			ASTNode* param = fn->data.function.params->data.expression_list.expressions[i];
+			if (!param || param->type != AST_ASSIGN || !param->data.assign.left ||
+				param->data.assign.left->type != AST_IDENTIFIER) {
+				continue;
+			}
+			TypePtr ptype = type_from_ast(param->data.assign.right);
+			if (!is_array_like_type(ptype)) {
+				continue;
+			}
+			ArrayParamUsage usage;
+			usage.name = param->data.assign.left->data.identifier.name ? param->data.assign.left->data.identifier.name : "";
+			usage.declaration = param->data.assign.left;
+			if (!usage.name.empty()) {
+				params.push_back(std::move(usage));
+			}
+		}
+		return params;
+	}
+
+	void warn_array_parameter_value_semantics(ASTNode* fn) {
+		std::vector<ArrayParamUsage> params = collect_array_params(fn);
+		if (params.empty()) {
+			return;
+		}
+		scan_array_param_usage(fn->data.function.body, params, false);
+		for (const auto& usage : params) {
+			if (!usage.used) {
+				report_warning_at(usage.declaration,
+					"array parameter '" + usage.name + "' is never used\n"
+					"  note: array parameters are passed by value (copy)");
+				continue;
+			}
+			if (usage.modified && !usage.returned && usage.first_modify) {
+				report_warning_at_snippet(usage.first_modify,
+					"array parameter '" + usage.name + "' is modified but changes are lost\n"
+					"  note: array parameters are passed by value (copy)",
+					usage.first_modify_snippet);
+			}
+			if (usage.first_length_read_after_modify && !usage.returned) {
+				report_warning_at(usage.first_length_read_after_modify,
+					"reading array parameter '" + usage.name + "' after modifying a copy\n"
+					"  note: the array parameter was modified earlier, but the original caller's array is unchanged");
+			}
+		}
+	}
+
 	ASTNode* find_return_node(ASTNode* node) {
 		if (!node) return nullptr;
 		if (node->type == AST_RETURN) return node;
@@ -185,7 +450,18 @@ struct TypeChecker {
 			case TypeKind::Ptr: {
 				TypeInfo* info = alloc_type_info(TYPEINFO_PTR);
 				if (!info) return nullptr;
-				info->element = make_type_info(resolved->data.ptr.pointee);
+				TypePtr pointee = resolved->data.ptr.pointee;
+				if (pointee && pointee->kind == TypeKind::Struct) {
+					std::string sname = pointee->data.struct_data.name;
+					if (!sname.empty() && making_type_info_for.count(sname)) {
+						info->element = alloc_type_info(TYPEINFO_STRUCT);
+						if (info->element) {
+							info->element->name = strdup(sname.c_str());
+						}
+						return info;
+					}
+				}
+				info->element = make_type_info(pointee);
 				return info;
 			}
 			case TypeKind::Struct: {
@@ -193,6 +469,23 @@ struct TypeChecker {
 				if (!info) return nullptr;
 				const std::string& name = resolved->data.struct_data.name;
 				info->name = name.empty() ? nullptr : strdup(name.c_str());
+				if (!name.empty() && making_type_info_for.count(name)) {
+					return info;
+				}
+				if (!name.empty()) {
+					making_type_info_for.insert(name);
+					const StructInfo* si = env.lookup_struct(name);
+					if (si && !si->fields.empty()) {
+						info->param_count = static_cast<int>(si->fields.size());
+						info->params = (TypeInfo**)calloc(info->param_count, sizeof(TypeInfo*));
+						if (info->params) {
+							for (int i = 0; i < info->param_count; i++) {
+								info->params[i] = make_type_info(si->fields[i].type);
+							}
+						}
+					}
+					making_type_info_for.erase(name);
+				}
 				return info;
 			}
 			case TypeKind::Array: {
@@ -368,6 +661,16 @@ struct TypeChecker {
 		return t->kind == TypeKind::I8 || t->kind == TypeKind::I32 || t->kind == TypeKind::I64 ||
 			   t->kind == TypeKind::F32 || t->kind == TypeKind::F64;
 	}
+
+	bool is_valid_vararg_type(const TypePtr& type) {
+		if (!type) {
+			return false;
+		}
+		TypePtr t = unify.apply(type);
+		return t->kind == TypeKind::I8 || t->kind == TypeKind::I32 || t->kind == TypeKind::I64 ||
+			   t->kind == TypeKind::F32 || t->kind == TypeKind::F64 || t->kind == TypeKind::Bool ||
+			   t->kind == TypeKind::String || t->kind == TypeKind::Ptr || t->kind == TypeKind::Var;
+	}
 	TypePtr freshen_type(const TypePtr& t) {
 		if (!t) return t;
 		TypePtr a = unify.apply(t);
@@ -439,6 +742,14 @@ struct TypeChecker {
 			return unify.apply(lhs);
 		}
 		return unify.apply(rhs);
+	}
+
+	bool is_string_compatible(const TypePtr& type) {
+		if (!type) {
+			return false;
+		}
+		TypePtr t = unify.apply(type);
+		return t->kind == TypeKind::String || t->kind == TypeKind::Ptr || t->kind == TypeKind::Var;
 	}
 
 	TypePtr register_function(ASTNode* fn) {
@@ -554,7 +865,7 @@ struct TypeChecker {
 				}
 				if (all_extern && stmt->data.program.statement_count > 0) {
 					for (int j = 0; j < stmt->data.program.statement_count; j++) {
-						last = check_expr(stmt->data.program.statements[j]);
+						check_expr(stmt->data.program.statements[j]);
 					}
 					continue;
 				}
@@ -727,7 +1038,14 @@ struct TypeChecker {
 				args.push_back(unify.fresh());
 			}
 			if (payload_count > 0) {
-				TypePtr payload = unify.fresh();
+				ASTNode* payload_type_node = vix_adt_ctor_payload_type_node(name);
+				TypePtr payload;
+				if (payload_type_node) {
+					payload = type_from_ast(payload_type_node);
+				}
+				if (!payload) {
+					payload = unify.fresh();
+				}
 				TypePtr result = Type::make_app(Type::make_struct(base_name ? base_name : "<anon>"), std::move(args));
 				env.register_ctor(name, Type::make_fn({payload}, result));
 			} else {
@@ -768,7 +1086,11 @@ struct TypeChecker {
 				result = check_block(node, true);
 				break;
 			case AST_NUM_INT:
-				result = builtin_i32;
+				if (node->inferred_type && node->inferred_type->kind == TYPEINFO_BOOL) {
+					result = builtin_bool;
+				} else {
+					result = builtin_i32;
+				}
 				break;
 			case AST_NUM_FLOAT:
 				result = builtin_f64;
@@ -908,11 +1230,18 @@ struct TypeChecker {
 	}
 
 	TypePtr check_assign(ASTNode* node) {
+		if (!node) {
+			return builtin_void;
+		}
 		if (node->data.assign.is_declaration == 2) {
 			return node_types[node] = builtin_void;
 		}
 		ASTNode* left = node->data.assign.left;
 		ASTNode* right = node->data.assign.right;
+		if (!left) {
+			report_semantic_error(node, "invalid assignment: missing left-hand side");
+			return node_types[node] = builtin_void;
+		}
 		TypePtr rtype = right ? check_expr(right) : builtin_void;
 
 		if (node->data.assign.declared_type) {
@@ -988,7 +1317,12 @@ struct TypeChecker {
 					try {
 						unify.unify(val->type, rtype);
 					} catch (const std::exception& ex) {
-						report_type_error(node, ex.what());
+						TypePtr lresolved = unify.apply(val->type);
+						TypePtr rresolved = unify.apply(rtype);
+						if (!((lresolved->kind == TypeKind::String && rresolved->kind == TypeKind::Ptr) ||
+						      (lresolved->kind == TypeKind::Ptr && rresolved->kind == TypeKind::String))) {
+							report_type_error(node, ex.what());
+						}
 					}
 				}
 			}
@@ -1010,7 +1344,12 @@ struct TypeChecker {
 			try {
 				unify.unify(ltype, rtype);
 			} catch (const std::exception& ex) {
-				report_type_error(node, ex.what());
+				TypePtr lresolved = unify.apply(ltype);
+				TypePtr rresolved = unify.apply(rtype);
+				if (!((lresolved->kind == TypeKind::String && rresolved->kind == TypeKind::Ptr) ||
+				      (lresolved->kind == TypeKind::Ptr && rresolved->kind == TypeKind::String))) {
+					report_type_error(node, ex.what());
+				}
 			}
 		}
 
@@ -1033,10 +1372,14 @@ struct TypeChecker {
 			const char* ctor_name = nullptr;
 			ASTNode* left_node = node->data.binop.left;
 			ASTNode* right_node = node->data.binop.right;
-			if (left_node && left_node->type == AST_IDENTIFIER && is_builtin_ctor(left_node->data.identifier.name)) {
+			if (left_node && left_node->type == AST_IDENTIFIER &&
+				(is_builtin_ctor(left_node->data.identifier.name) ||
+				 vix_adt_ctor_index(left_node->data.identifier.name) >= 0)) {
 				ctor_name = left_node->data.identifier.name;
 				skip_unify = true;
-			} else if (right_node && right_node->type == AST_IDENTIFIER && is_builtin_ctor(right_node->data.identifier.name)) {
+			} else if (right_node && right_node->type == AST_IDENTIFIER &&
+				(is_builtin_ctor(right_node->data.identifier.name) ||
+				 vix_adt_ctor_index(right_node->data.identifier.name) >= 0)) {
 				ctor_name = right_node->data.identifier.name;
 				skip_unify = true;
 			}
@@ -1102,6 +1445,19 @@ struct TypeChecker {
 			return node_types[node] = builtin_string;
 		}
 
+		if (op == OP_ADD) {
+			TypePtr rl = unify.apply(lhs);
+			TypePtr rr = unify.apply(rhs);
+			bool has_string_operand = (rl->kind == TypeKind::String || rr->kind == TypeKind::String);
+			if (has_string_operand && is_string_compatible(lhs) && is_string_compatible(rhs)) {
+				try {
+					if (rl->kind == TypeKind::Var) unify.unify(lhs, builtin_string);
+					if (rr->kind == TypeKind::Var) unify.unify(rhs, builtin_string);
+				} catch (...) {}
+				return node_types[node] = builtin_string;
+			}
+		}
+
 		if (is_numeric(lhs) && is_numeric(rhs)) {
 			TypePtr res = promote_numeric(lhs, rhs);
 			return node_types[node] = res;
@@ -1131,6 +1487,9 @@ struct TypeChecker {
 	}
 
 	TypePtr check_unaryop(ASTNode* node) {
+		if (!node || !node->data.unaryop.expr) {
+			return builtin_void;
+		}
 		TypePtr inner = check_expr(node->data.unaryop.expr);
 		switch (node->data.unaryop.op) {
 			case OP_ADDRESS:
@@ -1194,10 +1553,12 @@ struct TypeChecker {
 			ASTNode* ctor_node = nullptr;
 			ASTNode* scrutinee_node = nullptr;
 			bool is_nil_cmp = false;
-			if (lhs && lhs->type == AST_IDENTIFIER && is_builtin_ctor(lhs->data.identifier.name)) {
+			if (lhs && lhs->type == AST_IDENTIFIER && lhs->data.identifier.name &&
+				(is_builtin_ctor(lhs->data.identifier.name) || vix_adt_ctor_index(lhs->data.identifier.name) >= 0)) {
 				ctor_node = lhs;
 				scrutinee_node = rhs;
-			} else if (rhs && rhs->type == AST_IDENTIFIER && is_builtin_ctor(rhs->data.identifier.name)) {
+			} else if (rhs && rhs->type == AST_IDENTIFIER && rhs->data.identifier.name &&
+				(is_builtin_ctor(rhs->data.identifier.name) || vix_adt_ctor_index(rhs->data.identifier.name) >= 0)) {
 				ctor_node = rhs;
 				scrutinee_node = lhs;
 			} else if (lhs && lhs->type == AST_NIL && rhs && rhs->type == AST_IDENTIFIER) {
@@ -1238,15 +1599,21 @@ struct TypeChecker {
 								} else if (!is_ne && strcmp(ctor_name, "None") != 0) {
 									payload_type = resolved->data.app.args[0];
 								}
-							} else if (base == "Result" && resolved->data.app.args.size() == 2) {
-								if (is_ne) {
-									payload_type = resolved->data.app.args[0];
-								} else if (strcmp(ctor_name, "Ok") == 0) {
-									payload_type = resolved->data.app.args[0];
-								} else if (strcmp(ctor_name, "Err") == 0) {
-									payload_type = resolved->data.app.args[1];
-								}
+						} else if (base == "Result" && resolved->data.app.args.size() == 2) {
+							if (is_ne) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Ok") == 0) {
+								payload_type = resolved->data.app.args[0];
+							} else if (strcmp(ctor_name, "Err") == 0) {
+								payload_type = resolved->data.app.args[1];
 							}
+						} else {
+							/* Custom ADT: look up payload type from ADT definition */
+							ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+							if (payload_node) {
+								payload_type = type_from_ast(payload_node);
+							}
+						}
 						}
 					}
 					if (payload_type) {
@@ -1269,11 +1636,13 @@ struct TypeChecker {
 			ASTNode* member_node = nullptr;
 			const char* ctor_name = nullptr;
 			if (lhs && lhs->type == AST_MEMBER_ACCESS && rhs && rhs->type == AST_IDENTIFIER &&
-				rhs->data.identifier.name && is_builtin_ctor(rhs->data.identifier.name)) {
+				rhs->data.identifier.name &&
+				(is_builtin_ctor(rhs->data.identifier.name) || vix_adt_ctor_index(rhs->data.identifier.name) >= 0)) {
 				member_node = lhs;
 				ctor_name = rhs->data.identifier.name;
 			} else if (rhs && rhs->type == AST_MEMBER_ACCESS && lhs && lhs->type == AST_IDENTIFIER &&
-				lhs->data.identifier.name && is_builtin_ctor(lhs->data.identifier.name)) {
+				lhs->data.identifier.name &&
+				(is_builtin_ctor(lhs->data.identifier.name) || vix_adt_ctor_index(lhs->data.identifier.name) >= 0)) {
 				member_node = rhs;
 				ctor_name = lhs->data.identifier.name;
 			}
@@ -1299,6 +1668,18 @@ struct TypeChecker {
 							if (strcmp(ctor_name, "Some") == 0) {
 								payload_type = resolved->data.app.args[0];
 							}
+						} else {
+							/* Custom ADT: look up payload type from ADT definition */
+							ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+							if (payload_node) {
+								payload_type = type_from_ast(payload_node);
+							}
+						}
+					} else if (resolved->kind == TypeKind::Struct) {
+						/* Custom ADT with Struct type (not App): look up payload type */
+						ASTNode* payload_node = vix_adt_ctor_payload_type_node(ctor_name);
+						if (payload_node) {
+							payload_type = type_from_ast(payload_node);
 						}
 					}
 					if (payload_type) {
@@ -1354,12 +1735,25 @@ struct TypeChecker {
 		TypePtr var_type = unify.fresh();
 		if (node->data.for_stmt.end) {
 			TypePtr end_type = check_expr(node->data.for_stmt.end);
-			try {
-				unify.unify(iter_type, end_type);
-			} catch (const std::exception& ex) {
-				report_type_error(node, ex.what());
+			TypePtr resolved_iter = unify.apply(iter_type);
+			TypePtr resolved_end = unify.apply(end_type);
+			if (is_numeric(resolved_iter) && is_numeric(resolved_end)) {
+				TypePtr promoted = promote_numeric(resolved_iter, resolved_end);
+				try {
+					unify.unify(iter_type, promoted);
+					unify.unify(end_type, promoted);
+				} catch (const std::exception& ex) {
+					report_type_error(node, ex.what());
+				}
+				var_type = promoted;
+			} else {
+				try {
+					unify.unify(iter_type, end_type);
+				} catch (const std::exception& ex) {
+					report_type_error(node, ex.what());
+				}
+				var_type = iter_type;
 			}
-			var_type = iter_type;
 		} else {
 			if (iter_type->kind == TypeKind::Array) {
 				var_type = iter_type->data.array.element;
@@ -1398,7 +1792,14 @@ struct TypeChecker {
 			return node_types[node] = resolved->data.fixed_array.element;
 		}
 		if (resolved->kind == TypeKind::Ptr) {
-			return node_types[node] = resolved->data.ptr.pointee;
+			TypePtr pointee = unify.apply(resolved->data.ptr.pointee);
+			if (pointee->kind == TypeKind::Array) {
+				return node_types[node] = pointee->data.array.element;
+			}
+			if (pointee->kind == TypeKind::FixedArray) {
+				return node_types[node] = pointee->data.fixed_array.element;
+			}
+			return node_types[node] = pointee;
 		}
 		if (resolved->kind == TypeKind::String) {
 			return node_types[node] = builtin_i8;
@@ -1415,6 +1816,13 @@ struct TypeChecker {
 								? node->data.member_access.field->data.identifier.name
 								: "";
 
+		auto set_member_type = [&](const TypePtr& t) -> TypePtr {
+			TypePtr r = t ? unify.apply(t) : unify.fresh();
+			node_types[node] = r;
+			store_inferred_type(node, r);
+			return r;
+		};
+
 		bool numeric_field = field && field[0] != '\0';
 		for (const char* p = field; numeric_field && *p; ++p) {
 			if (*p < '0' || *p > '9') {
@@ -1424,35 +1832,35 @@ struct TypeChecker {
 
 		if (numeric_field) {
 			if (resolved->kind == TypeKind::Array) {
-				return node_types[node] = resolved->data.array.element;
+				return set_member_type(resolved->data.array.element);
 			}
 			if (resolved->kind == TypeKind::FixedArray) {
-				return node_types[node] = resolved->data.fixed_array.element;
+				return set_member_type(resolved->data.fixed_array.element);
 			}
 			if (resolved->kind == TypeKind::Ptr) {
 				TypePtr pointee = unify.apply(resolved->data.ptr.pointee);
 				if (pointee->kind == TypeKind::Array) {
-					return node_types[node] = pointee->data.array.element;
+					return set_member_type(pointee->data.array.element);
 				}
 				if (pointee->kind == TypeKind::FixedArray) {
-					return node_types[node] = pointee->data.fixed_array.element;
+					return set_member_type(pointee->data.fixed_array.element);
 				}
-				return node_types[node] = pointee;
+				return set_member_type(pointee);
 			}
 			if (resolved->kind == TypeKind::Tuple) {
 				int idx = atoi(field);
 				if (idx >= 0 && idx < (int)resolved->data.tuple.elements.size()) {
-					return node_types[node] = resolved->data.tuple.elements[idx];
+					return set_member_type(resolved->data.tuple.elements[idx]);
 				}
 				report_semantic_error(node, "tuple index out of bounds");
-				return node_types[node] = unify.fresh();
+				return set_member_type(unify.fresh());
 			}
 			if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
 				resolved->data.app.ctor->kind == TypeKind::Struct) {
 				const std::string& base = resolved->data.app.ctor->data.struct_data.name;
 				int idx = atoi(field);
 				if (idx == 0) {
-					return node_types[node] = builtin_i32;
+					return set_member_type(builtin_i32);
 				}
 				if (idx == 1 && !resolved->data.app.args.empty()) {
 					// Check match_payload_field_types first (set by check_if for desugared match)
@@ -1461,14 +1869,25 @@ struct TypeChecker {
 						std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
 						auto it = match_payload_field_types.find(key);
 						if (it != match_payload_field_types.end()) {
-							return node_types[node] = it->second;
+							return set_member_type(it->second);
 						}
 					}
 					if (base == "Option" && resolved->data.app.args.size() >= 1) {
-						return node_types[node] = resolved->data.app.args[0];
+						return set_member_type(resolved->data.app.args[0]);
 					}
 					if (base == "Result" && resolved->data.app.args.size() >= 2) {
-						return node_types[node] = resolved->data.app.args[0];
+						return set_member_type(resolved->data.app.args[0]);
+					}
+					/* Custom ADT: look up payload type from ADT definition */
+					if (objectNode && objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+						/* Try to find the constructor from the match context */
+						ASTNode* payload_node = vix_adt_ctor_payload_type_node(base.c_str());
+						if (!payload_node) {
+							payload_node = vix_adt_payload_type_for_base(base.c_str());
+						}
+						if (payload_node) {
+							return set_member_type(type_from_ast(payload_node));
+						}
 					}
 				}
 				{
@@ -1477,11 +1896,11 @@ struct TypeChecker {
 						std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
 						auto it = match_payload_field_types.find(key);
 						if (it != match_payload_field_types.end()) {
-							return node_types[node] = it->second;
+							return set_member_type(it->second);
 						}
 					}
 				}
-				return node_types[node] = unify.fresh();
+				return set_member_type(unify.fresh());
 			}
 			{
 				ASTNode* objectNode = node->data.member_access.object;
@@ -1489,7 +1908,7 @@ struct TypeChecker {
 					std::string key = std::string(objectNode->data.identifier.name) + "." + std::string(field);
 					auto it = match_payload_field_types.find(key);
 					if (it != match_payload_field_types.end()) {
-						return node_types[node] = it->second;
+						return set_member_type(it->second);
 					}
 				}
 			}
@@ -1597,9 +2016,10 @@ struct TypeChecker {
 								return a;
 						}
 					};
-					return node_types[node] = rewrite(f.type, rewrite);
+					TypePtr ft = rewrite(f.type, rewrite);
+					return set_member_type(ft);
 				}
-				return node_types[node] = f.type;
+				return set_member_type(f.type);
 			}
 		}
 		report_semantic_error(node, std::string("unknown field: ") + field);
@@ -1822,6 +2242,95 @@ struct TypeChecker {
 	}
 
 	TypePtr check_call(ASTNode* node) {
+		/* Handle impl method calls: obj.method(args) or Type.method(args) */
+		if (node->data.call.func && node->data.call.func->type == AST_MEMBER_ACCESS) {
+			ASTNode* mem = node->data.call.func;
+			ASTNode* objectNode = mem->data.member_access.object;
+			ASTNode* fieldNode = mem->data.member_access.field;
+			if (objectNode && fieldNode && fieldNode->type == AST_IDENTIFIER && fieldNode->data.identifier.name) {
+				std::string methodName(fieldNode->data.identifier.name);
+				std::string typeName;
+				/* Check if object is a type name (e.g., Point.new) */
+				if (objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+					std::string objName(objectNode->data.identifier.name);
+					/* Check if it's a known type (struct or ADT) */
+					if (env.lookup_struct(objName) || vix_is_adt_definition(objName.c_str())) {
+						typeName = objName;
+					}
+				}
+				/* If not a type name, try to get the type from the object */
+				if (typeName.empty()) {
+					TypePtr objType = check_expr(objectNode);
+					TypePtr resolved = unify.apply(objType);
+					if (resolved->kind == TypeKind::App && resolved->data.app.ctor &&
+						resolved->data.app.ctor->kind == TypeKind::Struct) {
+						typeName = resolved->data.app.ctor->data.struct_data.name;
+					} else if (resolved->kind == TypeKind::Struct) {
+						typeName = resolved->data.struct_data.name;
+					} else if (resolved->kind == TypeKind::String) {
+						typeName = "string";
+					} else if (resolved->kind == TypeKind::I32) {
+						typeName = "i32";
+					} else if (resolved->kind == TypeKind::I64) {
+						typeName = "i64";
+					} else if (resolved->kind == TypeKind::F64) {
+						typeName = "f64";
+					} else if (resolved->kind == TypeKind::F32) {
+						typeName = "f32";
+					} else if (resolved->kind == TypeKind::I8) {
+						typeName = "i8";
+					}
+				}
+				if (!typeName.empty()) {
+					const char* mangledFunc = vix_lookup_impl_method(typeName.c_str(), methodName.c_str());
+					if (mangledFunc) {
+						/* Look up the mangled function in the environment */
+						TypePtr fnType = env.lookup_value(mangledFunc) ? env.lookup_value(mangledFunc)->type : TypePtr(nullptr);
+						if (fnType && fnType->kind == TypeKind::Fn) {
+							/* Check if function has 'self' parameter */
+							bool hasSelf = false;
+							/* Look at the function node to check parameter names */
+							/* For now, assume methods with first param named 'self' are instance methods */
+							/* We can check by looking at the function's parameter count vs args */
+							int totalParams = (int)fnType->data.fn.params.size();
+							int actualArgs = node->data.call.args ? node->data.call.args->data.expression_list.expression_count : 0;
+							/* If the function has more params than args, it might have a self param */
+							/* Actually, let's just try to match without self first, then with self */
+							int expectedArgs = totalParams;
+							/* Check if this is a static call (object is a type name) */
+							bool isStaticCall = false;
+							if (objectNode->type == AST_IDENTIFIER && objectNode->data.identifier.name) {
+								std::string objName(objectNode->data.identifier.name);
+								if (env.lookup_struct(objName) || vix_is_adt_definition(objName.c_str())) {
+									isStaticCall = true;
+								}
+							}
+							if (!isStaticCall && totalParams > 0) {
+								/* Instance method: subtract self from param count */
+								expectedArgs = totalParams - 1;
+							}
+							if (actualArgs != expectedArgs) {
+								report_semantic_error(node, std::string("method '") + methodName + "' expects " +
+									std::to_string(expectedArgs) + " arguments, but got " + std::to_string(actualArgs));
+							}
+							/* Unify arguments */
+							int paramOffset = isStaticCall ? 0 : 1;
+							for (int i = 0; i < actualArgs && i + paramOffset < totalParams; i++) {
+								ASTNode* arg = node->data.call.args->data.expression_list.expressions[i];
+								TypePtr argType = check_expr(arg);
+								try {
+									unify.unify(fnType->data.fn.params[i + paramOffset], argType);
+								} catch (const std::exception& ex) {
+									report_type_error(arg, ex.what());
+								}
+							}
+							return node_types[node] = fnType->data.fn.ret;
+						}
+					}
+				}
+			}
+		}
+
 		if (node->data.call.func && node->data.call.func->type == AST_IDENTIFIER) {
 			const char* cname = node->data.call.func->data.identifier.name;
 			if (cname && strcmp(cname, "Some") == 0) {
@@ -1923,6 +2432,23 @@ struct TypeChecker {
 				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::String) {
 					continue;
 				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::FixedArray) {
+					// Allow passing array to ptr parameter (array decays to pointer)
+					continue;
+				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind == TypeKind::Array) {
+					// Allow passing array to ptr parameter (array decays to pointer)
+					continue;
+				}
+				if (param_type->kind == TypeKind::Ptr && arg_type->kind != TypeKind::Ptr) {
+					// Allow passing non-pointer to pointer parameter (implicit address-of)
+					try {
+						unify.unify(param_type->data.ptr.pointee, arg_type);
+					} catch (const std::exception& ex) {
+						report_type_error(node, ex.what());
+					}
+					continue;
+				}
 				if (is_numeric(param_type) && is_numeric(arg_type)) {
 					// Allow numeric promotion (e.g., i32 -> i64/usize)
 					continue;
@@ -1931,6 +2457,15 @@ struct TypeChecker {
 					unify.unify(fn_type->data.fn.params[i], arg_types[i]);
 				} catch (const std::exception& ex) {
 					report_type_error(node, ex.what());
+				}
+			}
+			// Check vararg arguments
+			if (fn_type->data.fn.vararg) {
+				for (size_t i = expected; i < actual; i++) {
+					TypePtr arg_type = unify.apply(arg_types[i]);
+					if (!is_valid_vararg_type(arg_type)) {
+						report_type_error(node, "cannot pass type '" + unify.pretty(arg_type) + "' to variadic function parameter");
+					}
 				}
 			}
 			return node_types[node] = fn_type->data.fn.ret;
@@ -2047,6 +2582,12 @@ struct TypeChecker {
 			}
 		}
 
+		if (node->data.function.is_extern) {
+			generic_bindings = std::move(saved_generics);
+			env.exit_scope();
+			return node_types[node] = fn_type;
+		}
+
 		if (node->data.function.params && node->data.function.params->type == AST_EXPRESSION_LIST) {
 			int count = node->data.function.params->data.expression_list.expression_count;
 			for (int i = 0; i < count; i++) {
@@ -2067,18 +2608,48 @@ struct TypeChecker {
 		}
 
 		TypePtr body_type = check_block(node->data.function.body, false);
+		warn_array_parameter_value_semantics(node);
 		TypePtr ret_type = type_from_ast(node->data.function.return_type);
 		if (!(node->data.function.is_extern && node->data.function.body == nullptr)) {
-			try {
-				unify.unify(ret_type, body_type);
-			} catch (const std::exception& ex) {
-				ASTNode* ret_node = find_return_node(node->data.function.body);
-				if (ret_node && ret_node->data.return_stmt.expr) {
-					report_type_error(ret_node->data.return_stmt.expr, ex.what());
-				} else if (ret_node) {
-					report_type_error(ret_node, ex.what());
-				} else {
-					report_type_error(node, ex.what());
+			TypePtr resolved_ret = unify.apply(ret_type);
+			TypePtr resolved_body = unify.apply(body_type);
+			/* For void functions, don't fail on implicit body type (e.g. last statement is a non-void call) */
+			bool skip_unify = false;
+			if (resolved_ret->kind == TypeKind::Void && resolved_body->kind != TypeKind::Void) {
+				/* Check if the body has explicit return statements with values */
+				bool has_explicit_return = find_return_node(node->data.function.body) != nullptr;
+				if (!has_explicit_return) {
+					skip_unify = true;
+				}
+			}
+			if (!skip_unify) {
+				try {
+					unify.unify(ret_type, body_type);
+				} catch (const std::exception& ex) {
+					/* Try auto-deref: if body_type is Ptr[T] and ret_type is T, allow it */
+					bool auto_deref_ok = false;
+					if (resolved_body->kind == TypeKind::Ptr && resolved_body->data.ptr.pointee) {
+						try {
+							unify.unify(resolved_ret, resolved_body->data.ptr.pointee);
+							auto_deref_ok = true;
+						} catch (...) {}
+					}
+					if (!auto_deref_ok && resolved_ret->kind == TypeKind::Ptr && resolved_ret->data.ptr.pointee) {
+						try {
+							unify.unify(resolved_body, resolved_ret->data.ptr.pointee);
+							auto_deref_ok = true;
+						} catch (...) {}
+					}
+					if (!auto_deref_ok) {
+						ASTNode* ret_node = find_return_node(node->data.function.body);
+						if (ret_node && ret_node->data.return_stmt.expr) {
+							report_type_error(ret_node->data.return_stmt.expr, ex.what());
+						} else if (ret_node) {
+							report_type_error(ret_node, ex.what());
+						} else {
+							report_type_error(node, ex.what());
+						}
+					}
 				}
 			}
 		}

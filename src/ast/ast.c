@@ -17,8 +17,18 @@
 #include "../include/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include "../include/compat.h"
+
+static void* checked_realloc(void* ptr, size_t size) {
+    void* resized = realloc(ptr, size);
+    if (!resized && size != 0) {
+        fprintf(stderr, "Failed to reallocate %zu bytes\n", size);
+        exit(1);
+    }
+    return resized;
+}
 
 #ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告
 #include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
@@ -113,6 +123,68 @@ static int try_resolve_import_path(const char* base_dir, const char* module_path
 }
 
 int vix_resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size) {
+static int vix_expand_package_name(const char* module_path, char* out, size_t out_size) {
+    if (!module_path || !out || out_size == 0) return 0;
+    if (strchr(module_path, '/') != NULL) return 0;
+
+    char registry[256] = "github.com";
+    char user[256] = "";
+    char repo[256] = "";
+    const char* p = module_path;
+
+    if (p[0] == '@') {
+        strncpy(registry, "gitee.com", sizeof(registry) - 1);
+        registry[sizeof(registry) - 1] = '\0';
+        p++;
+    } else {
+        const char* colon = strchr(p, ':');
+        if (colon) {
+            size_t reg_len = colon - p;
+            if (reg_len > 0 && reg_len < sizeof(registry)) {
+                strncpy(registry, p, reg_len);
+                registry[reg_len] = '\0';
+                if (strchr(registry, '.') == NULL) {
+                    size_t avail = sizeof(registry) - strlen(registry) - 1;
+                    strncat(registry, ".com", avail);
+                }
+            }
+            p = colon + 1;
+        }
+    }
+
+    const char* dot = strchr(p, '.');
+    if (dot) {
+        size_t user_len = dot - p;
+        if (user_len > 0 && user_len < sizeof(user)) {
+            strncpy(user, p, user_len);
+            user[user_len] = '\0';
+            strncpy(repo, dot + 1, sizeof(repo) - 1);
+            repo[sizeof(repo) - 1] = '\0';
+        } else {
+            return 0;
+        }
+    } else {
+        strncpy(user, "vixlang", sizeof(user) - 1);
+        user[sizeof(user) - 1] = '\0';
+        int n = snprintf(repo, sizeof(repo), "vlib-%s", p);
+        if (n < 0 || (size_t)n >= sizeof(repo)) return 0;
+    }
+
+    int n = snprintf(out, out_size, "%s/%s/%s", registry, user, repo);
+    if (n < 0 || (size_t)n >= out_size) return 0;
+    return 1;
+}
+
+static int try_resolve_import_path(const char* base_dir, const char* module_path, char* out, size_t out_size) {
+    char candidate[1024];
+    snprintf(candidate, sizeof(candidate), "%s/%s", base_dir, module_path);
+    if (vix_file_exists(candidate)) {
+        return canonicalize_existing_path(candidate, out, out_size);
+    }
+    return 0;
+}
+
+int vix_resolve_import_path(const char* current_file, const char* module_path, char* out, size_t out_size) {
     if (!module_path || !out || out_size == 0) return 0;
 
     // Priority 1: relative to current file's directory (existing behavior)
@@ -137,22 +209,45 @@ int vix_resolve_import_path(const char* current_file, const char* module_path, c
         }
     }
 
-    // Priority 2: $VIX_HOME/std/
-    const char* vix_home = vix_getenv("VIX_HOME");
-    if (vix_home && vix_home[0] != '\0') {
-        char base[1024];
-        snprintf(base, sizeof(base), "%s/std", vix_home);
-        if (try_resolve_import_path(base, module_path, out, out_size)) return 1;
-    }
+    // Priority 2: package name expansion (for bare names without '/')
+    if (strchr(module_path, '/') == NULL) {
+        char expanded[1024];
+        if (vix_expand_package_name(module_path, expanded, sizeof(expanded))) {
+            const char* vix_home = vix_getenv("VIX_HOME");
+            char lib_path[1024];
 
-    // Priority 3: .vix/libs/ (project-local packages)
-    if (try_resolve_import_path(".vix/libs", module_path, out, out_size)) return 1;
+            snprintf(lib_path, sizeof(lib_path), ".vix/libs/%s/main.vix", expanded);
+            if (vix_file_exists(lib_path)) {
+                return canonicalize_existing_path(lib_path, out, out_size);
+            }
 
-    // Priority 4: $VIX_HOME/libs/
-    if (vix_home && vix_home[0] != '\0') {
-        char base[1024];
-        snprintf(base, sizeof(base), "%s/libs", vix_home);
-        if (try_resolve_import_path(base, module_path, out, out_size)) return 1;
+            if (vix_home && vix_home[0] != '\0') {
+                snprintf(lib_path, sizeof(lib_path), "%s/libs/%s/main.vix", vix_home, expanded);
+                if (vix_file_exists(lib_path)) {
+                    return canonicalize_existing_path(lib_path, out, out_size);
+                }
+
+                // Bare name standard library fallback
+                snprintf(lib_path, sizeof(lib_path), "%s/std/%s", vix_home, module_path);
+                if (vix_file_exists(lib_path)) {
+                    return canonicalize_existing_path(lib_path, out, out_size);
+                }
+            }
+        }
+    } else {
+        // Priority 3: path-style import (contains '/'), backward-compatible direct search
+        const char* vix_home = vix_getenv("VIX_HOME");
+        if (vix_home && vix_home[0] != '\0') {
+            char base[1024];
+            snprintf(base, sizeof(base), "%s/std", vix_home);
+            if (try_resolve_import_path(base, module_path, out, out_size)) return 1;
+        }
+        if (try_resolve_import_path(".vix/libs", module_path, out, out_size)) return 1;
+        if (vix_home && vix_home[0] != '\0') {
+            char base[1024];
+            snprintf(base, sizeof(base), "%s/libs", vix_home);
+            if (try_resolve_import_path(base, module_path, out, out_size)) return 1;
+        }
     }
 
     return 0;
@@ -271,7 +366,7 @@ static void remove_program_statement_at(ASTNode* program, int idx) {
         free(program->data.program.statements);
         program->data.program.statements = NULL;
     } else {
-        ASTNode** resized = realloc(program->data.program.statements,
+        ASTNode** resized = checked_realloc(program->data.program.statements,
                                     sizeof(ASTNode*) * program->data.program.statement_count);
         if (resized) {
             program->data.program.statements = resized;
@@ -405,7 +500,7 @@ void add_statement_to_program(ASTNode* program, ASTNode* statement) {
     }
 
     program->data.program.statement_count++;
-    program->data.program.statements = realloc(
+    program->data.program.statements = checked_realloc(
         program->data.program.statements,
         sizeof(ASTNode*) * program->data.program.statement_count
     );
@@ -513,7 +608,7 @@ void add_expression_to_list(ASTNode* list, ASTNode* expr) {
     if (!list || list->type != AST_EXPRESSION_LIST || !expr) return;
     
     list->data.expression_list.expression_count++;
-    list->data.expression_list.expressions = realloc(
+    list->data.expression_list.expressions = checked_realloc(
         list->data.expression_list.expressions,
         sizeof(ASTNode*) * list->data.expression_list.expression_count
     );
@@ -594,11 +689,27 @@ ASTNode* create_assign_node_with_mutability(ASTNode* left, ASTNode* right, Mutab
 }
 
 ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* right, Location location) {
+    if (!left || !right) {
+        ASTNode* node = alloc_ast_node();
+        node->type = AST_BINOP;
+        node->location = location;
+        node->data.binop.op = op;
+        node->data.binop.left = left;
+        node->data.binop.right = right;
+        return node;
+    }
     if (left->type == AST_STRING && right->type == AST_STRING) {// 尝试进行常量折叠优化
         if (op == OP_ADD || op == OP_CONCAT) {//尝试进行字符串拼接
             size_t len1 = strlen(left->data.string.value);
             size_t len2 = strlen(right->data.string.value);
+            if (len1 > SIZE_MAX - len2 - 1) {
+                goto create_regular_binop;
+            }
             char* result = malloc(len1 + len2 + 1);
+            if (!result) {
+                fprintf(stderr, "Failed to allocate string concatenation buffer\n");
+                exit(1);
+            }
             strcpy(result, left->data.string.value);
             strcat(result, right->data.string.value);
             ASTNode* new_node = create_string_node_with_location(result, location);// 创建新的字符串节点并释放临时节点
@@ -624,8 +735,15 @@ ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* r
             if (repeat_times < 0) repeat_times = 0;
             
             size_t str_len = strlen(str_val);
-            size_t total_len = str_len * repeat_times;
+            if (str_len != 0 && (size_t)repeat_times > (SIZE_MAX - 1) / str_len) {
+                goto create_regular_binop;
+            }
+            size_t total_len = str_len * (size_t)repeat_times;
             char* result = malloc(total_len + 1);
+            if (!result) {
+                fprintf(stderr, "Failed to allocate repeated string buffer\n");
+                exit(1);
+            }
             result[0] = '\0';
             
             for (int i = 0; i < repeat_times; i++) {
@@ -833,7 +951,9 @@ ASTNode* create_binop_node_with_location(BinOpType op, ASTNode* left, ASTNode* r
                 break;
         }
     }
-    ASTNode* node = alloc_ast_node();// 如果不能折叠，则创建正常的二元操作节点
+create_regular_binop:
+    ;// 如果不能折叠，则创建正常的二元操作节点
+    ASTNode* node = alloc_ast_node();
     node->type = AST_BINOP;
     node->location = location;
     node->data.binop.op = op;
@@ -1457,6 +1577,24 @@ ASTNode* create_num_int_node_with_yyltype(long long value, void* yylloc) {
         loc->last_column
     };
     return create_num_int_node_with_location(value, location);
+}
+
+ASTNode* create_bool_node_with_yyltype(long long value, void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = {
+        loc->first_line,
+        loc->first_column,
+        loc->last_line,
+        loc->last_column
+    };
+    ASTNode* node = create_num_int_node_with_location(value, location);
+    if (node) {
+        node->inferred_type = (TypeInfo*)calloc(1, sizeof(TypeInfo));
+        if (node->inferred_type) {
+            node->inferred_type->kind = TYPEINFO_BOOL;
+        }
+    }
+    return node;
 }
 
 ASTNode* create_num_float_node_with_yyltype(double value, void* yylloc) {
@@ -2112,8 +2250,7 @@ static int append_inserted_extern(char*** inserted_externs, int* inserted_extern
         }
     }
 
-    char** resized = realloc(*inserted_externs, sizeof(char*) * (*inserted_extern_count + 1));
-    if (!resized) return 0;
+    char** resized = checked_realloc(*inserted_externs, sizeof(char*) * (*inserted_extern_count + 1));
 
     char* name_copy = strdup(name);
     if (!name_copy) {

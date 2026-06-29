@@ -1,4 +1,4 @@
-fn is_palindrome(n: i32) -> i32
+fn is_palindrome(n: i32): i32
 {
 	let mut reversed = 0
 	let mut temp = n

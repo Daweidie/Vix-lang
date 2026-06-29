@@ -43,31 +43,31 @@ main() {
 
     echo -e "${BLUE}Your device's distribution ID: $distro_id${RESET}"
 
-    local Install=""
+    local install_cmd=()
     case "$distro_id" in
         ubuntu|debian|linuxmint|pop|kali)
-            Install="apt install -y gcc flex bison llvm clang-18 libclang-18-dev git"
+            install_cmd=(apt install -y gcc flex bison llvm clang-18 libclang-18-dev git)
             ;;
         arch|manjaro|endeavouros)
-            Install="pacman -S --noconfirm gcc flex bison llvm clang git"
+            install_cmd=(pacman -S --noconfirm gcc flex bison llvm clang git)
             ;;
         fedora)
-            Install="dnf install -y gcc flex bison llvm clang git"
+            install_cmd=(dnf install -y gcc flex bison llvm clang git)
             ;;
         rhel|centos|rocky|almalinux)
-            Install="dnf install -y gcc flex bison llvm clang git"
+            install_cmd=(dnf install -y gcc flex bison llvm clang git)
             ;;
         opensuse|opensuse-leap|opensuse-tumbleweed|suse)
-            Install="zypper install -y gcc flex bison llvm clang git"
+            install_cmd=(zypper install -y gcc flex bison llvm clang git)
             ;;
         alpine)
-            Install="apk add gcc flex bison llvm clang git"
+            install_cmd=(apk add gcc flex bison llvm clang git)
             ;;
         gentoo)
-            Install="emerge -v gcc flex bison llvm clang git"
+            install_cmd=(emerge -v gcc flex bison llvm clang git)
             ;;
         void)
-            Install="xbps-install -y gcc flex bison llvm clang git"
+            install_cmd=(xbps-install -y gcc flex bison llvm clang git)
             ;;
         *)
             echo -e "${RED}Unsupported distribution: $distro_id${RESET}" >&2
@@ -75,15 +75,13 @@ main() {
             ;;
     esac
 
-    local cmd
     if iamroot; then
-        cmd="$Install"
+        echo -e "${GREEN}Executing: ${install_cmd[*]}${RESET}"
+        "${install_cmd[@]}"
     else
-        cmd="sudo $Install"
+        echo -e "${GREEN}Executing: sudo ${install_cmd[*]}${RESET}"
+        sudo "${install_cmd[@]}"
     fi
-
-    echo -e "${GREEN}Executing: $cmd${RESET}"
-    eval "$cmd"
     local ret=$?
     if [ $ret -ne 0 ]; then
         echo -e "${RED}Installation failed with exit code $ret${RESET}" >&2

@@ -1,6 +1,0 @@
-import "lexer.vix"
-fn main(): i32
-{
-    let src = "fn main() { return 0; }"
-    return 0
-}

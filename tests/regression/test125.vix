@@ -1,4 +1,4 @@
-fn fact_iter(n: i32) -> i32
+fn fact_iter(n: i32): i32
 {
 	let mut result = 1
 	let mut i = 2

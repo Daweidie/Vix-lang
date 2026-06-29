@@ -5,6 +5,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+
+static void* checked_realloc(void* ptr, size_t size) {
+    void* resized = realloc(ptr, size);
+    if (!resized && size != 0) {
+        fprintf(stderr, "Failed to reallocate %zu bytes\n", size);
+        exit(1);
+    }
+    return resized;
+}
+
 extern const char* current_input_filename;
 static InferredType infer_index_type(TypeInferenceContext* ctx, ASTNode* node);
 static InferredType get_nested_field_type(TypeInferenceContext* ctx, ASTNode* node) {
@@ -305,7 +315,7 @@ void set_variable_list_type(TypeInferenceContext* ctx, const char* var_name, Inf
     }
     if (ctx->count >= ctx->capacity) {
         ctx->capacity = ctx->capacity == 0 ? 10 : ctx->capacity * 2;
-        ctx->variables = realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
+        ctx->variables = checked_realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
     }
     ctx->variables[ctx->count].name = malloc(strlen(var_name) + 1);
     strcpy(ctx->variables[ctx->count].name, var_name);
@@ -343,7 +353,7 @@ void set_variable_type(TypeInferenceContext* ctx, const char* var_name, Inferred
     }
     if (ctx->count >= ctx->capacity) {
         ctx->capacity = ctx->capacity == 0 ? 10 : ctx->capacity * 2;
-        ctx->variables = realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
+        ctx->variables = checked_realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
     }
     
     ctx->variables[ctx->count].name = malloc(strlen(var_name) + 1);
@@ -370,7 +380,7 @@ void set_variable_pointer_type(TypeInferenceContext* ctx, const char* var_name, 
     }
     if (ctx->count >= ctx->capacity) {
         ctx->capacity = ctx->capacity == 0 ? 10 : ctx->capacity * 2;
-        ctx->variables = realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
+        ctx->variables = checked_realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
     }
     
     ctx->variables[ctx->count].name = malloc(strlen(var_name) + 1);
@@ -410,7 +420,7 @@ void set_variable_struct_type(TypeInferenceContext* ctx, const char* var_name, S
     
     if (ctx->count >= ctx->capacity) {
         ctx->capacity = ctx->capacity == 0 ? 10 : ctx->capacity * 2;
-        ctx->variables = realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
+        ctx->variables = checked_realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
     }
     
     ctx->variables[ctx->count].name = malloc(strlen(var_name) + 1);
@@ -598,7 +608,7 @@ void process_struct_definition(TypeInferenceContext* ctx, ASTNode* struct_def_no
                 if (field->data.assign.right) {
                     field_type = infer_type(ctx, field->data.assign.right);
                 }
-                struct_type->fields = realloc(struct_type->fields, 
+                struct_type->fields = checked_realloc(struct_type->fields, 
                     sizeof(StructField) * (struct_type->field_count + 1));
                 struct_type->fields[struct_type->field_count].name = malloc(strlen(field_name) + 1);
                 strcpy(struct_type->fields[struct_type->field_count].name, field_name);
@@ -622,7 +632,7 @@ void process_struct_definition(TypeInferenceContext* ctx, ASTNode* struct_def_no
     }
     if (ctx->count >= ctx->capacity) {
         ctx->capacity = ctx->capacity == 0 ? 10 : ctx->capacity * 2;
-        ctx->variables = realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
+        ctx->variables = checked_realloc(ctx->variables, sizeof(VariableInfo) * ctx->capacity);
     }
     
     ctx->variables[ctx->count].name = malloc(strlen(struct_name) + 1);

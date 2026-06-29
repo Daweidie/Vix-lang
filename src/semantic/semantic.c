@@ -22,6 +22,12 @@
 #include "../../include/compat.h"
 #include <ctype.h>
 extern const char* current_input_filename;
+typedef struct VixVisitedModule VixVisitedModule;
+struct VixVisitedModule {
+    const char* path;
+    VixVisitedModule* next;
+};
+static int extract_public_functions_from_module_recurse(const char* module_path, SymbolTable* table, VixVisitedModule* visited);
 static int extract_public_functions_from_module(const char* module_path, SymbolTable* table);
 
 static int is_builtin_union_ctor_name(const char* name) {
@@ -319,6 +325,20 @@ Symbol* lookup_symbol(SymbolTable* table, const char* name) {
     return NULL;
 }
 
+static Symbol* lookup_symbol_current_scope(SymbolTable* table, const char* name) {
+    if (!table || !name) return NULL;
+    
+    Symbol* current = table->head;
+    while (current) {
+        if (strcmp(current->name, name) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+    
+    return NULL;
+}
+
 void destroy_symbol_table(SymbolTable* symbol_table) {
     if (!symbol_table) return;
     
@@ -483,7 +503,7 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                     errors_found++;
                 } else {
                     if (node->data.assign.is_declaration) {
-                        if (existing) {
+                        if (existing && lookup_symbol_current_scope(table, node->data.assign.left->data.identifier.name)) {
                             const char* filename = current_input_filename ? current_input_filename : "unknown";
                             int line = (node->data.assign.left->location.first_line > 0) ? node->data.assign.left->location.first_line : 1;
                             report_redefinition_error_with_location(node->data.assign.left->data.identifier.name, filename, line);
@@ -718,7 +738,8 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                         ASTNode* init_value = find_var_init_mapping(var_name);
                         if (init_value && init_value->type == AST_EXPRESSION_LIST) {
                             int array_length = init_value->data.expression_list.expression_count;
-                            if (index_value >= array_length) {
+                            /* Skip bounds check for empty arrays (may be modified by push at runtime) */
+                            if (array_length > 0 && index_value >= array_length) {
                                 const char* filename = current_input_filename ? current_input_filename : "unknown";
                                 int line = (node->data.index.index->location.first_line > 0) ? node->data.index.index->location.first_line : 1;
                                 report_array_out_of_bounds_error_with_location(var_name, (int)index_value, array_length, filename, line);
@@ -1052,6 +1073,24 @@ int is_variable_used_in_node(ASTNode* node, const char* var_name) {
             }
             break;
         }
+
+        case AST_STRUCT_LITERAL: {
+            ASTNode* fields = node->data.struct_literal.fields;
+            if (fields && fields->type == AST_EXPRESSION_LIST) {
+                for (int i = 0; i < fields->data.expression_list.expression_count; i++) {
+                    ASTNode* field = fields->data.expression_list.expressions[i];
+                    if (field && field->type == AST_ASSIGN) {
+                        if (is_variable_used_in_node(field->data.assign.right, var_name)) {
+                            return 1;
+                        }
+                    } else if (is_variable_used_in_node(field, var_name)) {
+                        return 1;
+                    }
+                }
+            }
+            break;
+        }
+
         case AST_INDEX: {
             return is_variable_used_in_node(node->data.index.target, var_name) || is_variable_used_in_node(node->data.index.index, var_name);
         }
@@ -1315,6 +1354,22 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
             }
             break;
         }
+
+        case AST_STRUCT_LITERAL: {
+            ASTNode* fields = node->data.struct_literal.fields;
+            if (fields && fields->type == AST_EXPRESSION_LIST) {
+                for (int i = 0; i < fields->data.expression_list.expression_count; i++) {
+                    ASTNode* field = fields->data.expression_list.expressions[i];
+                    if (field && field->type == AST_ASSIGN) {
+                        warnings_found += check_unused_variables_with_usage(field->data.assign.right, table, usage_list);
+                    } else {
+                        warnings_found += check_unused_variables_with_usage(field, table, usage_list);
+                    }
+                }
+            }
+            break;
+        }
+
         case AST_INDEX: {
             if (node->data.index.target) warnings_found += check_unused_variables_with_usage(node->data.index.target, table, usage_list);
             if (node->data.index.index && node->data.index.index->type != AST_IDENTIFIER) {
@@ -1346,12 +1401,20 @@ int check_unused_variables_with_usage(ASTNode* node, SymbolTable* table, struct 
 int check_undefined_symbols_in_node(ASTNode* node, SymbolTable* table) {
     return check_undefined_symbols_in_node_with_visited(node, table, NULL);
 }
-static int extract_public_functions_from_module(const char* module_path, SymbolTable* table) {
+static int extract_public_functions_from_module_recurse(const char* module_path, SymbolTable* table, VixVisitedModule* visited) {
+    VixVisitedModule* v = visited;
+    while (v) {
+        if (v->path && strcmp(v->path, module_path) == 0) {
+            return 0;
+        }
+        v = v->next;
+    }
+
     FILE* file = fopen(module_path, "r");
     if (!file) {
-        return 0; //无法打开文件
+        return 0;
     }
-    fseek(file, 0, SEEK_END);//文件查看
+    fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
     
@@ -1365,9 +1428,13 @@ static int extract_public_functions_from_module(const char* module_path, SymbolT
     buffer[file_size] = '\0';
     fclose(file);
     
+    VixVisitedModule current_visited;
+    current_visited.path = module_path;
+    current_visited.next = visited;
+    
     int errors_found = 0;
     char* pos = buffer;
-    while ((pos = strstr(pos, "pub fn")) != NULL) { //跳过pub fn p1 u2 b3 4 f5 n6 6个字符
+    while ((pos = strstr(pos, "pub fn")) != NULL) {
         pos += 6;
         while (*pos && isspace(*pos)) {
             pos++;
@@ -1376,24 +1443,46 @@ static int extract_public_functions_from_module(const char* module_path, SymbolT
         int i = 0;
         if ((*pos >= 'a' && *pos <= 'z') || (*pos >= 'A' && *pos <= 'Z') || *pos == '_') {
             func_name[i++] = *pos++;
-            
             while ((*pos >= 'a' && *pos <= 'z') || 
                    (*pos >= 'A' && *pos <= 'Z') || 
                    (*pos >= '0' && *pos <= '9') || 
-                   *pos == '_') {//查找
+                   *pos == '_') {
                 if (i < (int)(sizeof(func_name) - 1)) {
                     func_name[i++] = *pos;
                 }
                 pos++;
             }
         }
-        
         if (i > 0) {
             func_name[i] = '\0';
-            add_symbol(table, func_name, SYMBOL_FUNCTION, TYPE_UNKNOWN);//add fn name to st
+            add_symbol(table, func_name, SYMBOL_FUNCTION, TYPE_UNKNOWN);
         }
     }
     
-    free(buffer);//福瑞
+    pos = buffer;
+    while ((pos = strstr(pos, "import \"")) != NULL) {
+        pos += 8;
+        char import_path[1024];
+        int i = 0;
+        while (*pos && *pos != '"' && i < (int)(sizeof(import_path) - 1)) {
+            import_path[i++] = *pos++;
+        }
+        import_path[i] = '\0';
+        if (*pos == '"') {
+            pos++;
+        }
+        if (i > 0) {
+            char resolved[1024];
+            if (vix_resolve_import_path(module_path, import_path, resolved, sizeof(resolved))) {
+                errors_found += extract_public_functions_from_module_recurse(resolved, table, &current_visited);
+            }
+        }
+    }
+    
+    free(buffer);
     return errors_found;
+}
+
+static int extract_public_functions_from_module(const char* module_path, SymbolTable* table) {
+    return extract_public_functions_from_module_recurse(module_path, table, NULL);
 }

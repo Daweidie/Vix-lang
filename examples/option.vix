@@ -14,18 +14,15 @@ fn main(): i32
 
     let a = first_or_none(names)
     let b = first_or_none(empty)
-
     match a
     {
         Some(v) -> print(v)
         None -> print("names is empty")
     }
-
     match b
     {
         Some(v) -> print(v)
         None -> print("empty is empty")
     }
-
     return 0
 }

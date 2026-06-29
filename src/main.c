@@ -18,6 +18,7 @@
 #include "../include/codegen.h"
 #include "../include/compat.h"
 #include "../include/compiler.h"
+#include "../include/ownership.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
 #include "../include/typeck.h"
@@ -107,7 +108,8 @@ static const char *find_bundled_libc(void) {
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "OVERVIEW: Vix Compiler\n\n");
-    fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
+    fprintf(stderr, "USAGE: %s [options] <input.vix>\n", argv[0]);
+    fprintf(stderr, "       %s file1.o file2.o ... -o <output>\n\n", argv[0]);
     fprintf(stderr, "OPTIONS:\n");
     fprintf(stderr, "  -o <file>              Write output to <file>\n");
     fprintf(stderr, "  -S [file]              Emit assembly to <file> "
@@ -122,6 +124,9 @@ int main(int argc, char **argv) {
             "  -opt=lN                Set optimization level (N = 0..3)\n");
     fprintf(stderr,
             "  --target=<triple>      Set codegen/link target triple\n");
+    fprintf(stderr,
+            "  -static                Static linking (default: dynamic)\n");
+    fprintf(stderr, "  -L <path>              Add library search path\n");
     fprintf(stderr, "  --check                Syntax & type check only\n");
     fprintf(stderr, "  --time                 Show phase timing breakdown\n");
     fprintf(stderr, "  --debug                Enable debug output\n");
@@ -150,6 +155,17 @@ int main(int argc, char **argv) {
   int no_main = 0;
   int check_only = 0;
   int show_time = 0;
+#define MAX_OBJ_FILES 256
+  char *obj_files[MAX_OBJ_FILES];
+  int obj_file_count = 0;
+  int link_mode = 0;
+  int static_link = 0;
+#define MAX_LIB_PATHS 64
+  char *lib_paths[MAX_LIB_PATHS];
+  int lib_path_count = 0;
+#define MAX_EXTRA_LIBS 64
+  char *extra_libs[MAX_EXTRA_LIBS];
+  int extra_lib_count = 0;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--target=", 9) == 0) {
       target = argv[i] + 9;
@@ -173,7 +189,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.2.5 Copyright(c) 2025-2026 LLVM : 20.1.2(8)\n");
+      printf("Vix Compiler 0.4.2 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       return 0;
     } else if (strcmp(argv[i], "-llvm") == 0) {
       out_llvm = 1;
@@ -215,10 +231,33 @@ int main(int argc, char **argv) {
         return 1;
       }
       opt_level = lvl;
+    } else if (strcmp(argv[i], "-static") == 0) {
+      static_link = 1;
+    } else if (strcmp(argv[i], "-L") == 0) {
+      if (i + 1 < argc) {
+        if (lib_path_count < MAX_LIB_PATHS) {
+          lib_paths[lib_path_count++] = argv[i + 1];
+        }
+        i++;
+      } else {
+        fprintf(stderr, "Error: -L option requires a path\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "-l") == 0) {
+      if (i + 1 < argc) {
+        if (extra_lib_count < MAX_EXTRA_LIBS) {
+          extra_libs[extra_lib_count++] = argv[i + 1];
+        }
+        i++;
+      } else {
+        fprintf(stderr, "Error: -l option requires a library name\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-      fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:20.1\n\n");
-      fprintf(stderr, "USAGE: %s [options] <input.vix>\n\n", argv[0]);
+      fprintf(stderr, "OVERVIEW: Vix Compiler LLVM Version:22.1.2(8)\n\n");
       fprintf(stderr, "OPTIONS:\n");
+      fprintf(stderr, "USAGE: %s [options] <input.vix>\n", argv[0]);
+      fprintf(stderr, "       %s file1.o file2.o ... -o <output>\n\n", argv[0]);
       fprintf(stderr, "  -o <file>              Write output to <file>\n");
       fprintf(stderr, "  -S [file]              Emit assembly to <file> "
                       "(default: <input>.s)\n");
@@ -232,6 +271,10 @@ int main(int argc, char **argv) {
               "  -opt=lN                Set optimization level (N = 0..3)\n");
       fprintf(stderr,
               "  --target=<triple>      Set codegen/link target triple\n");
+      fprintf(stderr,
+              "  -static                Static linking (default: dynamic)\n");
+      fprintf(stderr, "  -L <path>              Add library search path\n");
+      fprintf(stderr, "  -l <lib>               Link with library\n");
       fprintf(stderr, "  --check                Syntax & type check only\n");
       fprintf(stderr, "  --time                 Show phase timing breakdown\n");
       fprintf(stderr, "  --debug                Enable debug output\n");
@@ -244,13 +287,73 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Unknown option: %s\n", argv[i]);
       return 1;
     } else {
-      in_f = argv[i];
-      is_vic = strlen(argv[i]) > 4 &&
-               strcmp(argv[i] + strlen(argv[i]) - 4, ".vic") == 0;
+      size_t len = strlen(argv[i]);
+      if (len > 2 && strcmp(argv[i] + len - 2, ".o") == 0) {
+        if (obj_file_count < MAX_OBJ_FILES) {
+          obj_files[obj_file_count++] = argv[i];
+          link_mode = 1;
+        } else {
+          fprintf(stderr, "Error: too many object files (max %d)\n",
+                  MAX_OBJ_FILES);
+          return 1;
+        }
+      } else {
+        in_f = argv[i];
+        is_vic = len > 4 && strcmp(argv[i] + len - 4, ".vic") == 0;
+      }
     }
   }
   vix_setenv("VIX_DEBUG", dbg ? "1" : "0", 1); // 通过环境变量控制调试输出
   vix_set_opt_level(opt_level);
+
+  if (link_mode && obj_file_count > 0) {
+    if (!out_f) {
+      fprintf(stderr,
+              "Error: -o <output> required when linking object files\n");
+      return 1;
+    }
+
+    const char *eff_t = target;
+    int bare = 0;
+    if (eff_t && (strstr(eff_t, "unknown-none") != NULL ||
+                  strstr(eff_t, "unknow-noe") != NULL)) {
+      bare = 1;
+    }
+
+    const char *ls = NULL;
+    if (bare) {
+      ls = "linker.ld";
+      if (!vix_file_readable(ls) && vix_file_readable("src/linker.ld")) {
+        ls = "src/linker.ld";
+      }
+    }
+
+    const char *link_err = NULL;
+    VixLinkOptions link_opts = {
+        .target_triple = eff_t,
+        .bare_mode = bare,
+        .linker_script = ls,
+        .static_link = bare || static_link,
+        .entry_point = bare ? "_start" : NULL,
+        .libc_dir = find_bundled_libc(),
+        .lib_paths = lib_path_count > 0 ? (const char **)lib_paths : NULL,
+        .lib_path_count = lib_path_count,
+        .extra_libs = extra_lib_count > 0 ? (const char **)extra_libs : NULL,
+        .extra_lib_count = extra_lib_count,
+    };
+
+    if (!vix_link_multi((const char **)obj_files, obj_file_count, out_f,
+                        &link_opts, &link_err)) {
+      fprintf(stderr, "Error: Failed to link object files");
+      if (link_err && link_err[0] != '\0') {
+        fprintf(stderr, ":\n%s", link_err);
+      }
+      fprintf(stderr, "\n");
+      return 1;
+    }
+    return 0;
+  }
+
   if (!in_f) {
     in_f = argv[1];
   }
@@ -338,27 +441,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (is_vic && gen_llvm) {
-    char llvm_filename[256];
-    if (strstr(llvm_f, ".ll") == NULL) {
-      snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
-    } else {
-      strcpy(llvm_filename, llvm_f);
-    }
-
-    FILE *llvm_file = fopen(llvm_filename, "w");
-    if (!llvm_file) {
-      fprintf(stderr, "Er: Cannot open LLVM IR file %s for writing\n",
-              llvm_filename);
-      fclose(input_file);
-      return 1;
-    }
-
-    llvm_emit_from_ast(root, llvm_file);
-    fclose(llvm_file);
-    fclose(input_file);
-    return 0;
-  }
+  (void)is_vic;
 
   current_input_filename = in_f;
   load_source_file(in_f);
@@ -397,12 +480,19 @@ int main(int argc, char **argv) {
       fclose(input_file);
       return 1;
     }
+    if (ownership_check_program(root) != 0) {
+      fprintf(stderr, "Compilation failed with ownership errors\n");
+      if (root) {
+        free_ast(root);
+      }
+      cleanup_error_handler();
+      fclose(input_file);
+      return 1;
+    }
     SymbolTable *g_tbl = create_symbol_table(NULL);
     int uvars = check_unused_variables(root, g_tbl);
     destroy_symbol_table(g_tbl);
-    if (uvars > 0) {
-      fprintf(stderr, "\033[33mFound %d unused variable(s)\033[0m\n", uvars);
-    }
+    (void)uvars;
     if (get_error_count() > 0) {
       fprintf(stderr, "Compilation failed with %d error(s)\n",
               get_error_count());
@@ -445,7 +535,17 @@ int main(int argc, char **argv) {
         llvm_f = llvm_filename;
       } else {
         if (strstr(llvm_f, ".ll") == NULL) {
-          snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
+          int written =
+              snprintf(llvm_filename, sizeof(llvm_filename), "%s.ll", llvm_f);
+          if (written < 0 || (size_t)written >= sizeof(llvm_filename)) {
+            fprintf(stderr, "Error: LLVM IR output path is too long\n");
+            if (root) {
+              free_ast(root);
+            }
+            cleanup_error_handler();
+            fclose(input_file);
+            return 1;
+          }
           llvm_f = llvm_filename;
         }
       }
@@ -514,6 +614,7 @@ int main(int argc, char **argv) {
           if (show_time)
             print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                                t_codegen_ts);
+          print_error_summary();
           return 0;
         }
       }
@@ -556,6 +657,7 @@ int main(int argc, char **argv) {
         if (show_time)
           print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                              t_codegen_ts);
+        print_error_summary();
         return 0;
       }
       if (out_f && save_c) {
@@ -574,7 +676,13 @@ int main(int argc, char **argv) {
             size_t len = dot - llvm_f;
             snprintf(obj_file, sizeof(obj_file), "%.*s.o", (int)len, llvm_f);
           } else {
-            snprintf(obj_file, sizeof(obj_file), "%s.o", llvm_f);
+            int written = snprintf(obj_file, sizeof(obj_file), "%s.o", llvm_f);
+            if (written < 0 || (size_t)written >= sizeof(obj_file)) {
+              fprintf(stderr, "Error: object output path is too long\n");
+              remove(llvm_f);
+              fclose(input_file);
+              return 1;
+            }
           }
         }
 
@@ -597,9 +705,13 @@ int main(int argc, char **argv) {
             .target_triple = eff_t,
             .bare_mode = bare,
             .linker_script = ls,
-            .static_link = bare,
+            .static_link = bare || static_link,
             .entry_point = bare ? "_start" : NULL,
             .libc_dir = find_bundled_libc(),
+            .lib_paths = lib_path_count > 0 ? (const char **)lib_paths : NULL,
+            .lib_path_count = lib_path_count,
+            .extra_libs = extra_lib_count > 0 ? (const char **)extra_libs : NULL,
+            .extra_lib_count = extra_lib_count,
         };
         if (!vix_link(obj_file, out_f, &link_opts, &link_err)) {
           fprintf(stderr, "Error: Failed to link object file to executable");
@@ -624,6 +736,7 @@ int main(int argc, char **argv) {
       if (show_time)
         print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                            t_codegen_ts);
+      print_error_summary();
       return 0;
     }
 
@@ -637,6 +750,7 @@ int main(int argc, char **argv) {
       if (show_time)
         print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                            t_codegen_ts);
+      print_error_summary();
       return 0;
     }
 
@@ -650,6 +764,7 @@ int main(int argc, char **argv) {
       if (show_time)
         print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
                            t_codegen_ts);
+      print_error_summary();
       return 0;
     }
   } else {

@@ -2,7 +2,6 @@ struct Table:[T]
 {
     scopes: [[T]]
 }
-
 fn main(): i32
 {
     let t = Table:[i32]{ scopes: [[1, 2], [3, 4]] }

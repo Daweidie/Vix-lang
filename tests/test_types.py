@@ -46,8 +46,8 @@ class TestTypeAnnotations:
         src = 'fn main(): i32 { let t = true let f = false print(t) print(f) return 0 }'
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
-        assert "1" in run.stdout
-        assert "0" in run.stdout
+        assert "true" in run.stdout
+        assert "false" in run.stdout
 
 
 # ============================================================
@@ -80,7 +80,7 @@ class TestTypeInference:
         assert run.stdout.strip() == "30"
 
     def test_infer_from_function_call(self, compiler, tmp_path):
-        src = '''fn get_val() -> i32 { return 99 }
+        src = '''fn get_val(): i32 { return 99 }
 fn main(): i32 { let x = get_val() print(x) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -100,7 +100,7 @@ fn main(): i32 { greet() return 0 }'''
         assert run.stdout.strip() == "hi"
 
     def test_i32_return(self, compiler, tmp_path):
-        src = '''fn add(a: i32, b: i32) -> i32 { return a + b }
+        src = '''fn add(a: i32, b: i32): i32 { return a + b }
 fn main(): i32 { print(add(3, 4)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -114,14 +114,14 @@ fn main(): i32 { greet("world") return 0 }'''
         assert "hello" in run.stdout
 
     def test_pointer_param(self, compiler, tmp_path):
-        src = '''fn deref(p: ptr) -> i32 { return @p }
-fn main(): i32 { let x = 42 print(deref(&x)) return 0 }'''
+        src = '''fn deref(p: ptr): i32 { return @p }
+fn main(): i32 { let x = 42 print(deref(ref x)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
         assert run.stdout.strip() == "42"
 
     def test_f64_params(self, compiler, tmp_path):
-        src = '''fn add(a: f64, b: f64) -> f64 { return a + b }
+        src = '''fn add(a: f64, b: f64): f64 { return a + b }
 fn main(): i32 { print(add(1.5, 2.5)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -135,7 +135,7 @@ fn main(): i32 { do_nothing(42) print("ok") return 0 }'''
         assert "ok" in run.stdout
 
     def test_multiple_params(self, compiler, tmp_path):
-        src = '''fn sum5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32 { return a + b + c + d + e }
+        src = '''fn sum5(a: i32, b: i32, c: i32, d: i32, e: i32): i32 { return a + b + c + d + e }
 fn main(): i32 { print(sum5(1, 2, 3, 4, 5)) return 0 }'''
         _, run = compile_and_run(compiler, src, tmp_path)
         assert run is not None
@@ -176,7 +176,7 @@ class TestPointerTypes:
     def test_address_of_and_deref(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let x = 42
-    let p = &x
+    let p = ref x
     print(@p)
     return 0
 }'''
@@ -187,7 +187,7 @@ class TestPointerTypes:
     def test_pointer_mutation(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let mut x = 10
-    let mut p = &x
+    let mut p = ref x
     @p = 20
     print(x)
     return 0
@@ -197,7 +197,7 @@ class TestPointerTypes:
         assert run.stdout.strip() == "20"
 
     def test_swap_via_pointers(self, compiler, tmp_path):
-        src = '''fn swap(mut a: &i32, mut b: &i32) {
+        src = '''fn swap(mut a: ref i32, mut b: ref i32) {
     let temp = @a
     @a = @b
     @b = temp
@@ -205,7 +205,7 @@ class TestPointerTypes:
 fn main(): i32 {
     let a = 10
     let b = 20
-    swap(&a, &b)
+    swap(ref a, ref b)
     print(a)
     print(b)
     return 0
@@ -218,7 +218,7 @@ fn main(): i32 {
     def test_ptr_type_annotation(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let x = 99
-    let p: ptr = &x
+    let p: ptr = ref x
     print(@p)
     return 0
 }'''
@@ -278,6 +278,33 @@ class TestArrayTypes:
         assert run is not None
         assert "hello" in run.stdout
         assert "world" in run.stdout
+
+    def test_array_param_copy_mutation_warning(self, compiler, tmp_path):
+        src = '''fn add_one(points: [i32]): i32 {
+    let len = points.length
+    points.push(4)
+    return len
+}
+fn main(): i32 {
+    let points = [1, 2, 3]
+    return add_one(points)
+}'''
+        compile_res, _ = compile_and_run(compiler, src, tmp_path)
+        assert compile_res.returncode == 0
+        assert "array parameter 'points' is modified after reading its length" in compile_res.stderr
+        assert "array parameter 'points' is modified but changes are lost" in compile_res.stderr
+
+    def test_unused_array_param_warning(self, compiler, tmp_path):
+        src = '''fn process(points: [i32]): i32 {
+    return 0
+}
+fn main(): i32 {
+    let points = [1, 2, 3]
+    return process(points)
+}'''
+        compile_res, _ = compile_and_run(compiler, src, tmp_path)
+        assert compile_res.returncode == 0
+        assert "array parameter 'points' is never used" in compile_res.stderr
 
 
 # ============================================================
@@ -343,7 +370,7 @@ fn main(): i32 {
 @pytest.mark.feature
 class TestADTTypes:
     def test_option_type(self, compiler, tmp_path):
-        src = '''fn find(x: i32) -> ?i32 {
+        src = '''fn find(x: i32): ?i32 {
     if (x > 0) { return Some(x) }
     return None
 }
@@ -356,7 +383,7 @@ fn main(): i32 {
         assert compile_res.returncode == 0
 
     def test_result_type(self, compiler, tmp_path):
-        src = '''fn safe_div(a: i32, b: i32) -> Result[i32, string] {
+        src = '''fn safe_div(a: i32, b: i32): Result:[i32, string] {
     if (b == 0) { return Err("division by zero") }
     return Ok(a / b)
 }
@@ -427,8 +454,8 @@ class TestStringType:
 @pytest.mark.feature
 class TestExternTypes:
     def test_extern_function_call(self, compiler, tmp_path):
-        src = '''extern "C" { fn printf(format: ptr, ...) -> i32 }
-fn main() -> i32 {
+        src = '''extern "C" { fn printf(format: ptr, ...): i32 }
+fn main(): i32 {
     printf("extern works\\n")
     return 0
 }'''
@@ -437,8 +464,8 @@ fn main() -> i32 {
         assert "extern works" in run.stdout
 
     def test_extern_with_varargs(self, compiler, tmp_path):
-        src = '''extern "C" { fn printf(format: ptr, ...) -> i32 }
-fn main() -> i32 {
+        src = '''extern "C" { fn printf(format: ptr, ...): i32 }
+fn main(): i32 {
     printf("value: %d\\n", 42)
     return 0
 }'''
@@ -791,7 +818,7 @@ class TestPointerErrors:
     def test_pointer_deref_works(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let x = 42
-    let p = &x
+    let p = ref x
     print(@p)
     return 0
 }'''
@@ -881,7 +908,7 @@ class TestADTMatchPayload:
     def test_result_err_payload_type(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let bad = Err("division by zero") : Result[i32, string]
+    let bad = Err("division by zero") : Result:[i32, string]
     match bad {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -895,7 +922,7 @@ fn main(): i32 {
     def test_result_ok_payload_type(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let good = Ok(42) : Result[i32, string]
+    let good = Ok(42) : Result:[i32, string]
     match good {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -909,8 +936,8 @@ fn main(): i32 {
     def test_result_both_arms(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let r1 = Ok(5) : Result[i32, string]
-    let r2 = Err("cannot divide by zero") : Result[i32, string]
+    let r1 = Ok(5) : Result:[i32, string]
+    let r2 = Err("cannot divide by zero") : Result:[i32, string]
     match r1 {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -958,8 +985,8 @@ fn main(): i32 {
     def test_adt_tag_annotation_syntax(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let a = Ok(42) : Result[i32, string]
-    let b = Err("oops") : Result[i32, string]
+    let a = Ok(42) : Result:[i32, string]
+    let b = Err("oops") : Result:[i32, string]
     match a {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -1085,7 +1112,7 @@ class TestADTConstructorStability:
     def test_ok_with_annotation(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let x = Ok(42) : Result[i32, string]
+    let x = Ok(42) : Result:[i32, string]
     match x {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -1099,7 +1126,7 @@ fn main(): i32 {
     def test_err_with_annotation(self, compiler, tmp_path):
         src = '''type Result:[T, E] = Ok(T) | Err(E)
 fn main(): i32 {
-    let x = Err("oops") : Result[i32, string]
+    let x = Err("oops") : Result:[i32, string]
     match x {
         Ok(v) -> { print(v) }
         Err(e) -> { print(e) }
@@ -1212,7 +1239,7 @@ class TestCompilerRobustness:
         assert run.stdout.strip() == str(expected)
 
     def test_recursive_function(self, compiler, tmp_path):
-        src = '''fn fib(n: i32) -> i32 {
+        src = '''fn fib(n: i32): i32 {
     if (n <= 1) { return n }
     return fib(n - 1) + fib(n - 2)
 }
@@ -1288,7 +1315,7 @@ fn main(): i32 {
     def test_pointer_operations(self, compiler, tmp_path):
         src = '''fn main(): i32 {
     let mut x = 10
-    let mut p = &x
+    let mut p = ref x
     @p = 20
     print(x)
     return 0

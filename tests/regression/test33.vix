@@ -2,8 +2,8 @@ type Result:[T, E] = Ok(T) | Err(E)
 
 fn main(): i32
 {
-    let r1 = Ok(5) : Result[i32, string]
-    let r2 = Err("cannot divide by zero") : Result[i32, string]
+    let r1 = Ok(5) : Result:[i32, string]
+    let r2 = Err("cannot divide by zero") : Result:[i32, string]
 
     match r1
     {

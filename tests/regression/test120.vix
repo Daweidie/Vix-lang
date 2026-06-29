@@ -1,4 +1,4 @@
-fn abs_val(n: i32) -> i32
+fn abs_val(n: i32): i32
 {
 	if (n < 0) {
 		return 0 - n

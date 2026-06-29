@@ -1,0 +1,375 @@
+import "lexer.vix"
+import "parser.vix"
+import "ast.vix"
+import "typeinfer.vix"
+import "semantic.vix"
+import "codegen.vix"
+import "error.vix"
+
+extern "C"
+{
+    fn fopen(filename: ptr, mode: ptr): ptr
+    fn fclose(file: ptr): i32
+    fn fread(buf: ptr, size: i64, count: i64, file: ptr): i64
+    fn fputs(s: string, file: ptr): i32
+    fn fseek(file: ptr, offset: i64, whence: i32): i32
+    fn ftell(file: ptr): i64
+    fn malloc(size: usize): string
+    fn system(cmd: string): i32
+    fn vix_diag_red(): string
+    fn vix_diag_yellow(): string
+    fn vix_diag_reset(): string
+}
+
+fn diagnostic_error(text: string): string
+{
+    return vix_diag_red() + text + vix_diag_reset()
+}
+
+fn diagnostic_warning(text: string): string
+{
+    return vix_diag_yellow() + text + vix_diag_reset()
+}
+
+fn string_ends_with(text: string, suffix: string): i32
+{
+    if (text.length < suffix.length) { return 0 }
+    let offset = text.length - suffix.length
+    for (i in 0 .. suffix.length)
+    {
+        if (text[offset + i] != suffix[i]) { return 0 }
+    }
+    return 1
+}
+
+fn compiler_mode(arg: string): ?string
+{
+    if (arg == "--tyinfer") { return Some("--typeinfer") }
+    if (arg == "-h" or arg == "--help") { return Some("--help") }
+    if (arg == "-v" or arg == "--version") { return Some("--version") }
+    return match arg {
+        "--lex" | "--parser" | "--ast" | "--typeinfer" | "--semantic" | "--check" | "codegen" -> Some(arg)
+        _ -> None
+    }
+}
+
+fn flag_has_value(arg: string): i32
+{
+    if (arg.length <= 1) { return 0 }
+    if (arg[0] == '-') { return 0 }
+    return 1
+}
+
+fn is_emit_value(arg: string): i32
+{
+    if (flag_has_value(arg) == 0) { return 0 }
+    if (string_ends_with(arg, ".vix") == 1) { return 0 }
+    return 1
+}
+
+fn strip_vix_ext(name: string): string
+{
+    if (string_ends_with(name, ".vix") == 1)
+    {
+        let mut out = ""
+        let end = name.length - 4
+        for (i in 0 .. end)
+        {
+            out = out + char_string(name[i])
+        }
+        return out
+    }
+    return name
+}
+
+fn print_help(): i32
+{
+    print("OVERVIEW: Vix Compiler LLVM  Bootstrap Version:22.1.2(8)")
+    print("")
+    print("OPTIONS:")
+    print("USAGE: vixc0 [options] <input.vix>")
+    print("       vixc0 file1.o file2.o ... -o <output>")
+    print("")
+    print("  -o <file>              Write output to <file>")
+    print("  -S [file]              Emit assembly to <file> (default: <input>.s)")
+    print("  -obj [file]            Emit object file to <file> (default: <input>.o)")
+    print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
+    print("  -ast                   Print AST to stdout")
+    print("  -opt=lN                Set optimization level (N = 0..3)")
+    print("  --target=<triple>      Set codegen/link target triple")
+    print("  --check                Syntax & type check only")
+    print("  --lex                  Print tokens to stdout")
+    print("  --parser               Print parse tree to stdout")
+    print("  --typeinfer            Print type inference result to stdout")
+    print("  --semantic             Print semantic analysis to stdout")
+    print("  --time                 Show phase timing breakdown")
+    print("  --debug                Enable debug output")
+    print("  -v, --version          Display compiler version information")
+    print("  -h, --help             Display this help message")
+    return 0
+}
+
+fn print_version(): i32
+{
+    print("Vix Compiler 0.4.2 Bootstrap Copyright(c) 2025-2026 LLVM : 22.1.2(8)")
+    return 0
+}
+
+
+fn source_file_arg(arg: string): ?string
+{
+    return match string_ends_with(arg, ".vix") {
+        1 -> Some(arg)
+        _ -> None
+    }
+}
+
+fn run_mode(mode: string, src: string, filename: string, emit: string, output: string): ?i32
+{
+    match mode
+    {
+        "--lex" -> {
+            print(tokenize_debug(src))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    let program = parse_program(src, filename)
+
+    match mode
+    {
+        "--parser" -> {
+            if (program.ok == 0)
+            {
+                print(program.error)
+            }
+            else
+            {
+                print(ast_program_debug(program))
+            }
+            return Some(0)
+        }
+        "--ast" -> {
+            if (program.ok == 0)
+            {
+                print(program.error)
+            }
+            else
+            {
+                print(ast(program))
+            }
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (program.ok == 0)
+    {
+        print(program.error)
+        return Some(1)
+    }
+
+    let infer_result = infer(program)
+    match mode
+    {
+        "--typeinfer" -> {
+            if (infer_result.ok == 0)
+            {
+                print(typeinfer_result_debug(infer_result, src, filename))
+            }
+            else
+            {
+                print(typeinfer_result_debug(infer_result, src, filename))
+            }
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (infer_result.ok == 0)
+    {
+        print(typeinfer_result_debug(infer_result, src, filename))
+        return Some(1)
+    }
+
+    let semantic_result = semantic_check_program(program, src, filename)
+    match mode
+    {
+        "--semantic" -> {
+            print(semantic_result_debug(semantic_result))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (semantic_result.error_count > 0)
+    {
+        print(semantic_result_debug(semantic_result))
+        return Some(1)
+    }
+
+    match mode
+    {
+        "--check" -> { return Some(0) }
+        _ -> {}
+    }
+
+    let ir = codegen_program(program)
+    if (emit == "stdout")
+    {
+        print(ir)
+        return None
+    }
+    let base = strip_vix_ext(filename)
+    if (emit == "ir")
+    {
+        let path = if (output != "") { output } else { base + ".ll" }
+        write_text_file(path, ir)
+        print(path)
+        return Some(0)
+    }
+    let ll_path = base + ".ll"
+    write_text_file(ll_path, ir)
+    if (emit == "obj")
+    {
+        let path = if (output != "") { output } else { base + ".o" }
+        let cmd = "clang -c " + ll_path + " -o " + path
+        let __m0 = system(cmd)
+        print(path)
+        return Some(0)
+    }
+    if (emit == "asm")
+    {
+        let path = if (output != "") { output } else { base + ".s" }
+        let cmd = "clang -S " + ll_path + " -o " + path
+        let __m1 = system(cmd)
+        print(path)
+        return Some(0)
+    }
+    if (emit == "exe")
+    {
+        let path = if (output != "") { output } else { "a.out" }
+        let cmd = "clang " + ll_path + " -o " + path
+        let __m2 = system(cmd)
+        print(path)
+        return Some(0)
+    }
+    print(ir)
+    return None
+}
+
+fn write_text_file(path: string, content: string): i32
+{
+    let file = fopen(path, "w")
+    if (file == 0)
+    {
+        print("error: cannot write file '" + path + "'")
+        return 1
+    }
+    fputs(content, file)
+    fclose(file)
+    return 0
+}
+
+fn read_source_file(path: ptr): string
+{
+    let file = fopen(path, "r")
+    if (file == 0)
+    {
+        return ""
+    }
+    fseek(file, 0, 2)
+    let size = ftell(file)
+    fseek(file, 0, 0)
+    let buf = malloc(size + 1)
+    let n = fread(buf, 1, size, file)
+    buf[n] = 0
+    fclose(file)
+    return buf
+}
+
+fn main(argc: i32, argv: ptr): i32
+{
+    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; while(a > 5) { return 0 } }"
+    let mut mode = "codegen"
+    let mut filename = "default"
+    let mut want_help = 0
+    let mut want_version = 0
+    let mut emit = "stdout"
+    let mut output = ""
+
+    let mut i = 1
+    while (i < argc)
+    {
+        let arg = argv[i]
+        if (arg == "-h" or arg == "--help")
+        {
+            want_help = 1
+        }
+        elif (arg == "-v" or arg == "--version")
+        {
+            want_version = 1
+        }
+        elif (arg == "-ll" or arg == "-obj" or arg == "-S")
+        {
+            if (arg == "-ll") { emit = "ir" }
+            elif (arg == "-obj") { emit = "obj" }
+            else { emit = "asm" }
+            if (i + 1 < argc)
+            {
+                let next = argv[i + 1]
+                if (is_emit_value(next) == 1)
+                {
+                    output = next
+                    i += 1
+                }
+            }
+        }
+        elif (arg == "-o")
+        {
+            emit = "exe"
+            if (i + 1 < argc)
+            {
+                let next = argv[i + 1]
+                if (string_ends_with(next, ".vix") == 0)
+                {
+                    output = next
+                    i += 1
+                }
+            }
+        }
+        else
+        {
+            match compiler_mode(arg)
+            {
+                Some(next_mode) -> {
+                    if (next_mode == "--help") { want_help = 1 }
+                    elif (next_mode == "--version") { want_version = 1 }
+                    else { mode = next_mode }
+                }
+                None -> match source_file_arg(arg)
+                {
+                    Some(path) -> {
+                        src = read_source_file(path)
+                        filename = path
+                    }
+                    None -> {
+                        src = arg
+                        filename = "<inline>"
+                    }
+                }
+            }
+        }
+        i += 1
+    }
+
+    if (want_help == 1) { return print_help() }
+    if (want_version == 1) { return print_version() }
+
+    match run_mode(mode, src, filename, emit, output)
+    {
+        Some(code) -> return code
+        None -> return 0
+    }
+}

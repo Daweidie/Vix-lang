@@ -1,1 +1,0 @@
-vixc main.vix -o vixc0

@@ -8,7 +8,7 @@ from helpers import compile_vix, compile_and_run
 @pytest.mark.error
 class TestTypeErrors:
     def test_type_mismatch_function_return(self, compiler, tmp_path):
-        src = 'fn foo() -> i32 { return "hello" } fn main(): i32 { return 0 }'
+        src = 'fn foo(): i32 { return "hello" } fn main(): i32 { return 0 }'
         res, _ = compile_and_run(compiler, src, tmp_path)
         assert res.returncode != 0
         assert "expected type" in res.stderr.lower() or "type mismatch" in res.stderr.lower()
@@ -98,6 +98,12 @@ class TestRedefinition:
 
 @pytest.mark.error
 class TestDiagnosticsQuality:
+    def test_arrow_return_type_is_error(self, compiler, tmp_path):
+        src = 'fn foo() -> i32 { return 1 } fn main(): i32 { return 0 }'
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "invalid function return syntax" in res.stderr.lower()
+
     def test_syntax_error_reports_location(self, compiler, tmp_path):
         src = '''fn main(): i32 {
             let x = @@@
@@ -107,7 +113,7 @@ class TestDiagnosticsQuality:
         assert res.returncode != 0
 
     def test_type_error_has_location_info(self, compiler, tmp_path):
-        src = 'fn foo() -> i32 { return "hello" } fn main(): i32 { return 0 }'
+        src = 'fn foo(): i32 { return "hello" } fn main(): i32 { return 0 }'
         res, _ = compile_and_run(compiler, src, tmp_path)
         assert res.returncode != 0
         assert "-->" in res.stderr

@@ -1,4 +1,4 @@
-fn collatz_steps(n: i32) -> i32
+fn collatz_steps(n: i32): i32
 {
 	let mut steps = 0
 	let mut val = n

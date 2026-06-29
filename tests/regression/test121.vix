@@ -1,4 +1,4 @@
-fn min_val(a: i32, b: i32) -> i32
+fn min_val(a: i32, b: i32): i32
 {
 	if (a < b) {
 		return a
@@ -6,7 +6,7 @@ fn min_val(a: i32, b: i32) -> i32
 	return b
 }
 
-fn max_val(a: i32, b: i32) -> i32
+fn max_val(a: i32, b: i32): i32
 {
 	if (a > b) {
 		return a
