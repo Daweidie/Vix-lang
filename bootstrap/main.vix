@@ -136,22 +136,6 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         return Some(1)
     }
 
-    let infer_result = infer(program)
-    match mode
-    {
-        "--typeinfer" -> {
-            print(typeinfer_result_debug(infer_result, src, filename))
-            return Some(0)
-        }
-        _ -> {}
-    }
-
-    if (infer_result.ok == 0)
-    {
-        print(typeinfer_result_debug(infer_result, src, filename))
-        return Some(1)
-    }
-
     let semantic_result = semantic_check_program(program, src, filename)
     match mode
     {
@@ -165,6 +149,22 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     if (semantic_result.error_count > 0)
     {
         print(semantic_result_debug(semantic_result))
+        return Some(1)
+    }
+
+    let infer_result = infer(program)
+    match mode
+    {
+        "--typeinfer" -> {
+            print(typeinfer_result_debug(infer_result, src, filename))
+            return Some(0)
+        }
+        _ -> {}
+    }
+
+    if (infer_result.ok == 0)
+    {
+        print(typeinfer_result_debug(infer_result, src, filename))
         return Some(1)
     }
 

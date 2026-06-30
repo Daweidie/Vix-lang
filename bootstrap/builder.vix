@@ -790,3 +790,12 @@ pub fn llvm_build_struct_field_from_ptr(b: &LlvmBuilder, struct_ty: string, base
     let field_val = vix_LLVMBuildLoad2(b.builder, llvm_type_for(field_ty), field_ptr, llvm_temp(b, "fieldval"))
     llvm_cast_value(b, field_val, field_ty, expected_ty)
 }
+
+pub fn llvm_build_struct_field_ptr_from_ptr(b: &LlvmBuilder, struct_ty: string, base_ptr: ptr, field_index: i32): ptr
+{
+    let llvm_struct_ty = llvm_type_for(struct_ty)
+    let struct_ptr_ty = LLVMPointerType(llvm_struct_ty, 0)
+    let casted_ptr = vix_LLVMBuildBitCast(b.builder, base_ptr, struct_ptr_ty, llvm_temp(b, "cast"))
+    let indices = [llvm_const_i32(0), llvm_const_i32(field_index)]
+    return vix_LLVMBuildGEP2(b.builder, llvm_struct_ty, casted_ptr, indices, 2, llvm_temp(b, "fieldptr"))
+}

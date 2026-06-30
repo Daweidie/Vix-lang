@@ -91,6 +91,7 @@ pub fn error_code_for_type(error_type: string, message: string): string
     {
         if (str_starts_with(msg, "cannot initialize '") == 1) { return "E3001" }
         if (str_starts_with(msg, "cannot assign to immutable binding '") == 1) { return "E3013" }
+        if (str_starts_with(msg, "cannot assign field '") == 1) { return "E3013" }
         if (str_starts_with(msg, "cannot assign '") == 1) { return "E3002" }
         if (str_starts_with(msg, "cannot dereference value of type '") == 1) { return "E3003" }
         if (str_starts_with(msg, "cannot store through value of type '") == 1) { return "E3004" }
@@ -99,6 +100,11 @@ pub fn error_code_for_type(error_type: string, message: string): string
         if (str_starts_with(msg, "unknown struct '") == 1) { return "E3006" }
         if (str_starts_with(msg, "cannot index value of type '") == 1) { return "E3007" }
         if (str_starts_with(msg, "index expression expects integer index") == 1) { return "E3014" }
+        if (str_starts_with(msg, "struct '") == 1) { return "E3021" }
+        if (str_starts_with(msg, "missing field '") == 1) { return "E3022" }
+        if (str_starts_with(msg, "duplicate initializer field '") == 1) { return "E3023" }
+        if (str_starts_with(msg, "array element type '") == 1) { return "E3024" }
+        if (str_starts_with(msg, "method 'push'") == 1) { return "E3025" }
         if (str_starts_with(msg, "cannot compare '") == 1) { return "E3011" }
         if (str_starts_with(msg, "return value type '") == 1) { return "E3012" }
         if (str_starts_with(msg, "match pattern type '") == 1) { return "E3018" }

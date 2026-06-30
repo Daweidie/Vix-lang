@@ -356,6 +356,40 @@ pub fn codegen_match_compare(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore,
     return llvm_build_icmp_value(b, 32, subject_val, pattern_val)
 }
 
+pub fn codegen_field_address(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr): ptr
+{
+    if (expr.tag == "ident")
+    {
+        return llvm_var_address(b, expr.text)
+    }
+    if (expr.tag == "field")
+    {
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = codegen_expr_type(b, es, base_expr)
+        let struct_ty = strip_ptr_prefix(base_ty)
+        let field_index = get_struct_field_index(struct_ty, expr.text)
+        let base_ptr = codegen_field_address(b, es, store, base_expr)
+        return llvm_build_struct_field_ptr_from_ptr(b, struct_ty, base_ptr, field_index)
+    }
+    return codegen_expr_value_typed(b, es, store, expr, "ptr")
+}
+
+pub fn codegen_match_statement_body(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, body_idx: i32, break_block: ptr, continue_block: ptr)
+{
+    let body_stmt = stmt_store_get(store, body_idx)
+    let ret_ty = get_var_type(b, "__return")
+    if (body_stmt.tag == "expr" and ret_ty != "void")
+    {
+        let expr = expr_store_get(es, body_stmt.value_idx)
+        let val = codegen_expr_value_typed(b, es, store, expr, ret_ty)
+        llvm_emit_ret_value(b, val)
+    }
+    else
+    {
+        codegen_stmt_in_loop(b, es, store, body_idx, break_block, continue_block)
+    }
+}
+
 pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32, break_block: ptr, continue_block: ptr)
 {
     let stmt = stmt_store_get(store, stmt_idx)
@@ -376,6 +410,17 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
             let ty = get_var_type(b, stmt.assign_name)
             let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), ty)
             llvm_store_value(b, val, stmt.assign_name)
+        }
+        "field_assign" -> {
+            let base_expr = expr_store_get(es, stmt.value_idx)
+            let base_ty = codegen_expr_type(b, es, base_expr)
+            let struct_ty = strip_ptr_prefix(base_ty)
+            let field_index = get_struct_field_index(struct_ty, stmt.assign_name)
+            let field_ty = get_struct_field_type(struct_ty, stmt.assign_name)
+            let base_ptr = codegen_field_address(b, es, store, base_expr)
+            let field_ptr = llvm_build_struct_field_ptr_from_ptr(b, struct_ty, base_ptr, field_index)
+            let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), field_ty)
+            vix_LLVMBuildStore(b.builder, val, field_ptr)
         }
         "store_deref" -> {
             let ptr_expr = expr_store_get(es, stmt.value_idx)
@@ -579,7 +624,7 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
                     let cmp_i1 = llvm_build_truthy_typed_i1(b, cmp, "bool")
                     vix_LLVMBuildCondBr(b.builder, cmp_i1, body_block, after_test)
                     llvm_position_at_end(b, body_block)
-                    codegen_stmt_in_loop(b, es, store, stmt.match_body_indices[i], break_block, continue_block)
+                    codegen_match_statement_body(b, es, store, stmt.match_body_indices[i], break_block, continue_block)
                     if (llvm_current_block_terminated(b) == 0)
                     {
                         llvm_emit_jmp_block(b, end_block)
@@ -590,7 +635,7 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
             llvm_position_at_end(b, next_test)
             if (default_body >= 0)
             {
-                codegen_stmt_in_loop(b, es, store, default_body, break_block, continue_block)
+                codegen_match_statement_body(b, es, store, default_body, break_block, continue_block)
             }
             if (llvm_current_block_terminated(b) == 0)
             {
