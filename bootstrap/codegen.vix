@@ -30,7 +30,21 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
         "string" -> "string"
         "ident" -> get_var_type(b, expr.text)
         "addr" -> "ptr"
-        "deref" -> "i32"
+        "deref" -> {
+            let base_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
+            if (is_ptr_to_struct(base_ty) == 1)
+            {
+                strip_ptr_prefix(base_ty)
+            }
+            elif (base_ty == "string")
+            {
+                "i8"
+            }
+            else
+            {
+                "i32"
+            }
+        }
         "field" -> {
             let base_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
             if (base_ty == "string" and expr.text == "length") { return "i32" }
@@ -92,9 +106,11 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
         }
         "deref" -> {
             let ptr_expr = expr_store_get(es, expr.left_idx)
+            let base_ty = codegen_expr_type(b, es, ptr_expr)
             let ptr_val = codegen_expr_value_typed(b, es, store, ptr_expr, "ptr")
-            let loaded = llvm_load_i32_pointer(b, ptr_val)
-            llvm_cast_value(b, loaded, "i32", expected_ty)
+            let pointee_ty = if (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
+            let loaded = llvm_load_typed_pointer(b, ptr_val, pointee_ty)
+            llvm_cast_value(b, loaded, pointee_ty, expected_ty)
         }
         "field" -> {
             let base_expr = expr_store_get(es, expr.left_idx)
@@ -362,9 +378,12 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
             llvm_store_value(b, val, stmt.assign_name)
         }
         "store_deref" -> {
-            let ptr_val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.value_idx), "ptr")
-            let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), "i32")
-            llvm_store_i32_pointer(b, ptr_val, val)
+            let ptr_expr = expr_store_get(es, stmt.value_idx)
+            let base_ty = codegen_expr_type(b, es, ptr_expr)
+            let ptr_val = codegen_expr_value_typed(b, es, store, ptr_expr, "ptr")
+            let pointee_ty = if (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
+            let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), pointee_ty)
+            llvm_store_typed_pointer(b, ptr_val, val)
         }
         "store_index" -> {
             let base = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.value_idx), "ptr")

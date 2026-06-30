@@ -54,6 +54,12 @@ pub fn typeinfer_error_from_env(env: &SymbolTable, return_type: string, error_fu
     return typeinfer_error(env.error, return_type, error_func, env.error_line, env.error_col)
 }
 
+pub fn is_ptr_to_struct_typeinfer(ty: string): i32
+{
+    if (ty.length > 4 and ty[0] == 'p' and ty[1] == 't' and ty[2] == 'r' and ty[3] == ':') { return 1 }
+    return 0
+}
+
 pub fn strip_ptr_prefix_typeinfer(ty: string): string
 {
     if (ty.length > 4 and ty[0] == 'p' and ty[1] == 't' and ty[2] == 'r' and ty[3] == ':')
@@ -262,7 +268,13 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
         "deref" -> {
             let ptr_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
             if (env.ok == 0) { return "unknown" }
-            if (ptr_ty != "ptr" and ptr_ty != "unknown")
+            if (ptr_ty == "unknown") { return "unknown" }
+            if (ptr_ty == "string") { return "i8" }
+            if (is_ptr_to_struct_typeinfer(ptr_ty) == 1)
+            {
+                return strip_ptr_prefix_typeinfer(ptr_ty)
+            }
+            if (ptr_ty != "ptr")
             {
                 symtable_fail_expr(env, "cannot dereference value of type '" + ptr_ty + "'", expr)
                 return "unknown"
@@ -492,16 +504,17 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
         "store_deref" -> {
             let ptr_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
             if (env.ok == 0) { return }
-            if (ptr_ty != "ptr" and ptr_ty != "unknown")
+            if (ptr_ty != "ptr" and ptr_ty != "unknown" and is_ptr_to_struct_typeinfer(ptr_ty) == 0 and ptr_ty != "string")
             {
                 symtable_fail_stmt(env, "cannot store through value of type '" + ptr_ty + "'", stmt)
                 return
             }
             let value_ty = infer_expr_type(env, funcs, structs, es, stmt.assign_idx)
             if (env.ok == 0) { return }
-            if (type_can_assign("i32", value_ty) == 0)
+            let pointee_ty = if (is_ptr_to_struct_typeinfer(ptr_ty) == 1) { strip_ptr_prefix_typeinfer(ptr_ty) } elif (ptr_ty == "string") { "i8" } else { "i32" }
+            if (type_can_assign(pointee_ty, value_ty) == 0)
             {
-                symtable_fail_stmt(env, "cannot store '" + value_ty + "' through i32 pointer", stmt)
+                symtable_fail_stmt(env, "cannot store '" + value_ty + "' through pointer of pointee type '" + pointee_ty + "'", stmt)
             }
         }
         "store_index" -> {

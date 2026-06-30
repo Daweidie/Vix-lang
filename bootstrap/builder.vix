@@ -493,6 +493,16 @@ pub fn llvm_load_i32_pointer(b: &LlvmBuilder, ptr_value: ptr): ptr
     return vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), ptr_value, llvm_temp(b, "deref"))
 }
 
+pub fn llvm_load_typed_pointer(b: &LlvmBuilder, ptr_value: ptr, pointee_ty: string): ptr
+{
+    return vix_LLVMBuildLoad2(b.builder, llvm_type_for(pointee_ty), ptr_value, llvm_temp(b, "deref"))
+}
+
+pub fn llvm_store_typed_pointer(b: &LlvmBuilder, ptr_value: ptr, value: ptr)
+{
+    vix_LLVMBuildStore(b.builder, value, ptr_value)
+}
+
 pub fn llvm_load_ptr_pointer(b: &LlvmBuilder, ptr_value: ptr): ptr
 {
     let ptr_ty = LLVMPointerType(LLVMInt8Type(), 0)
