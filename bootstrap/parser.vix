@@ -592,6 +592,25 @@ pub fn parse_statement_ident(parser: &Parser): i32
         let ident_idx = parser_expr_at(parser, ast_expr_identifier(parser.expr_store, name), line, col)
         let expr_idx = parse_postfix_from(parser, ident_idx)
         if (parser.ok == 0) { return -1 }
+        if (parser_text(parser) == "=")
+        {
+            parser_advance(parser)
+            let val_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_accept_text(parser, ";")
+            let field_expr = expr_store_get(parser.expr_store, expr_idx)
+            return parser_stmt_at(parser, ast_stmt_field_assign(parser.store, field_expr.left_idx, field_expr.text, val_idx), line, col)
+        }
+        if (parser_text(parser) == "+=")
+        {
+            parser_advance(parser)
+            let rhs_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_accept_text(parser, ";")
+            let field_expr = expr_store_get(parser.expr_store, expr_idx)
+            let add_idx = parser_expr_at(parser, ast_expr_binop(parser.expr_store, "+", expr_idx, rhs_idx), line, col)
+            return parser_stmt_at(parser, ast_stmt_field_assign(parser.store, field_expr.left_idx, field_expr.text, add_idx), line, col)
+        }
         parser_accept_text(parser, ";")
         return parser_stmt_at(parser, ast_stmt_expr(parser.store, expr_idx), line, col)
     }

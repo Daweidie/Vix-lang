@@ -15,20 +15,9 @@ extern "C"
     fn fseek(file: ptr, offset: i64, whence: i32): i32
     fn ftell(file: ptr): i64
     fn malloc(size: usize): string
-    fn system(cmd: string): i32
     fn vix_diag_red(): string
     fn vix_diag_yellow(): string
     fn vix_diag_reset(): string
-}
-
-fn diagnostic_error(text: string): string
-{
-    return vix_diag_red() + text + vix_diag_reset()
-}
-
-fn diagnostic_warning(text: string): string
-{
-    return vix_diag_yellow() + text + vix_diag_reset()
 }
 
 fn string_ends_with(text: string, suffix: string): i32
@@ -44,27 +33,12 @@ fn string_ends_with(text: string, suffix: string): i32
 
 fn compiler_mode(arg: string): ?string
 {
-    if (arg == "--tyinfer") { return Some("--typeinfer") }
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
     return match arg {
-        "--lex" | "--parser" | "--ast" | "--typeinfer" | "--semantic" | "--check" | "codegen" -> Some(arg)
+        "--lex" | "--parser" | "--ast" | "--typeinfer" | "--semantic" | "--check" -> Some(arg)
         _ -> None
     }
-}
-
-fn flag_has_value(arg: string): i32
-{
-    if (arg.length <= 1) { return 0 }
-    if (arg[0] == '-') { return 0 }
-    return 1
-}
-
-fn is_emit_value(arg: string): i32
-{
-    if (flag_has_value(arg) == 0) { return 0 }
-    if (string_ends_with(arg, ".vix") == 1) { return 0 }
-    return 1
 }
 
 fn strip_vix_ext(name: string): string
@@ -84,26 +58,19 @@ fn strip_vix_ext(name: string): string
 
 fn print_help(): i32
 {
-    print("OVERVIEW: Vix Compiler LLVM  Bootstrap Version:22.1.2(8)")
+    print("OVERVIEW: Vix Compiler LLVM Bootstrap")
+    print("")
+    print("USAGE: vixc0 [options] <input.vix>")
     print("")
     print("OPTIONS:")
-    print("USAGE: vixc0 [options] <input.vix>")
-    print("       vixc0 file1.o file2.o ... -o <output>")
-    print("")
     print("  -o <file>              Write output to <file>")
-    print("  -S [file]              Emit assembly to <file> (default: <input>.s)")
-    print("  -obj [file]            Emit object file to <file> (default: <input>.o)")
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
-    print("  -ast                   Print AST to stdout")
-    print("  -opt=lN                Set optimization level (N = 0..3)")
-    print("  --target=<triple>      Set codegen/link target triple")
     print("  --check                Syntax & type check only")
     print("  --lex                  Print tokens to stdout")
     print("  --parser               Print parse tree to stdout")
+    print("  --ast                  Print AST to stdout")
     print("  --typeinfer            Print type inference result to stdout")
     print("  --semantic             Print semantic analysis to stdout")
-    print("  --time                 Show phase timing breakdown")
-    print("  --debug                Enable debug output")
     print("  -v, --version          Display compiler version information")
     print("  -h, --help             Display this help message")
     return 0
@@ -111,10 +78,9 @@ fn print_help(): i32
 
 fn print_version(): i32
 {
-    print("Vix Compiler 0.4.2 Bootstrap Copyright(c) 2025-2026 LLVM : 22.1.2(8)")
+    print("vixc0 0.4.2 (bootstrap)")
     return 0
 }
-
 
 fn source_file_arg(arg: string): ?string
 {
@@ -174,14 +140,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     match mode
     {
         "--typeinfer" -> {
-            if (infer_result.ok == 0)
-            {
-                print(typeinfer_result_debug(infer_result, src, filename))
-            }
-            else
-            {
-                print(typeinfer_result_debug(infer_result, src, filename))
-            }
+            print(typeinfer_result_debug(infer_result, src, filename))
             return Some(0)
         }
         _ -> {}
@@ -222,41 +181,10 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         return None
     }
     let base = strip_vix_ext(filename)
-    if (emit == "ir")
-    {
-        let path = if (output != "") { output } else { base + ".ll" }
-        write_text_file(path, ir)
-        print(path)
-        return Some(0)
-    }
-    let ll_path = base + ".ll"
-    write_text_file(ll_path, ir)
-    if (emit == "obj")
-    {
-        let path = if (output != "") { output } else { base + ".o" }
-        let cmd = "clang -c " + ll_path + " -o " + path
-        let __m0 = system(cmd)
-        print(path)
-        return Some(0)
-    }
-    if (emit == "asm")
-    {
-        let path = if (output != "") { output } else { base + ".s" }
-        let cmd = "clang -S " + ll_path + " -o " + path
-        let __m1 = system(cmd)
-        print(path)
-        return Some(0)
-    }
-    if (emit == "exe")
-    {
-        let path = if (output != "") { output } else { "a.out" }
-        let cmd = "clang " + ll_path + " -o " + path
-        let __m2 = system(cmd)
-        print(path)
-        return Some(0)
-    }
-    print(ir)
-    return None
+    let path = if (output != "") { output } else { base + ".ll" }
+    write_text_file(path, ir)
+    print(path)
+    return Some(0)
 }
 
 fn write_text_file(path: string, content: string): i32
@@ -264,7 +192,7 @@ fn write_text_file(path: string, content: string): i32
     let file = fopen(path, "w")
     if (file == 0)
     {
-        print("error: cannot write file '" + path + "'")
+        print("vixc0: error: cannot write file '" + path + "'")
         return 1
     }
     fputs(content, file)
@@ -291,13 +219,14 @@ fn read_source_file(path: ptr): string
 
 fn main(argc: i32, argv: ptr): i32
 {
-    let mut src = "fn main():i32 { let a = 10; let b = 20; let c = 30; while(a > 5) { return 0 } }"
+    let mut src = ""
     let mut mode = "codegen"
-    let mut filename = "default"
+    let mut filename = ""
     let mut want_help = 0
     let mut want_version = 0
     let mut emit = "stdout"
     let mut output = ""
+    let mut has_input = 0
 
     let mut i = 1
     while (i < argc)
@@ -311,28 +240,27 @@ fn main(argc: i32, argv: ptr): i32
         {
             want_version = 1
         }
-        elif (arg == "-ll" or arg == "-obj" or arg == "-S")
-        {
-            if (arg == "-ll") { emit = "ir" }
-            elif (arg == "-obj") { emit = "obj" }
-            else { emit = "asm" }
-            if (i + 1 < argc)
-            {
-                let next = argv[i + 1]
-                if (is_emit_value(next) == 1)
-                {
-                    output = next
-                    i += 1
-                }
-            }
-        }
         elif (arg == "-o")
         {
-            emit = "exe"
+            emit = "ir"
+            if (i + 1 < argc)
+            {
+                i += 1
+                output = argv[i]
+            }
+            else
+            {
+                print("vixc0: error: '-o' requires an argument")
+                return 1
+            }
+        }
+        elif (arg == "-ll")
+        {
+            emit = "ir"
             if (i + 1 < argc)
             {
                 let next = argv[i + 1]
-                if (string_ends_with(next, ".vix") == 0)
+                if (string_ends_with(next, ".vix") == 0 and string_ends_with(next, ".ll") == 1)
                 {
                     output = next
                     i += 1
@@ -351,12 +279,18 @@ fn main(argc: i32, argv: ptr): i32
                 None -> match source_file_arg(arg)
                 {
                     Some(path) -> {
+                        if (has_input == 1)
+                        {
+                            print("vixc0: error: multiple input files not supported")
+                            return 1
+                        }
                         src = read_source_file(path)
                         filename = path
+                        has_input = 1
                     }
                     None -> {
-                        src = arg
-                        filename = "<inline>"
+                        print("vixc0: error: unrecognized command-line option '" + arg + "'")
+                        return 1
                     }
                 }
             }
@@ -366,6 +300,19 @@ fn main(argc: i32, argv: ptr): i32
 
     if (want_help == 1) { return print_help() }
     if (want_version == 1) { return print_version() }
+
+    if (has_input == 0)
+    {
+        print("vixc0: fatal error: no input files")
+        print("compilation terminated.")
+        return 1
+    }
+
+    if (src == "")
+    {
+        print("vixc0: error: cannot read file '" + filename + "'")
+        return 1
+    }
 
     match run_mode(mode, src, filename, emit, output)
     {

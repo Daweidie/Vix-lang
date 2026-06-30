@@ -41,4 +41,3 @@ while.end2:                                       ; preds = %while.cond0
   %0 = call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 %load9)
   ret i32 0
 }
-
