@@ -127,6 +127,10 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndexAssign(ASTNode* node
         if (allocatedType && allocatedType->isPointerTy()) {
             Value* arrayPtr = builder.CreateLoad(allocatedType, baseAlloc, "array_ptr");
             Type* elemType = getPointerElementTypeSafely(dyn_cast<PointerType>(allocatedType), varName);
+            bool isStringBuffer = typeHelper.isStringVariable(varName);
+            if (isStringBuffer) {
+                elemType = Type::getInt8Ty(context);
+            }
             if (varName == "argv") {
                 elemType = PointerType::get(context, 0);
             }
@@ -134,7 +138,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIndexAssign(ASTNode* node
             Value* gep = builder.CreateInBoundsGEP(elemType, arrayPtr, idxVal, "ptr_index_ptr");
             VisitResult rightVal = visit(node->data.assign.right);
             if (!rightVal.value) return VisitResult();
-            if (!varName.empty() && varName != "argv" && !typeHelper.getArrayTypeInfo(varName)) {
+            if (!isStringBuffer && !varName.empty() && varName != "argv" && !typeHelper.getArrayTypeInfo(varName)) {
                 typeHelper.registerArrayType(varName, rightVal.value->getType(), -1);
                 elemType = rightVal.value->getType();
                 gep = builder.CreateInBoundsGEP(elemType, arrayPtr, idxVal, "ptr_index_ptr");

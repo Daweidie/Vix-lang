@@ -166,6 +166,15 @@ LLVMCodeGenerator::handleArrayLength(ASTNode *object) {
         return VisitResult(length, ValueType::INT32);
       }
       if (allocatedType && allocatedType->isPointerTy()) {
+        if (typeHelper.isStringVariable(varName)) {
+          Value *strPtr = builder.CreateLoad(allocatedType, alloc, varName);
+          CallInst *strlenCall =
+              builder.CreateCall(strlenFunction, {strPtr}, "strlen");
+          Value *length = builder.CreateIntCast(
+              strlenCall, Type::getInt32Ty(context), false, "len");
+          VIX_DEBUG_LOG << "[DEBUG] String length (strlen): dynamic\n";
+          return VisitResult(length, ValueType::INT32);
+        }
         auto *arrayInfo = typeHelper.getArrayTypeInfo(varName);
         if (arrayInfo) {
           int elementCount = arrayInfo->second;
@@ -182,15 +191,6 @@ LLVMCodeGenerator::handleArrayLength(ASTNode *object) {
             VIX_DEBUG_LOG << "[DEBUG] Array length (dynamic from header)\n";
             return VisitResult(runtimeLen, ValueType::INT32);
           }
-        }
-        if (typeHelper.isStringVariable(varName)) {
-          Value *strPtr = builder.CreateLoad(allocatedType, alloc, varName);
-          CallInst *strlenCall =
-              builder.CreateCall(strlenFunction, {strPtr}, "strlen");
-          Value *length = builder.CreateIntCast(
-              strlenCall, Type::getInt32Ty(context), false, "len");
-          VIX_DEBUG_LOG << "[DEBUG] String length (strlen): dynamic\n";
-          return VisitResult(length, ValueType::INT32);
         }
         VIX_DEBUG_LOG << "[DEBUG] Unknown pointer type, returning 0\n";
         Value *length = ConstantInt::get(Type::getInt32Ty(context), 0);

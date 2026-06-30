@@ -1,16 +1,4 @@
-fn f(text: string): i32
-{
-    match text
-    {
-        "fn" | "return" | "let" | "mut" | "if" | "elif" | "else" | "while" | "for" | "in" -> 1
-        "match" | "struct" | "type" | "pub" | "import" -> 1
-        _ -> 0
-    }
-    return 0
-}
 fn main(): i32
 {
-    let s = "fn"
-    print(f(s))
     return 0
 }

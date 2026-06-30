@@ -531,6 +531,10 @@ LLVMValueRef vix_LLVMBuildPtrToInt(LLVMBuilderRef builder, LLVMValueRef val,
   return LLVMBuildPtrToInt(builder, val, dest_ty, name);
 }
 
+LLVMValueRef vix_LLVMSizeOf(LLVMTypeRef ty) {
+  return LLVMSizeOf(ty);
+}
+
 LLVMValueRef vix_LLVMBuildIntToPtr(LLVMBuilderRef builder, LLVMValueRef val,
                                    LLVMTypeRef dest_ty, const char *name) {
   return LLVMBuildIntToPtr(builder, val, dest_ty, name);
@@ -650,4 +654,21 @@ void *vix_array_push_ptr(void *arr, void *val) {
   void **data = (void **)((char *)new_block + 8);
   data[old_len] = val;
   return (void *)((char *)new_block + 8);
+}
+
+void *vix_array_push_bytes(void *arr, void *val, size_t elem_size) {
+  if (elem_size == 0)
+    return arr;
+  int old_len = vix_array_len(arr);
+  int new_len = old_len + 1;
+  void *base = (arr == NULL) ? NULL : (void *)((char *)arr - 8);
+  size_t data_bytes = (size_t)new_len * elem_size;
+  size_t total_bytes = 8 + data_bytes;
+  void *new_block = realloc(base, total_bytes);
+  if (new_block == NULL)
+    return NULL;
+  *(int *)new_block = new_len;
+  char *data = (char *)new_block + 8;
+  memcpy(data + ((size_t)old_len * elem_size), val, elem_size);
+  return (void *)data;
 }

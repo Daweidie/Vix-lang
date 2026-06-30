@@ -117,6 +117,7 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
     if (is_ptr_to_struct_semantic(target_ty) == 1 and strip_ptr_prefix_semantic(target_ty) == value_ty) { return 1 }
     if (target_ty == "ptr" and is_ptr_to_struct_semantic(value_ty) == 1) { return 1 }
     if (target_ty == "ptr" and value_ty == "string") { return 1 }
+    if (target_ty == "string" and value_ty == "ptr") { return 1 }
     if (target_ty == "ptr" and type_is_array_text_semantic(value_ty) == 1) { return 1 }
     if (target_ty == "ptr" and type_is_integer(value_ty) == 1) { return 1 }
     return 0

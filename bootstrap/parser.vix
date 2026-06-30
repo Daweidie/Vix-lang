@@ -1055,106 +1055,103 @@ pub fn parse_statement(parser: &Parser): i32
 {
     let line = parser_line(parser)
     let col = parser_col(parser)
-    if (parser_text(parser) == "match")
+    let stmt_text = parser_text(parser)
+    if (stmt_text == "match")
     {
         return parse_match_statement(parser)
     }
-    return match parser_text(parser) {
-        "@" -> {
-            parser_advance(parser)
-            let pointer_idx = parse_unary(parser)
-            if (parser.ok == 0) { return -1 }
-            parser_expect_text(parser, "=")
-            if (parser.ok == 0) { return -1 }
-            let expr_idx = parse_expression(parser)
-            if (parser.ok == 0) { return -1 }
-            parser_accept_text(parser, ";")
-            parser_stmt_at(parser, ast_stmt_store_deref(parser.store, pointer_idx, expr_idx), line, col)
-        }
-        "let" -> {
-            parser_advance(parser)
-            let mut is_mut = 0
-            if (parser_text(parser) == "mut")
-            {
-                is_mut = 1
-                parser_advance(parser)
-            }
-            let name = parser_text(parser)
-            if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
-            let mut type_text = ""
-            if (parser_text(parser) == ":")
-            {
-                parser_advance(parser)
-                type_text = parse_type_text(parser)
-                if (parser.ok == 0) { return -1 }
-            }
-            parser_expect_text(parser, "=")
-            if (parser.ok == 0) { return -1 }
-            let expr_idx = parse_expression(parser)
-            if (parser.ok == 0) { return -1 }
-            parser_accept_text(parser, ";")
-            parser_stmt_at(parser, ast_stmt_let_typed_mut(parser.store, name, type_text, expr_idx, is_mut), line, col)
-        }
-        "return" -> {
-            parser_advance(parser)
-            if (parser_text(parser) == ";" or parser_text(parser) == "}" or parser_at_end(parser) == 1)
-            {
-                parser_accept_text(parser, ";")
-                parser_stmt_at(parser, ast_stmt_return(parser.store, parser.expr_store, 0), line, col)
-            }
-            else
-            {
-                let expr_idx = parse_expression(parser)
-                if (parser.ok == 0) { return -1 }
-                parser_accept_text(parser, ";")
-                parser_stmt_at(parser, ast_stmt_return_expr(parser.store, expr_idx), line, col)
-            }
-        }
-        "print" -> {
-            parser_advance(parser)
-            parser_expect_text(parser, "(")
-            if (parser.ok == 0) { return -1 }
-            let expr_idx = parse_expression(parser)
-            if (parser.ok == 0) { return -1 }
-            parser_expect_text(parser, ")")
-            if (parser.ok == 0) { return -1 }
-            parser_accept_text(parser, ";")
-            parser_stmt_at(parser, ast_stmt_print(parser.store, expr_idx), line, col)
-        }
-        "while" -> {
-            parser_advance(parser)
-            parser_expect_text(parser, "(")
-            if (parser.ok == 0) { return -1 }
-            let cond_idx = parse_expression(parser)
-            if (parser.ok == 0) { return -1 }
-            parser_expect_text(parser, ")")
-            if (parser.ok == 0) { return -1 }
-            let body_idx = parse_block_statement(parser)
-            if (parser.ok == 0) { return -1 }
-            parser_stmt_at(parser, ast_stmt_while(parser.store, cond_idx, body_idx), line, col)
-        }
-        "if" -> parse_if_statement(parser)
-        "for" -> parse_for_statement(parser)
-        "break" | "continue" -> {
-            let tag = parser_text(parser)
-            parser_advance(parser)
-            parser_accept_text(parser, ";")
-            parser_stmt_at(parser, ast_stmt_loop_control(parser.store, tag), line, col)
-        }
-        _ -> {
-            if (parser_kind(parser) == tk_number() or parser_kind(parser) == tk_string() or parser_kind(parser) == tk_float() or parser_kind(parser) == tk_bool() or parser_text(parser) == "nil" or parser_text(parser) == "(" or parser_text(parser) == "-" or parser_text(parser) == "!" or parser_text(parser) == "match" or parser_text(parser) == "if")
-            {
-                let expr_idx = parse_expression(parser)
-                if (parser.ok == 0) { return -1 }
-                parser_accept_text(parser, ";")
-                parser_stmt_at(parser, ast_stmt_expr(parser.store, expr_idx), line, col)
-            }
-            else
-            {
-                parse_statement_ident(parser)
-            }
-        }
+
+    if (stmt_text == "@")
+    {
+        parser_advance(parser)
+        let pointer_idx = parse_unary(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_expect_text(parser, "=")
+        if (parser.ok == 0) { return -1 }
+        let expr_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_store_deref(parser.store, pointer_idx, expr_idx), line, col)
     }
+    if (stmt_text == "let")
+    {
+        parser_advance(parser)
+        let mut is_mut = 0
+        if (parser_text(parser) == "mut")
+        {
+            is_mut = 1
+            parser_advance(parser)
+        }
+        let name = parser_text(parser)
+        if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
+        let mut type_text = ""
+        if (parser_text(parser) == ":")
+        {
+            parser_advance(parser)
+            type_text = parse_type_text(parser)
+            if (parser.ok == 0) { return -1 }
+        }
+        parser_expect_text(parser, "=")
+        if (parser.ok == 0) { return -1 }
+        let expr_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_let_typed_mut(parser.store, name, type_text, expr_idx, is_mut), line, col)
+    }
+    if (stmt_text == "return")
+    {
+        parser_advance(parser)
+        if (parser_text(parser) == ";" or parser_text(parser) == "}" or parser_at_end(parser) == 1)
+        {
+            parser_accept_text(parser, ";")
+            return parser_stmt_at(parser, ast_stmt_return(parser.store, parser.expr_store, 0), line, col)
+        }
+        let expr_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_return_expr(parser.store, expr_idx), line, col)
+    }
+    if (stmt_text == "print")
+    {
+        parser_advance(parser)
+        parser_expect_text(parser, "(")
+        if (parser.ok == 0) { return -1 }
+        let expr_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_expect_text(parser, ")")
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_print(parser.store, expr_idx), line, col)
+    }
+    if (stmt_text == "while")
+    {
+        parser_advance(parser)
+        parser_expect_text(parser, "(")
+        if (parser.ok == 0) { return -1 }
+        let cond_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_expect_text(parser, ")")
+        if (parser.ok == 0) { return -1 }
+        let body_idx = parse_block_statement(parser)
+        if (parser.ok == 0) { return -1 }
+        return parser_stmt_at(parser, ast_stmt_while(parser.store, cond_idx, body_idx), line, col)
+    }
+    if (stmt_text == "if") { return parse_if_statement(parser) }
+    if (stmt_text == "for") { return parse_for_statement(parser) }
+    if (stmt_text == "break" or stmt_text == "continue")
+    {
+        parser_advance(parser)
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_loop_control(parser.store, stmt_text), line, col)
+    }
+    if (parser_kind(parser) == tk_number() or parser_kind(parser) == tk_string() or parser_kind(parser) == tk_float() or parser_kind(parser) == tk_bool() or parser_text(parser) == "nil" or parser_text(parser) == "(" or parser_text(parser) == "-" or parser_text(parser) == "!" or parser_text(parser) == "match" or parser_text(parser) == "if")
+    {
+        let expr_idx = parse_expression(parser)
+        if (parser.ok == 0) { return -1 }
+        parser_accept_text(parser, ";")
+        return parser_stmt_at(parser, ast_stmt_expr(parser.store, expr_idx), line, col)
+    }
+    return parse_statement_ident(parser)
 }
 
 pub fn parse_type_text(parser: &Parser): string

@@ -183,13 +183,11 @@ pub fn newline_should_insert_semicolon(src: string, pos: i32, stream: &TokenStre
 
 pub fn is_keyword(text: string): i32
 {
-    return match text {
-        "fn" | "return" | "let" | "mut" | "if" | "elif" | "else" | "while" | "for" | "in" -> 1
-        "match" | "struct" | "type" | "pub" | "import" | "extern" | "break" | "continue" -> 1
-        "i32" | "i64" | "i8" | "f32" | "f64" | "string" | "void" | "nil" | "true" | "false" -> 1
-        "and" | "or" | "print" -> 1
-        _ -> 0
-    }
+    if (text == "fn" or text == "return" or text == "let" or text == "mut" or text == "if" or text == "elif" or text == "else" or text == "while" or text == "for" or text == "in") { return 1 }
+    if (text == "match" or text == "struct" or text == "type" or text == "pub" or text == "import" or text == "extern" or text == "break" or text == "continue") { return 1 }
+    if (text == "i32" or text == "i64" or text == "i8" or text == "f32" or text == "f64" or text == "string" or text == "void" or text == "nil" or text == "true" or text == "false") { return 1 }
+    if (text == "and" or text == "or" or text == "print") { return 1 }
+    return 0
 }
 
 pub fn tokenize(src: string): TokenStream

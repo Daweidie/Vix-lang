@@ -144,6 +144,7 @@ pub fn slice_text(src: string, start: i32, end: i32): string
 
 pub fn preprocess_source(src: string, filename: string, imports: &ImportSet): string
 {
+    import_set_add(imports, filename)
     let mut out = ""
     let mut i = 0
     let mut segment_start = 0
@@ -171,14 +172,14 @@ pub fn preprocess_source(src: string, filename: string, imports: &ImportSet): st
             let path = extract_import_path(src, i)
             if (path != "")
             {
-                if (import_set_contains(imports, path) == 0)
+                let resolved = resolve_import_path(filename, path)
+                if (import_set_contains(imports, resolved) == 0)
                 {
-                    import_set_add(imports, path)
-                    let resolved = resolve_import_path(filename, path)
+                    import_set_add(imports, resolved)
                     let content = read_file_content(resolved)
                     if (content != "")
                     {
-                        let processed = preprocess_source(content, path, imports)
+                        let processed = preprocess_source(content, resolved, imports)
                         out = out + processed + "\n"
                     }
                 }

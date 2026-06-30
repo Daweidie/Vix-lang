@@ -418,9 +418,11 @@ pub fn infer_binop_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs
     }
     elif (expr.text == "+")
     {
-        if (left_ty == "string" or right_ty == "string")
+        if (left_ty == "string" or right_ty == "string" or left_ty == "ptr" or right_ty == "ptr")
         {
-            if (left_ty != "string" or right_ty != "string")
+            let left_string_like = if (left_ty == "string" or left_ty == "ptr") { 1 } else { 0 }
+            let right_string_like = if (right_ty == "string" or right_ty == "ptr") { 1 } else { 0 }
+            if (left_string_like == 0 or right_string_like == 0)
             {
                 symtable_fail_expr(env, "operator '+' cannot mix string with non-string", expr)
             }
@@ -736,13 +738,20 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                 }
                 else
                 {
-                    let body_ty = infer_expr_type(env, funcs, structs, es, store, body_idx)
+                    infer_expr_type(env, funcs, structs, es, store, body_idx)
                     if (env.ok == 0)
                     {
                         symtable_pop_scope(env)
                         return "unknown"
                     }
-                    if (type_can_assign(result_ty, body_ty) == 0)
+                    if (type_can_assign(result_ty, infer_expr_type(env, funcs, structs, es, store, body_idx)) == 1)
+                    {
+                    }
+                    elif (type_can_assign(infer_expr_type(env, funcs, structs, es, store, body_idx), result_ty) == 1)
+                    {
+                        result_ty = infer_expr_type(env, funcs, structs, es, store, body_idx)
+                    }
+                    else
                     {
                         let body_expr = expr_store_get(es, body_idx)
                         symtable_fail_expr(env, "match return value type '" + infer_expr_type(env, funcs, structs, es, store, body_idx) + "' does not match '" + result_ty + "'", body_expr)
