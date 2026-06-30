@@ -217,8 +217,12 @@ int vix_resolve_import_path(const char* current_file, const char* module_path, c
                     return canonicalize_existing_path(lib_path, out, out_size);
                 }
 
-                // Bare name standard library fallback
-                snprintf(lib_path, sizeof(lib_path), "%s/std/%s", vix_home, module_path);
+                // Bare name standard library fallback: try .vix first, then /main.vix
+                snprintf(lib_path, sizeof(lib_path), "%s/std/%s.vix", vix_home, module_path);
+                if (vix_file_exists(lib_path)) {
+                    return canonicalize_existing_path(lib_path, out, out_size);
+                }
+                snprintf(lib_path, sizeof(lib_path), "%s/std/%s/main.vix", vix_home, module_path);
                 if (vix_file_exists(lib_path)) {
                     return canonicalize_existing_path(lib_path, out, out_size);
                 }
