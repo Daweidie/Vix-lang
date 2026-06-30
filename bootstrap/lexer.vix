@@ -64,37 +64,37 @@ pub fn stream_push_full(stream: &TokenStream, kind: i32, text: string, int_value
     stream.columns.push(column)
 }
 
-pub fn stream_len(stream: TokenStream): i32
+pub fn stream_len(stream: &TokenStream): i32
 {
     return stream.kinds.length
 }
 
-pub fn stream_kind_at(stream: TokenStream, index: i32): i32
+pub fn stream_kind_at(stream: &TokenStream, index: i32): i32
 {
     return stream.kinds[index]
 }
 
-pub fn stream_text_at(stream: TokenStream, index: i32): string
+pub fn stream_text_at(stream: &TokenStream, index: i32): string
 {
     return stream.texts[index]
 }
 
-pub fn stream_int_at(stream: TokenStream, index: i32): i32
+pub fn stream_int_at(stream: &TokenStream, index: i32): i32
 {
     return stream.ints[index]
 }
 
-pub fn stream_float_at(stream: TokenStream, index: i32): f64
+pub fn stream_float_at(stream: &TokenStream, index: i32): f64
 {
     return stream.floats[index]
 }
 
-pub fn stream_line_at(stream: TokenStream, index: i32): i32
+pub fn stream_line_at(stream: &TokenStream, index: i32): i32
 {
     return stream.lines[index]
 }
 
-pub fn stream_col_at(stream: TokenStream, index: i32): i32
+pub fn stream_col_at(stream: &TokenStream, index: i32): i32
 {
     return stream.columns[index]
 }
@@ -129,7 +129,7 @@ pub fn char_string(c: i8): string
 {
     let s: string = malloc(2)
     s[0] = c
-    s[1] = '\0'
+    s[1] = 0
     return s
 }
 
@@ -145,13 +145,13 @@ pub fn next_non_space_char(src: string, pos: i32): ?i8
     let mut i = pos
     while (i < src.length)
     {
-        if (src[i] == ' ' or src[i] == '\t' or src[i] == '\r' or src[i] == '\n')
+        if (src[i] == 32 or src[i] == 9 or src[i] == 13 or src[i] == 10)
         {
             i += 1
         }
         elif (src[i] == '/' and i + 1 < src.length and src[i + 1] == '/')
         {
-            while (i < src.length and src[i] != '\n') { i += 1 }
+            while (i < src.length and src[i] != 10) { i += 1 }
         }
         else
         {
@@ -161,7 +161,7 @@ pub fn next_non_space_char(src: string, pos: i32): ?i8
     return None
 }
 
-pub fn newline_should_insert_semicolon(src: string, pos: i32, stream: TokenStream): i32
+pub fn newline_should_insert_semicolon(src: string, pos: i32, stream: &TokenStream): i32
 {
     if (stream_len(stream) == 0) { return 0 }
     let last = stream_len(stream) - 1
@@ -204,15 +204,15 @@ pub fn tokenize(src: string): TokenStream
         match peek_char(src, pos)
         {
             Some(c) -> {
-                if (c == ' ' or c == '\t' or c == '\r')
+                if (c == 32 or c == 9 or c == 13)
                 {
                     pos += 1
                     column += 1
                 }
-                elif (c == '\n')
+                elif (c == 10)
                 {
                     pos += 1
-                    if (newline_should_insert_semicolon(src, pos, stream) == 1)
+                    if (newline_should_insert_semicolon(src, pos, &stream) == 1)
                     {
                         stream_push(&stream, tk_symbol(), ";", 0, line, column)
                     }
@@ -221,7 +221,7 @@ pub fn tokenize(src: string): TokenStream
                 }
                 elif (c == '/' and pos + 1 < src.length and src[pos + 1] == '/')
                 {
-                    while (pos < src.length and src[pos] != '\n')
+                    while (pos < src.length and src[pos] != 10)
                     {
                         pos += 1
                         column += 1
@@ -284,7 +284,7 @@ pub fn tokenize(src: string): TokenStream
                         stream_push(&stream, tk_number(), "", value, line, start_col)
                     }
                 }
-                elif (c == '\'')
+                elif (c == 39)
                 {
                     let start_col = column
                     pos += 1
@@ -292,7 +292,7 @@ pub fn tokenize(src: string): TokenStream
                     let mut value: i32 = 0
                     if (pos < src.length)
                     {
-                        if (src[pos] == '\\' and pos + 1 < src.length)
+                        if (src[pos] == 92 and pos + 1 < src.length)
                         {
                             let next = src[pos + 1]
                             value = match next {
@@ -300,8 +300,8 @@ pub fn tokenize(src: string): TokenStream
                                 't' -> 9
                                 'r' -> 13
                                 '0' -> 0
-                                '\\' -> 92
-                                '\'' -> 39
+                                92 -> 92
+                                39 -> 39
                                 '"' -> 34
                                 _ -> next
                             }
@@ -315,7 +315,7 @@ pub fn tokenize(src: string): TokenStream
                             column += 1
                         }
                     }
-                    if (pos < src.length and src[pos] == '\'')
+                    if (pos < src.length and src[pos] == 39)
                     {
                         pos += 1
                         column += 1
@@ -330,13 +330,13 @@ pub fn tokenize(src: string): TokenStream
                     column += 1
                     while (pos < src.length and src[pos] != '"')
                     {
-                        if (src[pos] == '\\' and pos + 1 < src.length)
+                        if (src[pos] == 92 and pos + 1 < src.length)
                         {
                             let next = src[pos + 1]
                             text = text + match next {
-                                'n' -> char_string('\n')
-                                't' -> char_string('\t')
-                                '\\' -> char_string('\\')
+                                'n' -> char_string(10)
+                                't' -> char_string(9)
+                                92 -> char_string(92)
                                 '"' -> char_string('"')
                                 _ -> char_string(next)
                             }

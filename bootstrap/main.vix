@@ -36,7 +36,7 @@ fn compiler_mode(arg: string): ?string
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
     return match arg {
-        "--lex" | "--parser" | "--ast" | "--typeinfer" | "--tyinfer" | "--semantic" | "--check" -> Some(arg)
+        "--lex" | "--parse-stats" | "--parser" | "--ast" | "--typeinfer" | "--tyinfer" | "--semantic" | "--check" -> Some(arg)
         _ -> None
     }
 }
@@ -67,6 +67,7 @@ fn print_help(): i32
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
     print("  --check                Syntax & type check only")
     print("  --lex                  Print tokens to stdout")
+    print("  --parse-stats          Print lightweight parser input statistics")
     print("  --parser               Print parse tree to stdout")
     print("  --ast                  Print AST to stdout")
     print("  --typeinfer            Print type inference result to stdout")
@@ -96,6 +97,10 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         "--lex" -> {
             print(tokenize_debug(src))
+            return Some(0)
+        }
+        "--parse-stats" -> {
+            print(parse_program_stats(src, filename))
             return Some(0)
         }
         _ -> {}

@@ -328,11 +328,9 @@ pub fn parse_postfix_continue(parser: &Parser, expr_idx: i32): i32
             parser_expect_text(parser, ")")
             if (parser.ok == 0) { return -1 }
             let func_expr = expr_store_get(parser.expr_store, expr)
-            let method_name = func_expr.text
-            let base_expr = expr_store_get(parser.expr_store, func_expr.left_idx)
-            if (method_name == "push")
+            if (func_expr.tag == "field")
             {
-                expr = parser_expr_at(parser, ast_expr_method_call(parser.expr_store, func_expr.left_idx, "push", args), line, col)
+                expr = parser_expr_at(parser, ast_expr_method_call(parser.expr_store, func_expr.left_idx, func_expr.text, args), line, col)
             }
             else
             {
@@ -408,9 +406,8 @@ pub fn parse_match_expr(parser: &Parser): i32
         
         if (parser_text(parser) == "{")
         {
-            let block_idx = parse_block_statement(parser)
+            let body_idx = parse_block_expression(parser)
             if (parser.ok == 0) { return -1 }
-            let body_idx = ast_expr_block(parser.expr_store, block_idx)
             bodies.push(body_idx)
         }
         else
@@ -427,6 +424,120 @@ pub fn parse_match_expr(parser: &Parser): i32
     if (parser.ok == 0) { return -1 }
     
     return parser_expr_at(parser, ast_expr_match(parser.expr_store, subject_idx, patterns, bodies), line, col)
+}
+
+pub fn parse_if_expr_body(parser: &Parser): i32
+{
+    if (parser_text(parser) == "{")
+    {
+        return parse_block_expression(parser)
+    }
+    return parse_expression(parser)
+}
+
+pub fn parse_if_expr(parser: &Parser): i32
+{
+    let line = parser_line(parser)
+    let col = parser_col(parser)
+    let keyword = parser_text(parser)
+    if (keyword != "if" and keyword != "elif")
+    {
+        parser_fail(parser, "expected if or elif expression")
+        return -1
+    }
+    parser_advance(parser)
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, "(")
+    if (parser.ok == 0) { return -1 }
+    let cond_idx = parse_expression(parser)
+    if (parser.ok == 0) { return -1 }
+    parser_expect_text(parser, ")")
+    if (parser.ok == 0) { return -1 }
+    let then_idx = parse_if_expr_body(parser)
+    if (parser.ok == 0) { return -1 }
+    if (parser_text(parser) == "elif")
+    {
+        let else_idx = parse_if_expr(parser)
+        if (parser.ok == 0) { return -1 }
+        return parser_expr_at(parser, ast_expr_if(parser.expr_store, cond_idx, then_idx, else_idx), line, col)
+    }
+    parser_expect_text(parser, "else")
+    if (parser.ok == 0) { return -1 }
+    let else_idx = parse_if_expr_body(parser)
+    if (parser.ok == 0) { return -1 }
+    return parser_expr_at(parser, ast_expr_if(parser.expr_store, cond_idx, then_idx, else_idx), line, col)
+}
+
+pub fn parse_block_expression(parser: &Parser): i32
+{
+    let line = parser_line(parser)
+    let col = parser_col(parser)
+    if (parser_expect_text(parser, "{") == 0) { return -1 }
+    let mut indices: [i32] = []
+    while (parser_text(parser) != "}" and parser_at_end(parser) == 0)
+    {
+        while (parser_text(parser) == ";") { parser_advance(parser) }
+        if (parser_text(parser) == "}" or parser_at_end(parser) == 1) { break }
+        let text = parser_text(parser)
+        let mut is_stmt_start = if (text == "let" or text == "return" or text == "print" or text == "while" or text == "for" or text == "break" or text == "continue" or text == "if" or text == "match" or text == "@") { 1 } else { 0 }
+        if (parser_kind(parser) == tk_ident())
+        {
+            let mut next_text = ""
+            let mut next_next_text = ""
+            if (parser.pos + 1 < stream_len(parser.stream))
+            {
+                next_text = stream_text_at(parser.stream, parser.pos + 1)
+            }
+            if (parser.pos + 2 < stream_len(parser.stream))
+            {
+                next_next_text = stream_text_at(parser.stream, parser.pos + 2)
+            }
+            if (next_text == "=" or next_text == "+=" or next_text == "-=") { is_stmt_start = 1 }
+            if (next_text == "}" or next_text == "else" or (next_text == ";" and (next_next_text == "}" or next_next_text == "else")))
+            {
+                is_stmt_start = 0
+            }
+            if (next_text == "(")
+            {
+                let mut scan_pos = parser.pos + 2
+                let mut paren_depth = 1
+                while (scan_pos < stream_len(parser.stream) and paren_depth > 0)
+                {
+                    let scan_text = stream_text_at(parser.stream, scan_pos)
+                    if (scan_text == "(") { paren_depth += 1 }
+                    elif (scan_text == ")") { paren_depth -= 1 }
+                    scan_pos += 1
+                }
+                if (scan_pos >= stream_len(parser.stream) or (stream_text_at(parser.stream, scan_pos) != "}" and stream_text_at(parser.stream, scan_pos) != "else"))
+                {
+                    is_stmt_start = 1
+                }
+            }
+        }
+        if (is_stmt_start == 0)
+        {
+            let value_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_accept_text(parser, ";")
+            parser_expect_text(parser, "}")
+            if (parser.ok == 0) { return -1 }
+            let block_idx = parser_stmt_at(parser, ast_stmt_block_indices(parser.store, indices), line, col)
+            return parser_expr_at(parser, ast_expr_block_value(parser.expr_store, block_idx, value_idx), line, col)
+        }
+        let before_pos = parser.pos
+        let stmt_idx = parse_statement(parser)
+        if (parser.ok == 0) { return -1 }
+        if (parser.pos == before_pos)
+        {
+            parser_fail(parser, "parser made no progress in expression block")
+            return -1
+        }
+        indices.push(stmt_idx)
+    }
+    parser_expect_text(parser, "}")
+    if (parser.ok == 0) { return -1 }
+    let block_idx = parser_stmt_at(parser, ast_stmt_block_indices(parser.store, indices), line, col)
+    return parser_expr_at(parser, ast_expr_block(parser.expr_store, block_idx), line, col)
 }
 
 pub fn parse_primary(parser: &Parser): i32
@@ -575,6 +686,14 @@ pub fn parse_primary(parser: &Parser): i32
     {
         return parse_match_expr(parser)
     }
+    if (parser_text(parser) == "if")
+    {
+        return parse_if_expr(parser)
+    }
+    if (parser_text(parser) == "{")
+    {
+        return parse_block_expression(parser)
+    }
     parser_fail(parser, "unexpected token in expression: '" + parser_text(parser) + "'")
     return -1
 }
@@ -603,6 +722,10 @@ pub fn parse_statement_ident(parser: &Parser): i32
             if (parser.ok == 0) { return -1 }
             parser_accept_text(parser, ";")
             let field_expr = expr_store_get(parser.expr_store, expr_idx)
+            if (field_expr.tag == "index")
+            {
+                return parser_stmt_at(parser, ast_stmt_store_index(parser.store, field_expr.left_idx, field_expr.right_idx, val_idx), line, col)
+            }
             return parser_stmt_at(parser, ast_stmt_field_assign(parser.store, field_expr.left_idx, field_expr.text, val_idx), line, col)
         }
         if (parser_text(parser) == "+=")
@@ -614,6 +737,16 @@ pub fn parse_statement_ident(parser: &Parser): i32
             let field_expr = expr_store_get(parser.expr_store, expr_idx)
             let add_idx = parser_expr_at(parser, ast_expr_binop(parser.expr_store, "+", expr_idx, rhs_idx), line, col)
             return parser_stmt_at(parser, ast_stmt_field_assign(parser.store, field_expr.left_idx, field_expr.text, add_idx), line, col)
+        }
+        if (parser_text(parser) == "-=")
+        {
+            parser_advance(parser)
+            let rhs_idx = parse_expression(parser)
+            if (parser.ok == 0) { return -1 }
+            parser_accept_text(parser, ";")
+            let field_expr = expr_store_get(parser.expr_store, expr_idx)
+            let sub_idx = parser_expr_at(parser, ast_expr_binop(parser.expr_store, "-", expr_idx, rhs_idx), line, col)
+            return parser_stmt_at(parser, ast_stmt_field_assign(parser.store, field_expr.left_idx, field_expr.text, sub_idx), line, col)
         }
         parser_accept_text(parser, ";")
         return parser_stmt_at(parser, ast_stmt_expr(parser.store, expr_idx), line, col)
@@ -701,8 +834,14 @@ pub fn parse_block_statement(parser: &Parser): i32
             parser_advance(parser)
             continue
         }
+        let before_pos = parser.pos
         let stmt_idx = parse_statement(parser)
         if (parser.ok == 0) { return -1 }
+        if (parser.pos == before_pos)
+        {
+            parser_fail(parser, "parser made no progress in block")
+            return -1
+        }
         indices.push(stmt_idx)
     }
     if (parser_expect_text(parser, "}") == 0) { return -1 }
@@ -1003,7 +1142,7 @@ pub fn parse_statement(parser: &Parser): i32
             parser_stmt_at(parser, ast_stmt_loop_control(parser.store, tag), line, col)
         }
         _ -> {
-            if (parser_kind(parser) == tk_number() or parser_kind(parser) == tk_string() or parser_kind(parser) == tk_float() or parser_kind(parser) == tk_bool() or parser_text(parser) == "nil" or parser_text(parser) == "(" or parser_text(parser) == "-" or parser_text(parser) == "!" or parser_text(parser) == "match")
+            if (parser_kind(parser) == tk_number() or parser_kind(parser) == tk_string() or parser_kind(parser) == tk_float() or parser_kind(parser) == tk_bool() or parser_text(parser) == "nil" or parser_text(parser) == "(" or parser_text(parser) == "-" or parser_text(parser) == "!" or parser_text(parser) == "match" or parser_text(parser) == "if")
             {
                 let expr_idx = parse_expression(parser)
                 if (parser.ok == 0) { return -1 }
@@ -1249,64 +1388,109 @@ pub fn parse_program(src: string, filename: string): AstProgram
     let mut extern_functions: [AstFunction] = []
     let mut structs: [AstStructDecl] = []
 
-    while (parser_text(&parser) == "extern")
+    while (parser_at_end(&parser) == 0)
     {
-        parser_expect_text(&parser, "extern")
-        if (parser.ok == 0) { return ast_program_err(parser.error) }
-        if (parser_kind(&parser) == tk_string()) { parser_advance(&parser) }
-        parser_expect_text(&parser, "{")
-        if (parser.ok == 0) { return ast_program_err(parser.error) }
-        while (parser_text(&parser) != "}" and parser_at_end(&parser) == 0)
-        {
-            if (parser_text(&parser) == ";") { parser_advance(&parser)
-                continue }
-            let extern_func = parse_extern_function(&parser)
-            if (parser.ok == 0) { return ast_program_err(parser.error) }
-            extern_functions.push(extern_func)
-        }
-        parser_expect_text(&parser, "}")
-        if (parser.ok == 0) { return ast_program_err(parser.error) }
-    }
-    while (parser_text(&parser) == "type")
-    {
-        let decl = parse_struct_decl(&parser)
-        if (parser.ok == 0) { return ast_program_err(parser.error) }
-        structs.push(decl)
         while (parser_text(&parser) == ";") { parser_advance(&parser) }
-    }
-    while (parser_text(&parser) == "pub")
-    {
-        let next_text = stream_text_at(parser.stream, parser.pos + 1)
-        if (next_text == "type")
+        if (parser_at_end(&parser) == 1) { break }
+        let before_pos = parser.pos
+        if (parser_text(&parser) == "extern")
+        {
+            parser_expect_text(&parser, "extern")
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            if (parser_kind(&parser) == tk_string()) { parser_advance(&parser) }
+            parser_expect_text(&parser, "{")
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            while (parser_text(&parser) != "}" and parser_at_end(&parser) == 0)
+            {
+                if (parser_text(&parser) == ";")
+                {
+                    parser_advance(&parser)
+                    continue
+                }
+                let extern_func = parse_extern_function(&parser)
+                if (parser.ok == 0) { return ast_program_err(parser.error) }
+                extern_functions.push(extern_func)
+            }
+            parser_expect_text(&parser, "}")
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+        }
+        elif (parser_text(&parser) == "type" or (parser_text(&parser) == "pub" and stream_text_at(parser.stream, parser.pos + 1) == "type"))
         {
             let decl = parse_struct_decl(&parser)
             if (parser.ok == 0) { return ast_program_err(parser.error) }
             structs.push(decl)
-            while (parser_text(&parser) == ";") { parser_advance(&parser) }
+        }
+        elif (parser_text(&parser) == "fn" or parser_text(&parser) == "pub")
+        {
+            let func = parse_function(&parser)
+            if (parser.ok == 0) { return ast_program_err(parser.error) }
+            functions.push(func)
         }
         else
         {
-            let func = parse_function(&parser)
-            if (parser.ok == 0) { return ast_program_err(parser.error) }
-            functions.push(func)
+            parser_fail(&parser, "expected top-level declaration, got '" + parser_text(&parser) + "'")
+            return ast_program_err(parser.error)
         }
-    }
-    if (parser_text(&parser) == "fn" or parser_text(&parser) == "pub")
-    {
-        if (parser_text(&parser) == "pub") { parser_advance(&parser) }
-        let first_func = parse_function(&parser)
-        if (parser.ok == 0) { return ast_program_err(parser.error) }
-        functions.push(first_func)
-        while (parser_text(&parser) == "fn" or parser_text(&parser) == "pub")
+        if (parser.pos == before_pos)
         {
-            let func = parse_function(&parser)
-            if (parser.ok == 0) { return ast_program_err(parser.error) }
-            functions.push(func)
+            parser_fail(&parser, "parser made no progress at top-level declaration")
+            return ast_program_err(parser.error)
         }
     }
-    elif (functions.length == 0)
+    if (functions.length == 0)
     {
         return ast_program_err("expected function")
     }
     return ast_program_ok_functions_with_externs_and_structs(functions, extern_functions, structs, parser.expr_store, parser.store)
+}
+
+pub fn parse_program_stats(src: string, filename: string): string
+{
+    let mut imports = import_set_new()
+    return parse_program_stats_source(src, filename, &imports)
+}
+
+pub fn parse_program_stats_source(src: string, filename: string, imports: &ImportSet): string
+{
+    let mut extern_count = 0
+    let mut type_count = 0
+    let mut fn_count = 0
+    let mut token_count = 0
+    let mut i = 0
+    while (i < src.length)
+    {
+        if (src[i] == '#')
+        {
+            i = skip_attr_line(src, i)
+            continue
+        }
+        let import_end = scan_import_line(src, i)
+        if (import_end > i)
+        {
+            let path = extract_import_path(src, i)
+            if (path != "" and import_set_contains(imports, path) == 0)
+            {
+                import_set_add(imports, path)
+                let resolved = resolve_import_path(filename, path)
+                let content = read_file_content(resolved)
+                if (content != "")
+                {
+                    let child = parse_program_stats_source(content, path, imports)
+                }
+            }
+            i = import_end
+            continue
+        }
+        i += 1
+    }
+    let stream = tokenize(src)
+    for (k in 0 .. stream_len(&stream))
+    {
+        let text = stream_text_at(&stream, k)
+        if (text == "extern") { extern_count += 1 }
+        elif (text == "type") { type_count += 1 }
+        elif (text == "fn") { fn_count += 1 }
+        token_count += 1
+    }
+    return "ParseStats(tokens=" + ast_i32(token_count) + ", imports=" + ast_i32(imports.paths.length) + ", externs=" + ast_i32(extern_count) + ", types=" + ast_i32(type_count) + ", functions=" + ast_i32(fn_count) + ")"
 }

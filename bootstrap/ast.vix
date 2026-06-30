@@ -277,9 +277,19 @@ pub fn ast_expr_match(store: &ExprStore, subject_idx: i32, patterns: [i32], bodi
     return expr_store_add(store, AstExpr{ tag: "match_expr", text: "", int_value: 0, float_value: 0.0, left_idx: subject_idx, right_idx: -1, args: merged, field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 })
 }
 
+pub fn ast_expr_if(store: &ExprStore, cond_idx: i32, then_idx: i32, else_idx: i32): i32
+{
+    return expr_store_add(store, AstExpr{ tag: "if_expr", text: "", int_value: 0, float_value: 0.0, left_idx: cond_idx, right_idx: then_idx, args: [else_idx], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 })
+}
+
 pub fn ast_expr_block(store: &ExprStore, stmt_idx: i32): i32
 {
     return expr_store_add(store, AstExpr{ tag: "block_expr", text: "", int_value: 0, float_value: 0.0, left_idx: stmt_idx, right_idx: -1, args: [], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 })
+}
+
+pub fn ast_expr_block_value(store: &ExprStore, stmt_idx: i32, value_idx: i32): i32
+{
+    return expr_store_add(store, AstExpr{ tag: "block_expr", text: "", int_value: 0, float_value: 0.0, left_idx: stmt_idx, right_idx: value_idx, args: [], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 })
 }
 
 pub fn ast_expr_option_has_value(store: &ExprStore, idx: i32): i32
@@ -478,6 +488,7 @@ pub fn ast_expr_debug(store: &ExprStore, idx: i32): string
         "field" -> ast_expr_debug(store, expr.left_idx) + "." + expr.text
         "struct_literal" -> expr.text + "{...}"
         "option" -> if (expr.option_has_value == 1) { "Some(" + expr.option_value + ")" } else { "None" }
+        "if_expr" -> "if (...)"
         _ -> expr.tag
     }
 }
@@ -514,6 +525,7 @@ pub fn expr_tag_to_type(tag: string): string
         "field" -> "FieldExpression"
         "struct_literal" -> "StructLiteral"
         "option" -> "OptionExpression"
+        "if_expr" -> "IfExpression"
         _ -> tag
     }
 }
@@ -607,6 +619,17 @@ pub fn ast_expr_yaml(store: &ExprStore, idx: i32, depth: i32): string
         } else
         {
             indent + "type: OptionExpression\n" + indent1 + "none: true\n"
+        }
+        "if_expr" ->
+        {
+            let mut out = indent + "type: IfExpression\n"
+            out = out + indent1 + "condition:\n"
+            out = out + ast_expr_yaml(store, expr.left_idx, depth + 2)
+            out = out + indent1 + "then:\n"
+            out = out + ast_expr_yaml(store, expr.right_idx, depth + 2)
+            out = out + indent1 + "else:\n"
+            out = out + ast_expr_yaml(store, expr.args[0], depth + 2)
+            out
         }
         _ -> indent + "type: " + expr.tag + "\n"
     }

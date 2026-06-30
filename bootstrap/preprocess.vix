@@ -66,12 +66,12 @@ pub fn skip_attr_line(src: string, start: i32): i32
     let mut done = 0
     while (i < src.length and done == 0)
     {
-        if (src[i] == '\n')
+        if (src[i] == 10)
         {
             i += 1
             done = 1
         }
-        elif (src[i] != ' ' and src[i] != '\t' and src[i] != '\r')
+        elif (src[i] != 32 and src[i] != 9 and src[i] != 13)
         {
             done = 1
         }
@@ -88,9 +88,9 @@ pub fn scan_import_line(src: string, start: i32): i32
     if (start > 0)
     {
         let mut j = start - 1
-        while (j >= 0 and src[j] != '\n')
+        while (j >= 0 and src[j] != 10)
         {
-            if (src[j] != ' ' and src[j] != '\t' and src[j] != '\r') { return -1 }
+            if (src[j] != 32 and src[j] != 9 and src[j] != 13) { return -1 }
             j -= 1
         }
     }
@@ -102,13 +102,13 @@ pub fn scan_import_line(src: string, start: i32): i32
         if (src[i + k] != keyword[k]) { return -1 }
     }
     i += 6
-    while (i < src.length and (src[i] == ' ' or src[i] == '\t')) { i += 1 }
+    while (i < src.length and (src[i] == 32 or src[i] == 9)) { i += 1 }
     if (i >= src.length or src[i] != '"') { return -1 }
     i += 1
-    while (i < src.length and src[i] != '\n' and src[i] != '"') { i += 1 }
+    while (i < src.length and src[i] != 10 and src[i] != '"') { i += 1 }
     if (i >= src.length or src[i] != '"') { return -1 }
     i += 1
-    while (i < src.length and src[i] != '\n') { i += 1 }
+    while (i < src.length and src[i] != 10) { i += 1 }
     if (i < src.length) { i += 1 }
     return i
 }
@@ -116,7 +116,7 @@ pub fn scan_import_line(src: string, start: i32): i32
 pub fn extract_import_path(src: string, start: i32): string
 {
     let mut i = start + 6
-    while (i < src.length and (src[i] == ' ' or src[i] == '\t')) { i += 1 }
+    while (i < src.length and (src[i] == 32 or src[i] == 9)) { i += 1 }
     if (i >= src.length or src[i] != '"') { return "" }
     i += 1
     let mut path = ""
@@ -128,22 +128,46 @@ pub fn extract_import_path(src: string, start: i32): string
     return path
 }
 
+pub fn slice_text(src: string, start: i32, end: i32): string
+{
+    let len = end - start
+    let out = malloc(len + 1)
+    let mut j = 0
+    for (i in start .. end)
+    {
+        out[j] = src[i]
+        j += 1
+    }
+    out[len] = 0
+    return out
+}
+
 pub fn preprocess_source(src: string, filename: string, imports: &ImportSet): string
 {
     let mut out = ""
     let mut i = 0
+    let mut segment_start = 0
     
     while (i < src.length)
     {
-        if (src[i] == '#')
+        if (src[i] == '#' and i + 1 < src.length and src[i + 1] == '[')
         {
+            if (segment_start < i)
+            {
+                out = out + slice_text(src, segment_start, i)
+            }
             i = skip_attr_line(src, i)
+            segment_start = i
             continue
         }
         
         let import_end = scan_import_line(src, i)
         if (import_end > i)
         {
+            if (segment_start < i)
+            {
+                out = out + slice_text(src, segment_start, i)
+            }
             let path = extract_import_path(src, i)
             if (path != "")
             {
@@ -155,16 +179,20 @@ pub fn preprocess_source(src: string, filename: string, imports: &ImportSet): st
                     if (content != "")
                     {
                         let processed = preprocess_source(content, path, imports)
-                        out = out + processed
+                        out = out + processed + "\n"
                     }
                 }
             }
             i = import_end
+            segment_start = i
             continue
         }
         
-        out = out + char_string(src[i])
         i += 1
+    }
+    if (segment_start < src.length)
+    {
+        out = out + slice_text(src, segment_start, src.length)
     }
     return out
 }

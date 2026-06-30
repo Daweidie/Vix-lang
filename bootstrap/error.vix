@@ -153,7 +153,7 @@ pub fn source_get_line(src: string, target_line: i32): string
 
     for (i in 0 .. src.length)
     {
-        if (src[i] == '\n')
+        if (src[i] == 10)
         {
             current += 1
         }
@@ -174,12 +174,12 @@ pub fn source_get_line(src: string, target_line: i32): string
     }
 
     let mut end = line_start
-    while (end < src.length and src[end] != '\n')
+    while (end < src.length and src[end] != 10)
     {
         end += 1
     }
     let mut len = end - line_start
-    if (len > 0 and src[end - 1] == '\r') { len = len - 1 }
+    if (len > 0 and src[end - 1] == 13) { len = len - 1 }
 
     let buf: string = malloc(len + 1)
     for (i in 0 .. len)
@@ -233,7 +233,7 @@ pub fn format_caret_line(line: string, col: i32, length: i32, color: string): st
     let mut i = 0
     while (i < safe_col - 1 and i < line.length)
     {
-        if (line[i] == '\t')
+        if (line[i] == 9)
         {
             display_col = ((display_col / 8) + 1) * 8
         }

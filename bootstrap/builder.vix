@@ -227,7 +227,7 @@ pub fn strip_ptr_prefix(ty: string): string
     {
         let s: string = malloc(2)
         s[0] = ty[i]
-        s[1] = '\0'
+        s[1] = 0
         result = result + s
     }
     return result
@@ -247,7 +247,7 @@ pub fn type_text_option_inner(ty: string): string
     {
         let s: string = malloc(2)
         s[0] = ty[i]
-        s[1] = '\0'
+        s[1] = 0
         result = result + s
     }
     return result

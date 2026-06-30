@@ -128,7 +128,7 @@ pub fn symtable_assign(table: &SymbolTable, name: string, ty: string)
     let idx = symtable_lookup_index(table, name)
     if (idx < 0)
     {
-        symtable_fail(table, "undefined symbol '" + name + "'")
+        symtable_fail(table, "undefined symbol in assign '" + name + "'")
         return
     }
     table.types[idx] = ty
@@ -141,7 +141,7 @@ pub fn symtable_lookup(table: &SymbolTable, name: string): string
     {
         return table.types[idx]
     }
-    symtable_fail(table, "undefined symbol '" + name + "'")
+    symtable_fail(table, "undefined symbol in lookup '" + name + "'")
     return "unknown"
 }
 
@@ -152,6 +152,6 @@ pub fn symtable_is_mutable(table: &SymbolTable, name: string): i32
     {
         return table.mutable[idx]
     }
-    symtable_fail(table, "undefined symbol '" + name + "'")
+    symtable_fail(table, "undefined symbol in mutable lookup '" + name + "'")
     return 0
 }

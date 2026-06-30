@@ -76,6 +76,12 @@ pub fn type_is_option_text(ty: string): i32
     return 0
 }
 
+pub fn type_is_array_text_semantic(ty: string): i32
+{
+    if (ty.length > 2 and ty[0] == '[') { return 1 }
+    return 0
+}
+
 pub fn type_option_inner(ty: string): string
 {
     if (type_is_option_text(ty) == 0) { return "unknown" }
@@ -84,7 +90,7 @@ pub fn type_option_inner(ty: string): string
     {
         let s: string = malloc(2)
         s[0] = ty[i]
-        s[1] = '\0'
+        s[1] = 0
         result = result + s
     }
     return result
@@ -94,6 +100,7 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
 {
     if (target_ty == "" or target_ty == "unknown" or value_ty == "unknown") { return 1 }
     if (target_ty == value_ty) { return 1 }
+    if (type_is_array_text_semantic(target_ty) == 1 and value_ty == "[unknown]") { return 1 }
     if (type_is_option_text(target_ty) == 1 and type_is_option_text(value_ty) == 1)
     {
         let target_inner = type_option_inner(target_ty)
@@ -101,14 +108,17 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
         if (value_inner == "unknown") { return 1 }
         return type_can_assign(target_inner, value_inner)
     }
-    if (type_is_concrete_int(target_ty) == 1 and type_is_concrete_int(value_ty) == 1)
+    if (type_is_integer(target_ty) == 1 and type_is_integer(value_ty) == 1)
     {
-        if (type_int_width(target_ty) >= type_int_width(value_ty)) { return 1 }
-        return 0
+        return 1
     }
     if ((target_ty == "f32" or target_ty == "f64") and type_is_numeric(value_ty) == 1) { return 1 }
     if (is_ptr_to_struct_semantic(target_ty) == 1 and value_ty == "ptr") { return 1 }
+    if (is_ptr_to_struct_semantic(target_ty) == 1 and strip_ptr_prefix_semantic(target_ty) == value_ty) { return 1 }
     if (target_ty == "ptr" and is_ptr_to_struct_semantic(value_ty) == 1) { return 1 }
+    if (target_ty == "ptr" and value_ty == "string") { return 1 }
+    if (target_ty == "ptr" and type_is_array_text_semantic(value_ty) == 1) { return 1 }
+    if (target_ty == "ptr" and type_is_integer(value_ty) == 1) { return 1 }
     return 0
 }
 
@@ -116,6 +126,20 @@ pub fn is_ptr_to_struct_semantic(ty: string): i32
 {
     if (ty.length > 4 and ty[0] == 'p' and ty[1] == 't' and ty[2] == 'r' and ty[3] == ':') { return 1 }
     return 0
+}
+
+pub fn strip_ptr_prefix_semantic(ty: string): string
+{
+    if (is_ptr_to_struct_semantic(ty) == 0) { return ty }
+    let mut result = ""
+    for (i in 4 .. ty.length)
+    {
+        let s: string = malloc(2)
+        s[0] = ty[i]
+        s[1] = 0
+        result = result + s
+    }
+    return result
 }
 
 pub fn type_category(ty: string): string
@@ -428,12 +452,29 @@ pub fn semantic_check_expr(scope: &SemanticScope, program: AstProgram, idx: i32,
                 }
                 if (body_idx >= 0)
                 {
+                    semantic_scope_push(scope)
+                    semantic_declare_match_binding(scope, program, pattern_idx, result, source, filename, func_name)
                     semantic_check_expr(scope, program, body_idx, result, source, filename, func_name)
+                    semantic_scope_pop(scope)
                 }
             }
         }
+        "if_expr" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, expr.right_idx, result, source, filename, func_name)
+            if (expr.args.length > 0)
+            {
+                semantic_check_expr(scope, program, expr.args[0], result, source, filename, func_name)
+            }
+        }
         "block_expr" -> {
-            semantic_check_stmt(scope, program, expr.left_idx, result, source, filename, func_name)
+            semantic_scope_push(scope)
+            semantic_check_block_stmt_in_current_scope(scope, program, expr.left_idx, result, source, filename, func_name)
+            if (expr.right_idx >= 0)
+            {
+                semantic_check_expr(scope, program, expr.right_idx, result, source, filename, func_name)
+            }
+            semantic_scope_pop(scope)
         }
         _ -> {}
     }
@@ -568,6 +609,32 @@ pub fn semantic_check_stmt(scope: &SemanticScope, program: AstProgram, stmt_idx:
     }
 }
 
+pub fn semantic_check_block_stmt_in_current_scope(scope: &SemanticScope, program: AstProgram, stmt_idx: i32, result: &SemanticResult, source: string, filename: string, func_name: string)
+{
+    if (stmt_idx < 0) { return }
+    let stmt_store = program.store
+    let stmt = stmt_store_get(&stmt_store, stmt_idx)
+    if (stmt.tag != "block")
+    {
+        semantic_check_stmt(scope, program, stmt_idx, result, source, filename, func_name)
+        return
+    }
+    if (stmt.stmt_indices.length > 0)
+    {
+        for (i in 0 .. stmt.stmt_indices.length)
+        {
+            semantic_check_stmt(scope, program, stmt.stmt_indices[i], result, source, filename, func_name)
+        }
+    }
+    else
+    {
+        for (i in 0 .. stmt.block_count)
+        {
+            semantic_check_stmt(scope, program, stmt.block_start + i, result, source, filename, func_name)
+        }
+    }
+}
+
 pub fn semantic_check_function_body(func: AstFunction, program: AstProgram, result: &SemanticResult, source: string, filename: string)
 {
     let scope = semantic_scope_new()
@@ -578,13 +645,25 @@ pub fn semantic_check_function_body(func: AstFunction, program: AstProgram, resu
     semantic_check_stmt(&scope, program, func.body_idx, result, source, filename, func.name)
 }
 
+pub fn semantic_function_signature_equal(a: AstFunction, b: AstFunction): i32
+{
+    if (a.ret_ty != b.ret_ty) { return 0 }
+    if (a.param_types.length != b.param_types.length) { return 0 }
+    if (a.is_var_arg != b.is_var_arg) { return 0 }
+    for (i in 0 .. a.param_types.length)
+    {
+        if (a.param_types[i] != b.param_types[i]) { return 0 }
+    }
+    return 1
+}
+
 pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFunction], result: &SemanticResult, source: string, filename: string)
 {
     for (i in 0 .. funcs.length)
     {
         for (j in (i + 1) .. funcs.length)
         {
-            if (funcs[i].name == funcs[j].name)
+            if (funcs[i].name == funcs[j].name and semantic_function_signature_equal(funcs[i], funcs[j]) == 0)
             {
                 semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + funcs[i].name + "'", "", funcs[j].line, funcs[j].col)
             }
@@ -594,7 +673,7 @@ pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFun
     {
         for (j in (i + 1) .. externs.length)
         {
-            if (externs[i].name == externs[j].name)
+            if (externs[i].name == externs[j].name and semantic_function_signature_equal(externs[i], externs[j]) == 0)
             {
                 semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + externs[i].name + "'", "", externs[j].line, externs[j].col)
             }
