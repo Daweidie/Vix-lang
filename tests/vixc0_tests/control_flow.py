@@ -1,12 +1,13 @@
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parent.parent
-VIXC0 = ROOT / "vixc0" / "vixc0"
+ROOT = Path(__file__).resolve().parent.parent.parent
+VIXC0 = ROOT / "bootstrap" / "vixc0"
 
 
 @pytest.fixture(scope="session")
@@ -17,7 +18,7 @@ def vixc0_binary():
         pytest.skip("make is required to build vixc0")
 
     result = subprocess.run(
-        ["make", "-C", str(ROOT / "vixc0"), "clean", "all"],
+        ["make", "-C", str(ROOT / "bootstrap"), "clean", "all"],
         capture_output=True,
         text=True,
         timeout=60,
@@ -25,17 +26,23 @@ def vixc0_binary():
     if result.returncode != 0:
         pytest.fail(result.stdout + result.stderr)
     if not VIXC0.exists():
-        pytest.fail("vixc0 build completed without producing vixc0/vixc0")
+        pytest.fail("vixc0 build completed without producing bootstrap/vixc0")
     return VIXC0
 
 
 def run_vixc0(vixc0: Path, source: str, *args: str):
-    return subprocess.run(
-        [str(vixc0), *args, source],
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".vix", delete=False) as src:
+        src.write(source)
+        src_path = src.name
+    try:
+        return subprocess.run(
+            [str(vixc0), *args, src_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    finally:
+        Path(src_path).unlink(missing_ok=True)
 
 
 def test_vixc0_lexes_if_elif_else_keywords(vixc0_binary):

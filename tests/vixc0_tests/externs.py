@@ -1,6 +1,6 @@
 import subprocess
 
-from test_vixc0_control_flow import run_vixc0, vixc0_binary
+from control_flow import run_vixc0, vixc0_binary
 
 
 def test_vixc0_parses_extern_block_ast(vixc0_binary):
@@ -66,6 +66,6 @@ fn main(): i32 {
 
     result = run_vixc0(vixc0_binary, src, "--typeinfer")
 
-    assert result.returncode == 0
-    assert "TypeError" in result.stdout
-    assert "duplicate function 'foo'" in result.stdout
+    assert result.returncode == 1
+    assert "NameError" in result.stdout
+    assert "function 'foo' redeclared as extern" in result.stdout

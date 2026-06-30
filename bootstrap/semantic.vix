@@ -107,6 +107,14 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
         return 0
     }
     if ((target_ty == "f32" or target_ty == "f64") and type_is_numeric(value_ty) == 1) { return 1 }
+    if (is_ptr_to_struct_semantic(target_ty) == 1 and value_ty == "ptr") { return 1 }
+    if (target_ty == "ptr" and is_ptr_to_struct_semantic(value_ty) == 1) { return 1 }
+    return 0
+}
+
+pub fn is_ptr_to_struct_semantic(ty: string): i32
+{
+    if (ty.length > 4 and ty[0] == 'p' and ty[1] == 't' and ty[2] == 'r' and ty[3] == ':') { return 1 }
     return 0
 }
 
@@ -170,6 +178,406 @@ pub fn semantic_add_warning(result: &SemanticResult, filename: string, error_typ
     result.warning_count += 1
 }
 
+pub type SemanticScope = struct {
+    names: [string],
+    depths: [i32],
+    depth: i32
+}
+
+pub fn semantic_scope_new(): SemanticScope
+{
+    return SemanticScope{ names: [], depths: [], depth: 0 }
+}
+
+pub fn semantic_scope_push(scope: &SemanticScope)
+{
+    scope.depth += 1
+}
+
+pub fn semantic_scope_truncate(scope: &SemanticScope, keep: i32)
+{
+    let mut new_names: [string] = []
+    let mut new_depths: [i32] = []
+    for (i in 0 .. keep)
+    {
+        new_names.push(scope.names[i])
+        new_depths.push(scope.depths[i])
+    }
+    scope.names = new_names
+    scope.depths = new_depths
+}
+
+pub fn semantic_scope_pop(scope: &SemanticScope)
+{
+    if (scope.depth > 0)
+    {
+        let mut keep = scope.names.length
+        while (keep > 0 and scope.depths[keep - 1] >= scope.depth)
+        {
+            keep -= 1
+        }
+        semantic_scope_truncate(scope, keep)
+        scope.depth -= 1
+    }
+}
+
+pub fn semantic_scope_find_current(scope: &SemanticScope, name: string): i32
+{
+    for (i in 0 .. scope.names.length)
+    {
+        if (scope.names[i] == name and scope.depths[i] == scope.depth)
+        {
+            return i
+        }
+    }
+    return -1
+}
+
+pub fn semantic_scope_lookup(scope: &SemanticScope, name: string): i32
+{
+    let mut i = scope.names.length - 1
+    while (i >= 0)
+    {
+        if (scope.names[i] == name and scope.depths[i] <= scope.depth)
+        {
+            return i
+        }
+        i -= 1
+    }
+    return -1
+}
+
+pub fn semantic_scope_declare(scope: &SemanticScope, result: &SemanticResult, source: string, filename: string, func_name: string, name: string, line: i32, col: i32): i32
+{
+    if (semantic_scope_find_current(scope, name) >= 0)
+    {
+        semantic_add_error_loc(result, source, filename, "NameError", "duplicate symbol '" + name + "'", func_name, line, col)
+        return 0
+    }
+    scope.names.push(name)
+    scope.depths.push(scope.depth)
+    return 1
+}
+
+pub fn semantic_scope_declare_existing(scope: &SemanticScope, name: string)
+{
+    if (semantic_scope_find_current(scope, name) < 0)
+    {
+        scope.names.push(name)
+        scope.depths.push(scope.depth)
+    }
+}
+
+pub fn semantic_scope_require(scope: &SemanticScope, result: &SemanticResult, source: string, filename: string, func_name: string, name: string, line: i32, col: i32)
+{
+    if (name == "_") { return }
+    if (semantic_scope_lookup(scope, name) < 0)
+    {
+        semantic_add_error_loc(result, source, filename, "NameError", "undefined symbol '" + name + "'", func_name, line, col)
+    }
+}
+
+pub fn semantic_find_extern_function(funcs: [AstFunction], name: string): i32
+{
+    for (i in 0 .. funcs.length)
+    {
+        if (funcs[i].name == name) { return i }
+    }
+    return -1
+}
+
+pub fn semantic_find_function_any(funcs: [AstFunction], externs: [AstFunction], name: string): i32
+{
+    let idx = semantic_find_function(funcs, name)
+    if (idx >= 0) { return idx }
+    return semantic_find_extern_function(externs, name)
+}
+
+pub fn semantic_find_struct(structs: [AstStructDecl], name: string): i32
+{
+    for (i in 0 .. structs.length)
+    {
+        if (structs[i].name == name) { return i }
+    }
+    return -1
+}
+
+pub fn semantic_struct_find_field(decl: AstStructDecl, field_name: string): i32
+{
+    for (i in 0 .. decl.field_names.length)
+    {
+        if (decl.field_names[i] == field_name) { return i }
+    }
+    return -1
+}
+
+pub fn semantic_check_struct_literal_fields(expr: AstExpr, structs: [AstStructDecl], result: &SemanticResult, source: string, filename: string, func_name: string)
+{
+    let struct_idx = semantic_find_struct(structs, expr.text)
+    if (struct_idx < 0)
+    {
+        semantic_add_error_loc(result, source, filename, "NameError", "unknown struct '" + expr.text + "'", func_name, expr.line, expr.col)
+        return
+    }
+    let decl = structs[struct_idx]
+    for (i in 0 .. expr.field_names.length)
+    {
+        let field_name = expr.field_names[i]
+        for (j in (i + 1) .. expr.field_names.length)
+        {
+            if (field_name == expr.field_names[j])
+            {
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate initializer field '" + field_name + "' in struct '" + expr.text + "'", func_name, expr.line, expr.col)
+            }
+        }
+        if (semantic_struct_find_field(decl, field_name) < 0)
+        {
+            semantic_add_error_loc(result, source, filename, "NameError", "unknown field '" + field_name + "' on struct '" + expr.text + "'", func_name, expr.line, expr.col)
+        }
+    }
+    for (i in 0 .. decl.field_names.length)
+    {
+        let mut found = 0
+        for (j in 0 .. expr.field_names.length)
+        {
+            if (decl.field_names[i] == expr.field_names[j]) { found = 1 }
+        }
+        if (found == 0)
+        {
+            semantic_add_error_loc(result, source, filename, "NameError", "missing field '" + decl.field_names[i] + "' in struct '" + expr.text + "'", func_name, expr.line, expr.col)
+        }
+    }
+}
+
+pub fn semantic_check_expr(scope: &SemanticScope, program: AstProgram, idx: i32, result: &SemanticResult, source: string, filename: string, func_name: string)
+{
+    if (idx < 0) { return }
+    let expr_store = program.expr_store
+    let expr = expr_store_get(&expr_store, idx)
+    match expr.tag
+    {
+        "ident" -> {
+            semantic_scope_require(scope, result, source, filename, func_name, expr.text, expr.line, expr.col)
+        }
+        "addr" -> {
+            semantic_scope_require(scope, result, source, filename, func_name, expr.text, expr.line, expr.col)
+        }
+        "deref" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+        }
+        "field" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+        }
+        "struct_literal" -> {
+            semantic_check_struct_literal_fields(expr, program.structs, result, source, filename, func_name)
+            for (i in 0 .. expr.args.length)
+            {
+                semantic_check_expr(scope, program, expr.args[i], result, source, filename, func_name)
+            }
+        }
+        "call" -> {
+            if (semantic_find_function_any(program.functions, program.extern_functions, expr.text) < 0)
+            {
+                semantic_add_error_loc(result, source, filename, "NameError", "undefined function '" + expr.text + "'", func_name, expr.line, expr.col)
+            }
+            for (i in 0 .. expr.args.length)
+            {
+                semantic_check_expr(scope, program, expr.args[i], result, source, filename, func_name)
+            }
+        }
+        "index" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, expr.right_idx, result, source, filename, func_name)
+        }
+        "unaryop" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+        }
+        "binop" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, expr.right_idx, result, source, filename, func_name)
+        }
+        "array_literal" -> {
+            for (i in 0 .. expr.args.length)
+            {
+                semantic_check_expr(scope, program, expr.args[i], result, source, filename, func_name)
+            }
+        }
+        "option" -> {
+            if (expr.left_idx >= 0)
+            {
+                semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+            }
+        }
+        "method_call" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+            for (i in 0 .. expr.args.length)
+            {
+                semantic_check_expr(scope, program, expr.args[i], result, source, filename, func_name)
+            }
+        }
+        "match_expr" -> {
+            semantic_check_expr(scope, program, expr.left_idx, result, source, filename, func_name)
+            let num_arms = expr.args.length / 2
+            for (i in 0 .. num_arms)
+            {
+                let pattern_idx = expr.args[i * 2]
+                let body_idx = expr.args[i * 2 + 1]
+                if (pattern_idx >= 0)
+                {
+                    semantic_check_match_pattern(scope, program, pattern_idx, result, source, filename, func_name)
+                }
+                if (body_idx >= 0)
+                {
+                    semantic_check_expr(scope, program, body_idx, result, source, filename, func_name)
+                }
+            }
+        }
+        "block_expr" -> {
+            semantic_check_stmt(scope, program, expr.left_idx, result, source, filename, func_name)
+        }
+        _ -> {}
+    }
+}
+
+pub fn semantic_check_match_pattern(scope: &SemanticScope, program: AstProgram, idx: i32, result: &SemanticResult, source: string, filename: string, func_name: string)
+{
+    if (idx < 0) { return }
+    let expr_store = program.expr_store
+    let expr = expr_store_get(&expr_store, idx)
+    if (expr.tag == "option" and expr.option_has_value == 1 and expr.left_idx >= 0)
+    {
+        let bind_expr = expr_store_get(&expr_store, expr.left_idx)
+        if (bind_expr.tag == "ident")
+        {
+            return
+        }
+    }
+    semantic_check_expr(scope, program, idx, result, source, filename, func_name)
+}
+
+pub fn semantic_declare_match_binding(scope: &SemanticScope, program: AstProgram, pattern_idx: i32, result: &SemanticResult, source: string, filename: string, func_name: string)
+{
+    if (pattern_idx < 0) { return }
+    let expr_store = program.expr_store
+    let pattern_expr = expr_store_get(&expr_store, pattern_idx)
+    if (pattern_expr.tag == "option" and pattern_expr.option_has_value == 1 and pattern_expr.left_idx >= 0)
+    {
+        let bind_expr = expr_store_get(&expr_store, pattern_expr.left_idx)
+        if (bind_expr.tag == "ident" and bind_expr.text != "_")
+        {
+            let __decl = semantic_scope_declare(scope, result, source, filename, func_name, bind_expr.text, bind_expr.line, bind_expr.col)
+        }
+    }
+}
+
+pub fn semantic_check_stmt(scope: &SemanticScope, program: AstProgram, stmt_idx: i32, result: &SemanticResult, source: string, filename: string, func_name: string)
+{
+    if (stmt_idx < 0) { return }
+    let stmt_store = program.store
+    let stmt = stmt_store_get(&stmt_store, stmt_idx)
+    match stmt.tag
+    {
+        "let" -> {
+            semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
+            let __decl = semantic_scope_declare(scope, result, source, filename, func_name, stmt.assign_name, stmt.line, stmt.col)
+        }
+        "assign" -> {
+            semantic_scope_require(scope, result, source, filename, func_name, stmt.assign_name, stmt.line, stmt.col)
+            semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
+        }
+        "store_deref" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
+        }
+        "store_index" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, stmt.direct_ret, result, source, filename, func_name)
+            semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
+        }
+        "field_assign" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
+        }
+        "return_expr" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+        }
+        "print" -> {
+            semantic_check_expr(scope, program, stmt.print_idx, result, source, filename, func_name)
+        }
+        "expr" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+        }
+        "block" -> {
+            semantic_scope_push(scope)
+            if (stmt.stmt_indices.length > 0)
+            {
+                for (i in 0 .. stmt.stmt_indices.length)
+                {
+                    semantic_check_stmt(scope, program, stmt.stmt_indices[i], result, source, filename, func_name)
+                }
+            }
+            else
+            {
+                for (i in 0 .. stmt.block_count)
+                {
+                    semantic_check_stmt(scope, program, stmt.block_start + i, result, source, filename, func_name)
+                }
+            }
+            semantic_scope_pop(scope)
+        }
+        "while" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            semantic_check_stmt(scope, program, stmt.body_idx, result, source, filename, func_name)
+        }
+        "for_range" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
+            if (semantic_scope_lookup(scope, stmt.assign_name) >= 0)
+            {
+                semantic_add_error_loc(result, source, filename, "NameError", "for iterator '" + stmt.assign_name + "' conflicts with existing symbol", func_name, stmt.line, stmt.col)
+            }
+            semantic_scope_push(scope)
+            semantic_scope_declare_existing(scope, stmt.assign_name)
+            semantic_check_stmt(scope, program, stmt.body_idx, result, source, filename, func_name)
+            semantic_scope_pop(scope)
+        }
+        "if" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            semantic_check_stmt(scope, program, stmt.body_idx, result, source, filename, func_name)
+            if (stmt.assign_idx >= 0)
+            {
+                semantic_check_stmt(scope, program, stmt.assign_idx, result, source, filename, func_name)
+            }
+        }
+        "match" -> {
+            semantic_check_expr(scope, program, stmt.value_idx, result, source, filename, func_name)
+            for (i in 0 .. stmt.match_pattern_indices.length)
+            {
+                let pattern_idx = stmt.match_pattern_indices[i]
+                if (pattern_idx >= 0)
+                {
+                    semantic_check_match_pattern(scope, program, pattern_idx, result, source, filename, func_name)
+                }
+                semantic_scope_push(scope)
+                semantic_declare_match_binding(scope, program, pattern_idx, result, source, filename, func_name)
+                semantic_check_stmt(scope, program, stmt.match_body_indices[i], result, source, filename, func_name)
+                semantic_scope_pop(scope)
+            }
+        }
+        _ -> {}
+    }
+}
+
+pub fn semantic_check_function_body(func: AstFunction, program: AstProgram, result: &SemanticResult, source: string, filename: string)
+{
+    let scope = semantic_scope_new()
+    for (i in 0 .. func.param_names.length)
+    {
+        semantic_scope_declare_existing(&scope, func.param_names[i])
+    }
+    semantic_check_stmt(&scope, program, func.body_idx, result, source, filename, func.name)
+}
+
 pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFunction], result: &SemanticResult, source: string, filename: string)
 {
     for (i in 0 .. funcs.length)
@@ -179,6 +587,16 @@ pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFun
             if (funcs[i].name == funcs[j].name)
             {
                 semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + funcs[i].name + "'", "", funcs[j].line, funcs[j].col)
+            }
+        }
+    }
+    for (i in 0 .. externs.length)
+    {
+        for (j in (i + 1) .. externs.length)
+        {
+            if (externs[i].name == externs[j].name)
+            {
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + externs[i].name + "'", "", externs[j].line, externs[j].col)
             }
         }
     }
@@ -275,6 +693,10 @@ pub fn semantic_check_program(program: AstProgram, source: string, filename: str
     for (i in 0 .. program.structs.length)
     {
         semantic_check_duplicate_fields(program.structs[i], &result, source, filename)
+    }
+    for (i in 0 .. program.functions.length)
+    {
+        semantic_check_function_body(program.functions[i], program, &result, source, filename)
     }
     semantic_check_main(program.functions, &result, filename)
     return result

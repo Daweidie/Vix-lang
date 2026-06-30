@@ -147,7 +147,7 @@ pub fn parse_logical_or(parser: &Parser): i32
 {
     let mut left = parse_logical_and(parser)
     if (parser.ok == 0) { return -1 }
-    while (parser_text(parser) == "or")
+    while (parser_kind(parser) == tk_keyword() and parser_text(parser) == "or")
     {
         let line = parser_line(parser)
         let col = parser_col(parser)
@@ -163,7 +163,7 @@ pub fn parse_logical_and(parser: &Parser): i32
 {
     let mut left = parse_comparison(parser)
     if (parser.ok == 0) { return -1 }
-    while (parser_text(parser) == "and")
+    while (parser_kind(parser) == tk_keyword() and parser_text(parser) == "and")
     {
         let line = parser_line(parser)
         let col = parser_col(parser)
@@ -179,7 +179,7 @@ pub fn parse_comparison(parser: &Parser): i32
 {
     let left = parse_additive(parser)
     if (parser.ok == 0) { return -1 }
-    if (parser_text(parser) == "==" or parser_text(parser) == "!=" or parser_text(parser) == "<" or parser_text(parser) == "<=" or parser_text(parser) == ">" or parser_text(parser) == ">=")
+    if (parser_kind(parser) == tk_symbol() and (parser_text(parser) == "==" or parser_text(parser) == "!=" or parser_text(parser) == "<" or parser_text(parser) == "<=" or parser_text(parser) == ">" or parser_text(parser) == ">="))
     {
         let op = parser_text(parser)
         let line = parser_line(parser)
@@ -196,7 +196,7 @@ pub fn parse_additive(parser: &Parser): i32
 {
     let mut left = parse_multiplicative(parser)
     if (parser.ok == 0) { return -1 }
-    while (parser_text(parser) == "+" or parser_text(parser) == "-")
+    while (parser_kind(parser) == tk_symbol() and (parser_text(parser) == "+" or parser_text(parser) == "-"))
     {
         let op = parser_text(parser)
         let line = parser_line(parser)
@@ -213,7 +213,7 @@ pub fn parse_multiplicative(parser: &Parser): i32
 {
     let mut left = parse_unary(parser)
     if (parser.ok == 0) { return -1 }
-    while (parser_text(parser) == "*" or parser_text(parser) == "/" or parser_text(parser) == "%")
+    while (parser_kind(parser) == tk_symbol() and (parser_text(parser) == "*" or parser_text(parser) == "/" or parser_text(parser) == "%"))
     {
         let op = parser_text(parser)
         let line = parser_line(parser)
@@ -228,6 +228,10 @@ pub fn parse_multiplicative(parser: &Parser): i32
 
 pub fn parse_unary(parser: &Parser): i32
 {
+    if (parser_kind(parser) == tk_string())
+    {
+        return parse_postfix(parser)
+    }
     return match parser_text(parser) {
         "ref" | "&" -> {
             let line = parser_line(parser)
@@ -377,7 +381,7 @@ pub fn parse_match_expr(parser: &Parser): i32
         }
         else
         {
-            let pattern_idx = parse_expression(parser)
+            let pattern_idx = parse_match_pattern(parser)
             if (parser.ok == 0) { return -1 }
             patterns.push(pattern_idx)
         }
@@ -392,7 +396,7 @@ pub fn parse_match_expr(parser: &Parser): i32
             }
             else
             {
-                let pat_idx = parse_expression(parser)
+                let pat_idx = parse_match_pattern(parser)
                 if (parser.ok == 0) { return -1 }
                 patterns.push(pat_idx)
             }
@@ -711,16 +715,18 @@ pub fn parse_if_rest(parser: &Parser): i32
     {
         parser_advance(parser)
     }
-    return match parser_text(parser) {
-        "else" -> {
-            parser_advance(parser)
-            let else_idx = parse_block_statement(parser)
-            if (parser.ok == 0) { return -1 }
-            else_idx
-        }
-        "elif" -> parse_if_statement(parser)
-        _ -> -1
+    if (parser_text(parser) == "else")
+    {
+        parser_advance(parser)
+        let else_idx = parse_block_statement(parser)
+        if (parser.ok == 0) { return -1 }
+        return else_idx
     }
+    if (parser_text(parser) == "elif")
+    {
+        return parse_if_statement(parser)
+    }
+    return -1
 }
 
 pub fn parse_if_statement(parser: &Parser): i32
@@ -778,7 +784,7 @@ pub fn parse_match_pattern(parser: &Parser): i32
         parser_advance(parser)
         return -1
     }
-    return parse_expression(parser)
+    return parse_unary(parser)
 }
 
 pub fn parse_match_arm_body(parser: &Parser): i32
@@ -806,7 +812,11 @@ pub fn parse_match_arms_desugared(parser: &Parser, subject_name: string): i32
     let mut is_default = 0
     if (first_pattern < 0) { is_default = 1 }
     let subject_expr = ast_expr_identifier(parser.expr_store, subject_name)
-    let mut cond_idx = if (is_default == 1) { -1 } else { ast_expr_binop(parser.expr_store, "==", subject_expr, first_pattern) }
+    let mut cond_idx = -1
+    if (is_default == 0)
+    {
+        cond_idx = ast_expr_binop(parser.expr_store, "==", subject_expr, first_pattern)
+    }
     while (parser_text(parser) == "|")
     {
         parser_advance(parser)

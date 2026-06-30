@@ -1,6 +1,6 @@
 import subprocess
 
-from test_vixc0_control_flow import run_vixc0, vixc0_binary
+from control_flow import run_vixc0, vixc0_binary
 
 
 def test_vixc0_parses_match_ast(vixc0_binary):
@@ -17,8 +17,8 @@ fn main(): i32 {
     result = run_vixc0(vixc0_binary, src, "--ast")
 
     assert result.returncode == 0, result.stderr
-    assert "name: __match" in result.stdout
-    assert "type: IfStatement" in result.stdout
+    assert "type: MatchStatement" in result.stdout
+    assert "arms:" in result.stdout
     assert "type: Literal" in result.stdout
 
 
@@ -42,7 +42,7 @@ fn main(): i32 {
     result = run_vixc0(vixc0_binary, src)
 
     assert result.returncode == 0, result.stderr
-    assert "if.then" in result.stdout
+    assert "match.test" in result.stdout
     ll_path = tmp_path / "match_i32.ll"
     ll_path.write_text(result.stdout)
 
@@ -100,4 +100,4 @@ fn main(): i32 {
 
     assert result.returncode == 0
     assert "TypeError(" in result.stdout
-    assert "cannot compare 'i32' with 'string'" in result.stdout
+    assert "match pattern type 'string' does not match subject type 'i32'" in result.stdout

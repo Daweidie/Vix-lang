@@ -1,6 +1,6 @@
 import subprocess
 
-from test_vixc0_control_flow import run_vixc0, vixc0_binary
+from control_flow import run_vixc0, vixc0_binary
 
 
 def test_vixc0_ast_marks_mutable_let(vixc0_binary):

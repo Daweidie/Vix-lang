@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from test_vixc0_control_flow import run_vixc0, vixc0_binary
+from control_flow import run_vixc0, vixc0_binary
 
 
 def test_vixc0_lexes_float_literal(vixc0_binary):

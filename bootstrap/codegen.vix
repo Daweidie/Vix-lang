@@ -53,7 +53,7 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
         "struct_literal" -> expr.text
         "index" -> {
             let base_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
-            if (base_ty == "string") { "i32" } else { "i32" }
+            if (base_ty == "string") { "i32" } elif (base_ty == "ptr") { "string" } else { "i32" }
         }
         "unaryop" -> {
             if (expr.text == "!") { "bool" } else { codegen_expr_type(b, es, expr_store_get(es, expr.left_idx)) }
@@ -162,6 +162,10 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
             if (base_ty == "string")
             {
                 llvm_load_string_char(b, base, index)
+            }
+            elif (base_ty == "ptr")
+            {
+                llvm_load_ptr_index_as_string(b, base, index)
             }
             else
             {

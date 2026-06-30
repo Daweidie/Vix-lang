@@ -316,10 +316,10 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             "Option[" + value_ty + "]"
         }
         "addr" -> {
-            let __t0 = symtable_lookup(env, expr.text)
+            let value_ty = symtable_lookup(env, expr.text)
             if (env.ok == 0) { symtable_set_error_loc(env, expr.line, expr.col) }
             if (env.ok == 0) { return "unknown" }
-            "ptr"
+            "ptr:" + value_ty
         }
         "deref" -> {
             let ptr_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
@@ -464,6 +464,10 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             if (type_text_is_array_typeinfer(base_ty) == 1)
             {
                 return type_array_element_typeinfer(base_ty)
+            }
+            if (base_ty == "ptr")
+            {
+                return "ptr"
             }
             symtable_fail_expr(env, "cannot index value of type '" + base_ty + "'", expr)
             "unknown"

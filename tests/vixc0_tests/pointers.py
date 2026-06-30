@@ -1,6 +1,6 @@
 import subprocess
 
-from test_vixc0_control_flow import run_vixc0, vixc0_binary
+from control_flow import run_vixc0, vixc0_binary
 
 
 def test_vixc0_ref_and_deref_local_i32(vixc0_binary, tmp_path):
