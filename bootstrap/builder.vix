@@ -26,6 +26,7 @@ extern "C"
     fn vix_LLVMFunctionTypeTypedN(ret_ty: ptr, param_types: ptr, param_count: i32, is_var_arg: i32): ptr
     fn vix_LLVMConstInt(ty: ptr, val: i64, sign_extend: i32): ptr
     fn vix_LLVMConstReal(ty: ptr, val: f64): ptr
+    fn vix_LLVMConstPointerNull(ty: ptr): ptr
     fn vix_LLVMGetUndef(ty: ptr): ptr
     fn vix_LLVMAddFunction(module: ptr, name: string, ty: ptr): ptr
     fn vix_LLVMGetParam(fn_ref: ptr, index: i32): ptr
@@ -59,6 +60,9 @@ extern "C"
     fn vix_LLVMBuildICmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildFCmp(builder: ptr, op: i32, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildZExt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildTrunc(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildPtrToInt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildIntToPtr(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
     fn vix_LLVMBuildSIToFP(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
     fn vix_LLVMBuildFPExt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
     fn vix_LLVMBuildFPTrunc(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
@@ -233,6 +237,20 @@ pub fn type_text_is_option(ty: string): i32
 {
     if (ty.length > 7 and ty[0] == 'O' and ty[1] == 'p' and ty[2] == 't' and ty[3] == 'i' and ty[4] == 'o' and ty[5] == 'n' and ty[6] == '[') { return 1 }
     return 0
+}
+
+pub fn type_text_option_inner(ty: string): string
+{
+    if (type_text_is_option(ty) == 0) { return "unknown" }
+    let mut result = ""
+    for (i in 7 .. ty.length - 1)
+    {
+        let s: string = malloc(2)
+        s[0] = ty[i]
+        s[1] = '\0'
+        result = result + s
+    }
+    return result
 }
 
 pub fn type_is_struct(name: string): i32
@@ -432,6 +450,11 @@ pub fn llvm_const_float(value: f64, ty: string): ptr
     return vix_LLVMConstReal(llvm_type_for(ty), value)
 }
 
+pub fn llvm_const_null_ptr(): ptr
+{
+    return vix_LLVMConstPointerNull(LLVMPointerType(LLVMInt8Type(), 0))
+}
+
 pub fn llvm_undef(ty: string): ptr
 {
     return vix_LLVMGetUndef(llvm_type_for(ty))
@@ -468,6 +491,12 @@ pub fn llvm_var_address(b: &LlvmBuilder, name: string): ptr
 pub fn llvm_load_i32_pointer(b: &LlvmBuilder, ptr_value: ptr): ptr
 {
     return vix_LLVMBuildLoad2(b.builder, LLVMInt32Type(), ptr_value, llvm_temp(b, "deref"))
+}
+
+pub fn llvm_load_ptr_pointer(b: &LlvmBuilder, ptr_value: ptr): ptr
+{
+    let ptr_ty = LLVMPointerType(LLVMInt8Type(), 0)
+    return vix_LLVMBuildLoad2(b.builder, ptr_ty, ptr_value, llvm_temp(b, "loadptr"))
 }
 
 pub fn llvm_store_i32_pointer(b: &LlvmBuilder, ptr_value: ptr, value: ptr)
@@ -614,7 +643,21 @@ pub fn llvm_cast_value(b: &LlvmBuilder, value: ptr, from_ty: string, to_ty: stri
     {
         return vix_LLVMBuildZExt(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "zext"))
     }
+    if ((to_ty == "i8" or to_ty == "u8" or to_ty == "char") and (from_ty == "i32" or from_ty == "u32" or from_ty == "i64" or from_ty == "u64" or from_ty == "usize"))
+    {
+        return vix_LLVMBuildTrunc(b.builder, value, llvm_type_for(to_ty), llvm_temp(b, "trunc"))
+    }
     return value
+}
+
+pub fn llvm_int_to_ptr(b: &LlvmBuilder, value: ptr): ptr
+{
+    return vix_LLVMBuildIntToPtr(b.builder, value, LLVMPointerType(LLVMInt8Type(), 0), llvm_temp(b, "inttoptr"))
+}
+
+pub fn llvm_ptr_to_i64(b: &LlvmBuilder, value: ptr): ptr
+{
+    return vix_LLVMBuildPtrToInt(b.builder, value, LLVMInt64Type(), llvm_temp(b, "ptrtoint"))
 }
 
 pub fn llvm_build_truthy_i1(b: &LlvmBuilder, value: ptr): ptr

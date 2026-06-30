@@ -466,6 +466,10 @@ pub fn parse_primary(parser: &Parser): i32
         let col = parser_col(parser)
         let name = parser_text(parser)
         parser_advance(parser)
+        if (name == "None")
+        {
+            return parser_expr_at(parser, ast_expr_none(parser.expr_store), line, col)
+        }
         if (parser_text(parser) == "{")
         {
             parser_advance(parser)
@@ -510,6 +514,16 @@ pub fn parse_primary(parser: &Parser): i32
                 }
             }
             parser_expect_text(parser, ")")
+            if (parser.ok == 0) { return -1 }
+            if (name == "Some")
+            {
+                if (args.length != 1)
+                {
+                    parser_fail(parser, "Some expects one argument")
+                    return -1
+                }
+                return parser_expr_at(parser, ast_expr_some(parser.expr_store, args[0]), line, col)
+            }
             return parser_expr_at(parser, ast_expr_call(parser.expr_store, name, args), line, col)
         }
         return parser_expr_at(parser, ast_expr_identifier(parser.expr_store, name), line, col)
@@ -836,13 +850,37 @@ pub fn parse_match_statement(parser: &Parser): i32
     if (parser.ok == 0) { return -1 }
     parser_expect_text(parser, "{")
     if (parser.ok == 0) { return -1 }
-    let tmp_name = "__match" + ast_i32(parser.pos)
-    let body_idx = parse_match_arms_desugared(parser, tmp_name)
-    if (parser.ok == 0) { return -1 }
+    let mut patterns: [i32] = []
+    let mut bodies: [i32] = []
+    while (parser_text(parser) != "}" and parser_at_end(parser) == 0)
+    {
+        while (parser_text(parser) == ";") { parser_advance(parser) }
+        if (parser_text(parser) == "}" or parser_at_end(parser) == 1) { break }
+        let mut arm_patterns: [i32] = []
+        let first_pattern = parse_match_pattern(parser)
+        if (parser.ok == 0) { return -1 }
+        arm_patterns.push(first_pattern)
+        while (parser_text(parser) == "|")
+        {
+            parser_advance(parser)
+            let next_pattern = parse_match_pattern(parser)
+            if (parser.ok == 0) { return -1 }
+            arm_patterns.push(next_pattern)
+        }
+        parser_expect_text(parser, "->")
+        if (parser.ok == 0) { return -1 }
+        let body_idx = parse_match_arm_body(parser)
+        if (parser.ok == 0) { return -1 }
+        for (i in 0 .. arm_patterns.length)
+        {
+            patterns.push(arm_patterns[i])
+            bodies.push(body_idx)
+        }
+        parser_accept_text(parser, ",")
+    }
     parser_expect_text(parser, "}")
     if (parser.ok == 0) { return -1 }
-    let bind_idx = parser_stmt_at(parser, ast_stmt_let(parser.store, tmp_name, subject_idx), line, col)
-    return parser_stmt_at(parser, ast_stmt_block_indices(parser.store, [bind_idx, body_idx]), line, col)
+    return parser_stmt_at(parser, ast_stmt_match_indices(parser.store, subject_idx, patterns, bodies), line, col)
 }
 
 pub fn parse_statement(parser: &Parser): i32
@@ -953,7 +991,7 @@ pub fn parse_statement(parser: &Parser): i32
 
 pub fn parse_type_text(parser: &Parser): string
 {
-    if (parser_text(parser) == "&")
+    if (parser_text(parser) == "&" or parser_text(parser) == "ref")
     {
         parser_advance(parser)
         let inner = parse_type_text(parser)

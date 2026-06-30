@@ -57,7 +57,7 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
             }
         }
         "call" -> get_function_return_type(expr.text)
-        "array_literal" -> "ptr"
+        "array_literal" -> "[i32]"
         "block_expr" -> "i32"
         _ -> "i32"
     }
@@ -79,7 +79,17 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
         }
         "ident" -> llvm_cast_value(b, llvm_load_var(b, expr.text), get_var_type(b, expr.text), expected_ty)
         "string" -> get_c_string_global(b, ".strlit" + llvm_temp(b, ""), expr.text)
-        "addr" -> llvm_var_address(b, expr.text)
+        "addr" -> {
+            let var_ty = get_var_type(b, expr.text)
+            if (type_text_is_array(var_ty) == 1)
+            {
+                llvm_load_var(b, expr.text)
+            }
+            else
+            {
+                llvm_var_address(b, expr.text)
+            }
+        }
         "deref" -> {
             let ptr_expr = expr_store_get(es, expr.left_idx)
             let ptr_val = codegen_expr_value_typed(b, es, store, ptr_expr, "ptr")
@@ -199,7 +209,15 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
             let call_val = llvm_build_call_value(b, expr.text, args)
             llvm_cast_value(b, call_val, get_function_return_type(expr.text), expected_ty)
         }
-        "array_literal" -> llvm_const_i32(0)
+        "array_literal" -> {
+            let mut arr = llvm_const_null_ptr()
+            for (i in 0 .. expr.args.length)
+            {
+                let val = codegen_expr_value_typed(b, es, store, expr_store_get(es, expr.args[i]), "i32")
+                arr = llvm_build_call_value(b, "vix_array_push_i32", [arr, val])
+            }
+            arr
+        }
         "block_expr" -> {
             codegen_stmt(b, es, store, expr.left_idx)
             llvm_const_i32(0)
@@ -619,6 +637,8 @@ pub fn codegen_program(program: AstProgram): string
         register_function_sig(program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_types)
     }
     register_function_sig_vararg("vix_string_concat", "string", ["string", "string"], 0)
+    register_function_sig_vararg("vix_array_len", "i32", ["ptr"], 0)
+    register_function_sig_vararg("vix_array_push_i32", "ptr", ["ptr", "i32"], 0)
     for (i in 0 .. program.functions.length)
     {
         llvm_emit_function_header_with_params(b, program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_names, program.functions[i].param_types)

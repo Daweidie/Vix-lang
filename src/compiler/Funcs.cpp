@@ -186,13 +186,16 @@ using namespace llvm;
                                         paramTypes.push_back(PointerType::get(context, 0));
                                     } else {
                                         paramTypes.push_back(PointerType::get(context, 0));
-                                        typeHelper.registerArrayType(paramName, Type::getInt32Ty(context), -1);
                                         ASTNode* elemTypeNode = right->data.pointer_type.element_type;
                                         if (elemTypeNode) {
                                             Type* elemLLVM = typeHelper.getTypeFromTypeNode(elemTypeNode);
                                             if (elemLLVM && elemLLVM->isStructTy()) {
                                                 paramStructTypes[paramName] = cast<StructType>(elemLLVM);
+                                            } else {
+                                                typeHelper.registerArrayType(paramName, Type::getInt32Ty(context), -1);
                                             }
+                                        } else {
+                                            typeHelper.registerArrayType(paramName, Type::getInt32Ty(context), -1);
                                         }
                                     }
                                 } else if (right->type == AST_TYPE_LIST || right->type == AST_TYPE_FIXED_SIZE_LIST) {

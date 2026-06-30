@@ -548,6 +548,20 @@ LLVMCodeGenerator::visitMemberAccess(ASTNode *node) {
 
   if (!structType && objectRes.value->getType()->isPointerTy()) {
     auto hintIt = pointerElementHints.find(objectRes.value);
+    if (hintIt == pointerElementHints.end()) {
+      // Try checking if the value is a LoadInst from an alloca that has a hint
+      if (LoadInst *load = dyn_cast<LoadInst>(objectRes.value)) {
+        Value *ptr = load->getPointerOperand();
+        if (AllocaInst *allocPtr = dyn_cast<AllocaInst>(ptr)) {
+          auto allocHintIt = pointerElementHints.find(allocPtr);
+          if (allocHintIt != pointerElementHints.end() && allocHintIt->second &&
+              allocHintIt->second->isStructTy()) {
+            pointerElementHints[objectRes.value] = allocHintIt->second;
+            hintIt = pointerElementHints.find(objectRes.value);
+          }
+        }
+      }
+    }
     if (hintIt != pointerElementHints.end() && hintIt->second &&
         hintIt->second->isStructTy()) {
       structType = cast<StructType>(hintIt->second);
@@ -910,6 +924,19 @@ LLVMCodeGenerator::visitMemberAssign(ASTNode *node) {
     // Try pointerElementHints for struct pointer params
     if (objectRes.value->getType()->isPointerTy()) {
       auto hintIt = pointerElementHints.find(objectRes.value);
+      if (hintIt == pointerElementHints.end()) {
+        if (LoadInst *load = dyn_cast<LoadInst>(objectRes.value)) {
+          Value *ptr = load->getPointerOperand();
+          if (AllocaInst *allocPtr = dyn_cast<AllocaInst>(ptr)) {
+            auto allocHintIt = pointerElementHints.find(allocPtr);
+            if (allocHintIt != pointerElementHints.end() && allocHintIt->second &&
+                allocHintIt->second->isStructTy()) {
+              pointerElementHints[objectRes.value] = allocHintIt->second;
+              hintIt = pointerElementHints.find(objectRes.value);
+            }
+          }
+        }
+      }
       if (hintIt != pointerElementHints.end() && hintIt->second &&
           hintIt->second->isStructTy()) {
         structType = cast<StructType>(hintIt->second);

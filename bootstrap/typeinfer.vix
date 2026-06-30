@@ -247,7 +247,12 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             if (env.ok == 0) { symtable_set_error_loc(env, expr.line, expr.col) }
             ty
         }
-        "option" -> "Option[string]"
+        "option" -> {
+            if (expr.option_has_value == 0) { return "Option[unknown]" }
+            let value_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
+            if (env.ok == 0) { return "unknown" }
+            "Option[" + value_ty + "]"
+        }
         "addr" -> {
             let __t0 = symtable_lookup(env, expr.text)
             if (env.ok == 0) { symtable_set_error_loc(env, expr.line, expr.col) }
@@ -337,7 +342,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             }
             if (base_ty == "string")
             {
-                return "i32"
+                return "i8"
             }
             "i32"
         }
@@ -418,7 +423,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                 type_numeric_result(left_ty, right_ty)
             }
         }
-        "array_literal" -> "unknown"
+        "array_literal" -> "[i32]"
         "block_expr" -> "i32"
         "match_expr" -> {
             let subject_ty = infer_expr_type(env, funcs, structs, es, expr.left_idx)
@@ -515,7 +520,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
         "return_expr" -> {
             let value_ty = infer_expr_type(env, funcs, structs, es, stmt.value_idx)
             if (env.ok == 0) { return }
-            if (ret_ty != "void" and ret_ty != "unknown" and value_ty != "unknown" and value_ty != ret_ty)
+            if (ret_ty != "void" and ret_ty != "unknown" and value_ty != "unknown" and type_can_assign(ret_ty, value_ty) == 0)
             {
                 symtable_fail_stmt(env, "return value type '" + value_ty + "' does not match function return type '" + ret_ty + "'", stmt)
             }
@@ -627,7 +632,38 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             for (i in 0 .. stmt.match_pattern_indices.length)
             {
                 let pattern_idx = stmt.match_pattern_indices[i]
-                if (pattern_idx >= 0)
+                if (type_is_option_text(subject_ty) == 1)
+                {
+                    let inner_ty = type_option_inner(subject_ty)
+                    symtable_push_scope(env)
+                    if (pattern_idx >= 0)
+                    {
+                        let pattern_expr = expr_store_get(es, pattern_idx)
+                        if (pattern_expr.tag != "option")
+                        {
+                            symtable_fail_expr(env, "match pattern type does not match subject type '" + subject_ty + "'", pattern_expr)
+                            symtable_pop_scope(env)
+                            return
+                        }
+                        if (pattern_expr.option_has_value == 1 and pattern_expr.left_idx >= 0)
+                        {
+                            let bind_expr = expr_store_get(es, pattern_expr.left_idx)
+                            if (bind_expr.tag == "ident" and bind_expr.text != "_")
+                            {
+                                symtable_declare(env, bind_expr.text, inner_ty)
+                                if (env.ok == 0)
+                                {
+                                    symtable_pop_scope(env)
+                                    return
+                                }
+                            }
+                        }
+                    }
+                    infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.match_body_indices[i], ret_ty, loop_depth)
+                    symtable_pop_scope(env)
+                    if (env.ok == 0) { return }
+                }
+                elif (pattern_idx >= 0)
                 {
                     let pattern_ty = infer_expr_type(env, funcs, structs, es, pattern_idx)
                     if (env.ok == 0) { return }
@@ -637,9 +673,14 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                         symtable_fail_expr(env, "match pattern type '" + pattern_ty + "' does not match subject type '" + subject_ty + "'", pattern_expr)
                         return
                     }
+                    infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.match_body_indices[i], ret_ty, loop_depth)
+                    if (env.ok == 0) { return }
                 }
-                infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.match_body_indices[i], ret_ty, loop_depth)
-                if (env.ok == 0) { return }
+                else
+                {
+                    infer_stmt_type_in_loop(env, funcs, structs, es, store, stmt.match_body_indices[i], ret_ty, loop_depth)
+                    if (env.ok == 0) { return }
+                }
             }
         }
         "match_option_string" -> {

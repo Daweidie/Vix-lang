@@ -44,7 +44,7 @@ pub fn type_is_float(ty: string): i32
 
 pub fn type_is_integer(ty: string): i32
 {
-    if (type_is_concrete_int(ty) == 1 or ty == "unknown") { return 1 }
+    if (type_is_concrete_int(ty) == 1 or type_is_small_int(ty) == 1 or ty == "unknown") { return 1 }
     return 0
 }
 
@@ -70,10 +70,37 @@ pub fn type_numeric_result(left_ty: string, right_ty: string): string
     return "i32"
 }
 
+pub fn type_is_option_text(ty: string): i32
+{
+    if (ty.length > 7 and ty[0] == 'O' and ty[1] == 'p' and ty[2] == 't' and ty[3] == 'i' and ty[4] == 'o' and ty[5] == 'n' and ty[6] == '[') { return 1 }
+    return 0
+}
+
+pub fn type_option_inner(ty: string): string
+{
+    if (type_is_option_text(ty) == 0) { return "unknown" }
+    let mut result = ""
+    for (i in 7 .. ty.length - 1)
+    {
+        let s: string = malloc(2)
+        s[0] = ty[i]
+        s[1] = '\0'
+        result = result + s
+    }
+    return result
+}
+
 pub fn type_can_assign(target_ty: string, value_ty: string): i32
 {
     if (target_ty == "" or target_ty == "unknown" or value_ty == "unknown") { return 1 }
     if (target_ty == value_ty) { return 1 }
+    if (type_is_option_text(target_ty) == 1 and type_is_option_text(value_ty) == 1)
+    {
+        let target_inner = type_option_inner(target_ty)
+        let value_inner = type_option_inner(value_ty)
+        if (value_inner == "unknown") { return 1 }
+        return type_can_assign(target_inner, value_inner)
+    }
     if (type_is_concrete_int(target_ty) == 1 and type_is_concrete_int(value_ty) == 1)
     {
         if (type_int_width(target_ty) >= type_int_width(value_ty)) { return 1 }

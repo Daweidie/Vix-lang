@@ -355,6 +355,10 @@ LLVMValueRef vix_LLVMConstReal(LLVMTypeRef ty, double val) {
   return LLVMConstReal(ty, val);
 }
 
+LLVMValueRef vix_LLVMConstPointerNull(LLVMTypeRef ty) {
+  return LLVMConstPointerNull(ty);
+}
+
 LLVMValueRef vix_LLVMGetUndef(LLVMTypeRef ty) { return LLVMGetUndef(ty); }
 
 LLVMValueRef vix_LLVMAddFunction(LLVMModuleRef m, const char *name,
@@ -515,6 +519,21 @@ LLVMValueRef vix_LLVMBuildFCmp(LLVMBuilderRef builder, LLVMRealPredicate op,
 LLVMValueRef vix_LLVMBuildZExt(LLVMBuilderRef builder, LLVMValueRef val,
                                LLVMTypeRef dest_ty, const char *name) {
   return LLVMBuildZExt(builder, val, dest_ty, name);
+}
+
+LLVMValueRef vix_LLVMBuildTrunc(LLVMBuilderRef builder, LLVMValueRef val,
+                                LLVMTypeRef dest_ty, const char *name) {
+  return LLVMBuildTrunc(builder, val, dest_ty, name);
+}
+
+LLVMValueRef vix_LLVMBuildPtrToInt(LLVMBuilderRef builder, LLVMValueRef val,
+                                   LLVMTypeRef dest_ty, const char *name) {
+  return LLVMBuildPtrToInt(builder, val, dest_ty, name);
+}
+
+LLVMValueRef vix_LLVMBuildIntToPtr(LLVMBuilderRef builder, LLVMValueRef val,
+                                   LLVMTypeRef dest_ty, const char *name) {
+  return LLVMBuildIntToPtr(builder, val, dest_ty, name);
 }
 
 LLVMValueRef vix_LLVMBuildSIToFP(LLVMBuilderRef builder, LLVMValueRef val,
