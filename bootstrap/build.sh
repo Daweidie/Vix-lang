@@ -1,4 +1,4 @@
 #!/bin/bash
-./vixc0 main.vix > main.ll
+./vixc2 main.vix > main.ll
 clang -c main.ll -o vixc1.o
-clang -o vixc1 vixc1.o helper.o $(llvm-config --ldflags --libs)
+clang -o vixc3 vixc1.o helper.o $(llvm-config --ldflags --libs)

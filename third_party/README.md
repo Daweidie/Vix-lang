@@ -1,1 +1,1 @@
-Binaryen source goes here (for Emscripten build)
+Binaryen source goes here (
