@@ -46,6 +46,10 @@ const char *vix_diag_yellow(void) { return "\033[33m"; }
 
 const char *vix_diag_reset(void) { return "\033[0m"; }
 
+void vix_print_stderr(const char *s) {
+  fputs(s, stderr);
+}
+
 void vix_reset_vars(void) { var_count = 0; }
 
 void vix_set_var(const char *name, LLVMValueRef value) {
