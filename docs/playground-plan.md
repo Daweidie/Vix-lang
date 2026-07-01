@@ -1,6 +1,6 @@
 # Browser Playground Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a browser-based Vix playground where users can write and run Vix code entirely in the browser (no server).
 
@@ -59,7 +59,7 @@ vix-lang/
   const char *vixc_get_last_error(void);
   ```
 
-- [ ] **Step 1: Create `src/libvixc_frontend.h`**
+- [x] **Step 1: Create `src/libvixc_frontend.h`**
 
 ```c
 #ifndef VIXC_FRONTEND_H
@@ -88,7 +88,7 @@ const char *vixc_get_last_error(void);
 #endif
 ```
 
-- [ ] **Step 2: Create `playground/vixc_frontend.c`**
+- [x] **Step 2: Create `playground/vixc_frontend.c`**
 
 ```c
 #include "libvixc_frontend.h"
@@ -167,7 +167,7 @@ const char *vixc_get_last_error(void) {
 }
 ```
 
-- [ ] **Step 3: Modify `src/main.c` to keep LLVM path separate**
+- [x] **Step 3: Modify `src/main.c` to keep LLVM path separate**
 
 Wrap all LLVM-dependent code (codegen, Llc, Linker) in `#ifndef VIXC_FRONTEND_ONLY`. This keeps main.c buildable for both native and WASM targets.
 
@@ -180,7 +180,7 @@ Add at the top after includes:
 
 Wrap lines 409-772 (the LLVM codegen/linking path) in `#ifndef VIXC_FRONTEND_ONLY ... #endif`.
 
-- [ ] **Step 4: Create test `tests/test_frontend.c`**
+- [x] **Step 4: Create test `tests/test_frontend.c`**
 
 ```c
 #include "libvixc_frontend.h"
@@ -220,7 +220,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 5: Build and run native test**
+- [x] **Step 5: Build and run native test**
 
 ```bash
 gcc -Iinclude -Isrc -o test_frontend \
@@ -236,7 +236,7 @@ gcc -Iinclude -Isrc -o test_frontend \
 
 Expected: all tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/libvixc_frontend.h playground/vixc_frontend.c tests/test_frontend.c src/main.c
@@ -253,7 +253,7 @@ git commit -m "feat: extract compiler frontend library for WASM build"
 - Consumes: nothing from Task 1
 - Produces: Binaryen source at `third_party/binaryen/`, a `binaryen` CMake target
 
-- [ ] **Step 1: Add Binaryen git submodule**
+- [x] **Step 1: Add Binaryen git submodule**
 
 ```bash
 git submodule add https://github.com/WebAssembly/binaryen.git third_party/binaryen
@@ -262,7 +262,7 @@ git checkout tags/version_121   # Use a stable release
 cd ../..
 ```
 
-- [ ] **Step 2: Verify Binaryen builds**
+- [x] **Step 2: Verify Binaryen builds**
 
 ```bash
 cd third_party/binaryen
@@ -272,7 +272,7 @@ cmake --build build
 
 Expected: generates `build/lib/libbinaryen.a`
 
-- [ ] **Step 3: Add submodule and Binaryen target to root `CMakeLists.txt`**
+- [x] **Step 3: Add submodule and Binaryen target to root `CMakeLists.txt`**
 
 Add at the end:
 ```cmake
@@ -285,7 +285,7 @@ if(EMSCRIPTEN OR BUILD_WASM_CODEGEN)
 endif()
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .gitmodules third_party/binaryen CMakeLists.txt
@@ -304,7 +304,7 @@ git commit -m "feat: add Binaryen as submodule for WASM codegen"
 - Consumes: `ASTNode` (from `ast.h`), `CompileResult.root` (from Task 1)
 - Produces: `bool WasmCodegen::emit(ASTNode *root, std::vector<uint8_t> &out_bytes)` emitting valid .wasm bytes
 
-- [ ] **Step 1: Create `src/compiler/WasmTypeMap.h`**
+- [x] **Step 1: Create `src/compiler/WasmTypeMap.h`**
 
 ```cpp
 #ifndef VIX_WASM_TYPEMAP_H
@@ -332,7 +332,7 @@ WasmTypeInfo map_vix_type_to_wasm(const Type *type);
 #endif
 ```
 
-- [ ] **Step 2: Create `src/compiler/WasmTypeMap.cpp`**
+- [x] **Step 2: Create `src/compiler/WasmTypeMap.cpp`**
 
 ```cpp
 #include "WasmTypeMap.h"
@@ -382,7 +382,7 @@ WasmTypeInfo map_vix_type_to_wasm(const Type *type) {
 }
 ```
 
-- [ ] **Step 3: Create `src/compiler/WasmCodegen.h`**
+- [x] **Step 3: Create `src/compiler/WasmCodegen.h`**
 
 ```cpp
 #ifndef VIX_WASM_CODEGEN_H
@@ -443,7 +443,7 @@ private:
 #endif
 ```
 
-- [ ] **Step 4: Create `src/compiler/WasmCodegen.cpp`**
+- [x] **Step 4: Create `src/compiler/WasmCodegen.cpp`**
 
 Full implementation of the AST → Binaryen traversal. Key patterns:
 
@@ -557,7 +557,7 @@ BinaryenExpressionRef WasmCodegen::compile_block(ASTNode *stmt_list) {
 }
 ```
 
-- [ ] **Step 5: Write the type-checker integration test**
+- [x] **Step 5: Write the type-checker integration test**
 
 Create `tests/test_wasm_codegen.cpp`:
 
@@ -599,7 +599,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 6: Build and run the test (native, with Binaryen)**
+- [x] **Step 6: Build and run the test (native, with Binaryen)**
 
 ```bash
 cd build
@@ -610,7 +610,7 @@ cmake --build . --target test_wasm_codegen
 
 Expected: `PASS: test_compile_to_wasm (NN bytes)` and all tests pass
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/compiler/WasmCodegen.h src/compiler/WasmCodegen.cpp
@@ -630,7 +630,7 @@ git commit -m "feat: implement WasmCodegen module using Binaryen"
 - Consumes: `libvixc_frontend.h` (Task 1), `WasmCodegen` (Task 3)
 - Produces: `vixc-wasm.js` + `vixc-wasm.wasm` — the browser-ready compiler bundle
 
-- [ ] **Step 1: Create `playground/vixc-wasm.cpp`** — entry point for Emscripten
+- [x] **Step 1: Create `playground/vixc-wasm.cpp`** — entry point for Emscripten
 
 ```cpp
 #include <emscripten.h>
@@ -676,7 +676,7 @@ void free_wasm_result(char *bytes, char *error) {
 }  // extern "C"
 ```
 
-- [ ] **Step 2: Create `playground/CMakeLists.txt`**
+- [x] **Step 2: Create `playground/CMakeLists.txt`**
 
 ```cmake
 if(EMSCRIPTEN)
@@ -711,7 +711,7 @@ if(EMSCRIPTEN)
 endif()
 ```
 
-- [ ] **Step 3: Create `playground/pre.js`**
+- [x] **Step 3: Create `playground/pre.js`**
 
 ```javascript
 // Emscripten pre-js: defines the JS API for the playground
@@ -735,7 +735,7 @@ function onVixcWasmReady() {
 }
 ```
 
-- [ ] **Step 4: Build vixc-wasm with Emscripten**
+- [x] **Step 4: Build vixc-wasm with Emscripten**
 
 ```bash
 mkdir -p playground/build
@@ -746,7 +746,7 @@ emmake make vixc-wasm -j4
 
 Expected: produces `playground/build/vixc-wasm.js` and `vixc-wasm.wasm`
 
-- [ ] **Step 5: Verify the WASM module loads in Node.js**
+- [x] **Step 5: Verify the WASM module loads in Node.js**
 
 ```javascript
 // test_load.js — quick smoke test
@@ -764,7 +764,7 @@ node test_load.js
 
 Expected: `Module loaded successfully`
 
-- [ ] **Step 6: Add build script to root Makefile**
+- [x] **Step 6: Add build script to root Makefile**
 
 ```makefile
 .PHONY: wasm
@@ -775,7 +775,7 @@ wasm: $(CMAKE_BUILD_DIR)
 	emmake make vixc-wasm -j4
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add playground/CMakeLists.txt playground/vixc-wasm.cpp playground/pre.js Makefile
@@ -793,7 +793,7 @@ git commit -m "feat: add Emscripten build for vixc-wasm playground"
 - Consumes: `vixc-wasm.js` + `vixc-wasm.wasm` (Task 4)
 - Produces: Fully functional HTML playground page
 
-- [ ] **Step 1: Create `playground/playground.html`**
+- [x] **Step 1: Create `playground/playground.html`**
 
 ```html
 <!doctype html>
@@ -834,7 +834,7 @@ git commit -m "feat: add Emscripten build for vixc-wasm playground"
 </html>
 ```
 
-- [ ] **Step 2: Create `playground/playground.js`**
+- [x] **Step 2: Create `playground/playground.js`**
 
 ```javascript
 (function() {
@@ -960,7 +960,7 @@ fn main(): i32
 })();
 ```
 
-- [ ] **Step 3: Create `playground/playground.css`**
+- [x] **Step 3: Create `playground/playground.css`**
 
 ```css
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1001,7 +1001,7 @@ main { display: flex; flex: 1; overflow: hidden; }
 }
 ```
 
-- [ ] **Step 4: Write integration test — end-to-end compile test in Node.js**
+- [x] **Step 4: Write integration test — end-to-end compile test in Node.js**
 
 ```javascript
 // playground/test_e2e.js
@@ -1032,7 +1032,7 @@ async function testPlayground() {
 testPlayground().catch(console.error);
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add playground/playground.html playground/playground.js playground/playground.css playground/test_e2e.js
@@ -1046,7 +1046,7 @@ git commit -m "feat: add playground UI with CodeMirror editor"
 - Modify: `../WebSite/very.html` (navigation)
 - Create: `../WebSite/playground/` (symlink or copy of playground build output)
 
-- [ ] **Step 1: Add playground link to website navigation**
+- [x] **Step 1: Add playground link to website navigation**
 
 In both `index.html` and `very.html`, add after the Very link:
 ```html
@@ -1059,7 +1059,7 @@ Add translation keys:
 // en: nav_playground: "Playground"
 ```
 
-- [ ] **Step 2: Copy built playground assets to website**
+- [x] **Step 2: Copy built playground assets to website**
 
 ```bash
 mkdir -p ../WebSite/playground
@@ -1070,7 +1070,7 @@ cp playground/playground.js ../WebSite/playground/
 cp playground/playground.css ../WebSite/playground/
 ```
 
-- [ ] **Step 3: Verify locally — serve the website and test**
+- [x] **Step 3: Verify locally — serve the website and test**
 
 ```bash
 cd ../WebSite
@@ -1080,7 +1080,7 @@ python3 -m http.server 8000
 
 Expected: Playground loads, editor shows default code, clicking "运行" compiles and runs Vix code in-browser.
 
-- [ ] **Step 4: Commit (in WebSite repo)**
+- [x] **Step 4: Commit (in WebSite repo)**
 
 ```bash
 cd ../WebSite
@@ -1095,7 +1095,7 @@ git commit -m "feat: integrate Vix Playground into website"
 - Modify: `playground/playground.html`
 - Modify: `src/compiler/WasmCodegen.cpp`
 
-- [ ] **Step 1: Improve WASM loading UX**
+- [x] **Step 1: Improve WASM loading UX**
 
 Add a loading progress bar in `playground.html`:
 ```html
@@ -1115,7 +1115,7 @@ Module.onProgress = function(progress) {
 };
 ```
 
-- [ ] **Step 2: Improve error messages from parser**
+- [x] **Step 2: Improve error messages from parser**
 
 In `playground.js`, parse the WASM error output into human-readable format with line numbers:
 ```javascript
@@ -1125,7 +1125,7 @@ function formatCompileError(raw) {
 }
 ```
 
-- [ ] **Step 3: Handle unsupported features gracefully**
+- [x] **Step 3: Handle unsupported features gracefully**
 
 In `WasmCodegen.cpp`, for any AST node that cannot be translated to WASM (e.g., raw pointer arithmetic, inline assembly):
 ```cpp
@@ -1137,7 +1137,7 @@ BinaryenExpressionRef WasmCodegen::compile_node(ASTNode *node) {
 }
 ```
 
-- [ ] **Step 4: Add code examples selector**
+- [x] **Step 4: Add code examples selector**
 
 Add a dropdown in `playground.html` with preset Vix examples:
 ```html
@@ -1158,7 +1158,7 @@ const EXAMPLES = {
 };
 ```
 
-- [ ] **Step 5: Persist editor content in localStorage**
+- [x] **Step 5: Persist editor content in localStorage**
 
 ```javascript
 // Restore
@@ -1171,7 +1171,7 @@ editor.on('change', function() {
 });
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add playground/playground.html playground/playground.js playground/pre.js src/compiler/WasmCodegen.cpp
