@@ -899,6 +899,8 @@ pub fn parse_for_statement(parser: &Parser): i32
     parser_advance(parser)
     parser_expect_text(parser, "(")
     if (parser.ok == 0) { return -1 }
+    let name_line = parser_line(parser)
+    let name_col = parser_col(parser)
     let name = parser_text(parser)
     if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
     parser_expect_text(parser, "in")
@@ -913,7 +915,7 @@ pub fn parse_for_statement(parser: &Parser): i32
     if (parser.ok == 0) { return -1 }
     let body_idx = parse_block_statement(parser)
     if (parser.ok == 0) { return -1 }
-    return parser_stmt_at(parser, ast_stmt_for_range(parser.store, name, start_idx, end_idx, body_idx), line, col)
+    return parser_stmt_at(parser, ast_stmt_for_range(parser.store, name, start_idx, end_idx, body_idx), name_line, name_col)
 }
 
 pub fn parse_match_pattern(parser: &Parser): i32
@@ -1082,6 +1084,8 @@ pub fn parse_statement(parser: &Parser): i32
             is_mut = 1
             parser_advance(parser)
         }
+        let name_line = parser_line(parser)
+        let name_col = parser_col(parser)
         let name = parser_text(parser)
         if (parser_expect_kind(parser, tk_ident()) == 0) { return -1 }
         let mut type_text = ""
@@ -1096,7 +1100,7 @@ pub fn parse_statement(parser: &Parser): i32
         let expr_idx = parse_expression(parser)
         if (parser.ok == 0) { return -1 }
         parser_accept_text(parser, ";")
-        return parser_stmt_at(parser, ast_stmt_let_typed_mut(parser.store, name, type_text, expr_idx, is_mut), line, col)
+        return parser_stmt_at(parser, ast_stmt_let_typed_mut(parser.store, name, type_text, expr_idx, is_mut), name_line, name_col)
     }
     if (stmt_text == "return")
     {
