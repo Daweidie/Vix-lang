@@ -11,7 +11,6 @@ extern "C"
     fn LLVMDisposeBuilder(builder: ptr)
     fn LLVMPrintModuleToString(module: ptr): string
     fn vix_LLVMVerifyModule(module: ptr): i32
-    fn vix_debug_zero_value(ty_name: string, branch: string, result: ptr): ptr
     fn LLVMVoidType(): ptr
     fn LLVMInt1Type(): ptr
     fn LLVMInt32Type(): ptr
@@ -302,17 +301,14 @@ pub fn llvm_type_for(ty: string): ptr
     {
         return LLVMPointerType(LLVMInt8Type(), 0)
     }
-    return match ty {
-        "void" -> LLVMVoidType()
-        "bool" -> LLVMInt32Type()
-        "i8" | "u8" | "char" -> LLVMInt8Type()
-        "i64" | "u64" | "usize" -> LLVMInt64Type()
-        "f32" -> LLVMFloatType()
-        "f64" -> LLVMDoubleType()
-        "ptr" -> LLVMPointerType(LLVMInt8Type(), 0)
-        "string" -> LLVMPointerType(LLVMInt8Type(), 0)
-        _ -> LLVMInt32Type()
-    }
+    if (ty == "void") { return LLVMVoidType() }
+    if (ty == "bool") { return LLVMInt32Type() }
+    if (ty == "i8" or ty == "u8" or ty == "char") { return LLVMInt8Type() }
+    if (ty == "i64" or ty == "u64" or ty == "usize") { return LLVMInt64Type() }
+    if (ty == "f32") { return LLVMFloatType() }
+    if (ty == "f64") { return LLVMDoubleType() }
+    if (ty == "ptr" or ty == "string") { return LLVMPointerType(LLVMInt8Type(), 0) }
+    return LLVMInt32Type()
 }
 
 pub fn get_fmt_string(b: &LlvmBuilder): ptr
@@ -477,11 +473,10 @@ pub fn llvm_const_null_ptr(): ptr
 
 pub fn llvm_zero_value_for(ty: string): ptr
 {
-    if (ty == "f32" or ty == "f64") { let r = llvm_const_float(0.0, ty); return vix_debug_zero_value(ty, "float", r) }
-    if (ty == "i64" or ty == "u64" or ty == "usize") { let r = llvm_const_i64(0); return vix_debug_zero_value(ty, "i64", r) }
-    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { let r = llvm_const_null_ptr(); return vix_debug_zero_value(ty, "ptr", r) }
-    let r = llvm_const_i32(0)
-    return vix_debug_zero_value(ty, "i32", r)
+    if (ty == "f32" or ty == "f64") { return llvm_const_float(0.0, ty) }
+    if (ty == "i64" or ty == "u64" or ty == "usize") { return llvm_const_i64(0) }
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return llvm_const_null_ptr() }
+    return llvm_const_i32(0)
 }
 
 pub fn llvm_undef(ty: string): ptr
@@ -774,13 +769,7 @@ pub fn llvm_emit_printf_i32_value(b: &LlvmBuilder, value: ptr)
 
 pub fn llvm_emit_printf_value(b: &LlvmBuilder, value: ptr, ty: string)
 {
-    let fmt = match ty {
-        "i64" | "u64" | "usize" -> "%ld\n"
-        "f32" | "f64" -> "%f\n"
-        "string" -> "%s\n"
-        "bool" | "u32" | "i8" | "u8" | "char" -> "%d\n"
-        _ -> "%d\n"
-    }
+    let fmt = if (ty == "i64" or ty == "u64" or ty == "usize") { "%ld\n" } elif (ty == "f32" or ty == "f64") { "%f\n" } elif (ty == "string") { "%s\n" } else { "%d\n" }
     let fmt_ptr = get_c_string_global(b, ".fmt." + ty, fmt)
     let print_value = if (ty == "f32") { llvm_cast_value(b, value, "f32", "f64") } elif (ty == "i8" or ty == "u8" or ty == "char") { llvm_cast_value(b, value, ty, "i32") } else { value }
     let args = [fmt_ptr, print_value]
@@ -822,7 +811,7 @@ pub fn llvm_build_struct_field_from_ptr(b: &LlvmBuilder, struct_ty: string, base
     let indices = [llvm_const_i32(0), llvm_const_i32(field_index)]
     let field_ptr = vix_LLVMBuildGEP2(b.builder, llvm_struct_ty, casted_ptr, indices, 2, llvm_temp(b, "field"))
     let field_val = vix_LLVMBuildLoad2(b.builder, llvm_type_for(field_ty), field_ptr, llvm_temp(b, "fieldval"))
-    llvm_cast_value(b, field_val, field_ty, expected_ty)
+    return llvm_cast_value(b, field_val, field_ty, expected_ty)
 }
 
 pub fn llvm_build_struct_field_ptr_from_ptr(b: &LlvmBuilder, struct_ty: string, base_ptr: ptr, field_index: i32): ptr

@@ -70,9 +70,16 @@ pub fn symtable_pop_scope(table: &SymbolTable)
     if (table.depth > 0)
     {
         let mut keep = table.names.length
-        while (keep > 0 and table.depths[keep - 1] >= table.depth)
+        while (keep > 0)
         {
-            keep -= 1
+            if (table.depths[keep - 1] >= table.depth)
+            {
+                keep -= 1
+            }
+            else
+            {
+                break
+            }
         }
         symtable_truncate(table, keep)
         table.depth -= 1

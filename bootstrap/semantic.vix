@@ -236,9 +236,16 @@ pub fn semantic_scope_pop(scope: &SemanticScope)
     if (scope.depth > 0)
     {
         let mut keep = scope.names.length
-        while (keep > 0 and scope.depths[keep - 1] >= scope.depth)
+        while (keep > 0)
         {
-            keep -= 1
+            if (scope.depths[keep - 1] >= scope.depth)
+            {
+                keep -= 1
+            }
+            else
+            {
+                break
+            }
         }
         semantic_scope_truncate(scope, keep)
         scope.depth -= 1

@@ -166,9 +166,7 @@ pub fn codegen_binop_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &S
     if (expr.text == "and")
     {
         let left_val = codegen_expr_value_typed(b, es, store, left_expr, left_ty)
-        let right_val = codegen_expr_value_typed(b, es, store, right_expr, right_ty)
         let left_i1 = llvm_build_truthy_typed_i1(b, left_val, left_ty)
-        let right_i1 = llvm_build_truthy_typed_i1(b, right_val, right_ty)
 
         let rhs_block = llvm_append_block(b, "and.rhs")
         let false_block = llvm_append_block(b, "and.false")
@@ -176,23 +174,25 @@ pub fn codegen_binop_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &S
         vix_LLVMBuildCondBr(b.builder, left_i1, rhs_block, false_block)
 
         llvm_position_at_end(b, rhs_block)
+        let right_val = codegen_expr_value_typed(b, es, store, right_expr, right_ty)
+        let right_i1 = llvm_build_truthy_typed_i1(b, right_val, right_ty)
+        let rhs_end_block = vix_LLVMGetInsertBlock(b.builder)
         vix_LLVMBuildCondBr(b.builder, right_i1, merge_block, false_block)
 
         llvm_position_at_end(b, false_block)
         vix_LLVMBuildBr(b.builder, merge_block)
+        let false_end_block = vix_LLVMGetInsertBlock(b.builder)
 
         llvm_position_at_end(b, merge_block)
         let result = vix_LLVMBuildPHI(b.builder, LLVMInt32Type(), llvm_temp(b, "andval"))
-        vix_LLVMAddIncoming(result, llvm_const_i32(1), rhs_block)
-        vix_LLVMAddIncoming(result, llvm_const_i32(0), false_block)
+        vix_LLVMAddIncoming(result, llvm_const_i32(1), rhs_end_block)
+        vix_LLVMAddIncoming(result, llvm_const_i32(0), false_end_block)
         return result
     }
     if (expr.text == "or")
     {
         let left_val = codegen_expr_value_typed(b, es, store, left_expr, left_ty)
-        let right_val = codegen_expr_value_typed(b, es, store, right_expr, right_ty)
         let left_i1 = llvm_build_truthy_typed_i1(b, left_val, left_ty)
-        let right_i1 = llvm_build_truthy_typed_i1(b, right_val, right_ty)
 
         let true_block = llvm_append_block(b, "or.true")
         let rhs_block = llvm_append_block(b, "or.rhs")
@@ -200,15 +200,19 @@ pub fn codegen_binop_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &S
         vix_LLVMBuildCondBr(b.builder, left_i1, true_block, rhs_block)
 
         llvm_position_at_end(b, rhs_block)
+        let right_val = codegen_expr_value_typed(b, es, store, right_expr, right_ty)
+        let right_i1 = llvm_build_truthy_typed_i1(b, right_val, right_ty)
+        let rhs_end_block = vix_LLVMGetInsertBlock(b.builder)
         vix_LLVMBuildCondBr(b.builder, right_i1, true_block, merge_block)
 
         llvm_position_at_end(b, true_block)
         vix_LLVMBuildBr(b.builder, merge_block)
+        let true_end_block = vix_LLVMGetInsertBlock(b.builder)
 
         llvm_position_at_end(b, merge_block)
         let result = vix_LLVMBuildPHI(b.builder, LLVMInt32Type(), llvm_temp(b, "orval"))
-        vix_LLVMAddIncoming(result, llvm_const_i32(1), true_block)
-        vix_LLVMAddIncoming(result, llvm_const_i32(0), rhs_block)
+        vix_LLVMAddIncoming(result, llvm_const_i32(1), true_end_block)
+        vix_LLVMAddIncoming(result, llvm_const_i32(0), rhs_end_block)
         return result
     }
 
@@ -306,278 +310,253 @@ pub fn codegen_option_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &
 
 pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr, expected_ty: string): ptr
 {
-    return match expr.tag {
-        "int" -> {
-            if (expected_ty == "i64" or expected_ty == "u64" or expected_ty == "usize") { llvm_const_i64(expr.int_value) }
-            elif (expected_ty == "i8" or expected_ty == "u8" or expected_ty == "char") { vix_LLVMConstInt(LLVMInt8Type(), i32_to_i64(expr.int_value), 0) }
-            elif (expected_ty == "f32" or expected_ty == "f64") { llvm_const_float(i32_to_f64(expr.int_value), expected_ty) }
-            else { llvm_const_i32(expr.int_value) }
-        }
-        "float" -> {
-            if (expected_ty == "f32") { llvm_const_float(expr.float_value, "f32") } else { llvm_const_float(expr.float_value, "f64") }
-        }
-        "bool" -> {
-            if (expected_ty == "bool") { llvm_const_bool(expr.int_value) } else { llvm_const_i32(expr.int_value) }
-        }
-        "option" -> codegen_option_expr_value_typed(b, es, store, expr)
-        "ident" -> {
-            let var_ty = get_var_type(b, expr.text)
-            if (expected_ty == "ptr:" + var_ty) { llvm_var_address(b, expr.text) }
-            elif (is_ptr_to_struct(var_ty) == 1 and codegen_type_is_pointer_like(expected_ty) == 1) { llvm_load_var(b, expr.text) }
-            elif (vix_is_struct_type(var_ty) == 1 and codegen_type_is_pointer_like(expected_ty) == 1) { llvm_var_address(b, expr.text) }
-            else { llvm_cast_value(b, llvm_load_var(b, expr.text), var_ty, expected_ty) }
-        }
-        "string" -> get_c_string_global(b, ".strlit" + llvm_temp(b, ""), expr.text)
-        "addr" -> {
-            let var_ty = get_var_type(b, expr.text)
-            if (type_text_is_array(var_ty) == 1)
-            {
-                llvm_load_var(b, expr.text)
-            }
-            else
-            {
-                llvm_var_address(b, expr.text)
-            }
-        }
-        "deref" -> {
-            let ptr_expr = expr_store_get(es, expr.left_idx)
-            let base_ty = codegen_expr_type(b, es, ptr_expr)
-            let ptr_val = codegen_expr_value_typed(b, es, store, ptr_expr, "ptr")
-            let pointee_ty = if (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
-            let loaded = llvm_load_typed_pointer(b, ptr_val, pointee_ty)
-            llvm_cast_value(b, loaded, pointee_ty, expected_ty)
-        }
-        "field" -> {
-            codegen_field_expr_value_typed(b, es, store, expr, expected_ty)
-        }
-        "struct_literal" -> {
-            let mut agg = llvm_undef(expr.text)
-            for (i in 0 .. expr.args.length)
-            {
-                let field_name = expr.field_names[i]
-                let field_ty = get_struct_field_type(expr.text, field_name)
-                let field_index = get_struct_field_index(expr.text, field_name)
-                let field_expr = expr_store_get(es, expr.args[i])
-                let val = if (codegen_expected_type_accepts_null(field_ty) == 1 and field_expr.tag == "int" and field_expr.int_value == 0) { llvm_const_null_ptr() } else { codegen_expr_value_typed(b, es, store, field_expr, field_ty) }
-                agg = llvm_insert_value(b, agg, val, field_index)
-            }
-            agg
-        }
-        "index" -> {
-            let base_expr = expr_store_get(es, expr.left_idx)
-            let index_expr = expr_store_get(es, expr.right_idx)
-            let base_ty = codegen_expr_type(b, es, base_expr)
-            let base = codegen_expr_value_typed(b, es, store, base_expr, base_ty)
-            let index = codegen_expr_value_typed(b, es, store, index_expr, "i32")
-            if (base_ty == "string")
-            {
-                llvm_load_string_char(b, base, index)
-            }
-            elif (base_ty == "ptr")
-            {
-                llvm_load_ptr_index_as_string(b, base, index)
-            }
-            else
-            {
-                let element_ty_text = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
-                let element_ty = llvm_type_for(element_ty_text)
-                let indices = [index]
-                let slot = vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "idx"))
-                vix_LLVMBuildLoad2(b.builder, element_ty, slot, llvm_temp(b, "loadidx"))
-            }
-        }
-        "binop" -> {
-            codegen_binop_expr_value_typed(b, es, store, expr, expected_ty)
-        }
-        "unaryop" -> {
-            codegen_unary_expr_value_typed(b, es, store, expr)
-        }
-        "call" -> {
-            let mut args: [ptr] = []
-            for (i in 0 .. expr.args.length)
-            {
-                let arg_expr = expr_store_get(es, expr.args[i])
-                let expected_arg_ty = get_function_param_type(expr.text, i)
-                let arg = codegen_expr_value_typed(b, es, store, arg_expr, expected_arg_ty)
-                args.push(arg)
-            }
-            let call_val = llvm_build_call_value(b, expr.text, args)
-            llvm_cast_value(b, call_val, get_function_return_type(expr.text), expected_ty)
-        }
-        "array_literal" -> {
-            let mut arr = llvm_const_null_ptr()
-            for (i in 0 .. expr.args.length)
-            {
-                let elem_expr = expr_store_get(es, expr.args[i])
-                let elem_ty = codegen_expr_type(b, es, elem_expr)
-                if (codegen_type_is_pointer_like(elem_ty) == 1)
-                {
-                    let val = codegen_expr_value_typed(b, es, store, elem_expr, "ptr")
-                    arr = llvm_build_call_value(b, "vix_array_push_ptr", [arr, val])
-                }
-                elif (elem_ty != "i32" and elem_ty != "bool" and elem_ty != "i8" and elem_ty != "u8" and elem_ty != "char")
-                {
-                    let val = codegen_expr_value_typed(b, es, store, elem_expr, elem_ty)
-                    let slot = vix_LLVMBuildAlloca(b.builder, llvm_type_for(elem_ty), llvm_temp(b, "elem"))
-                    vix_LLVMBuildStore(b.builder, val, slot)
-                    arr = llvm_build_call_value(b, "vix_array_push_bytes", [arr, slot, llvm_sizeof_i64(b, elem_ty)])
-                }
-                else
-                {
-                    let val = codegen_expr_value_typed(b, es, store, elem_expr, "i32")
-                    arr = llvm_build_call_value(b, "vix_array_push_i32", [arr, val])
-                }
-            }
-            arr
-        }
-        "block_expr" -> {
-            codegen_stmt(b, es, store, expr.left_idx, if (expected_ty == "void") { 1 } else { 0 })
-            let mut value = llvm_const_i32(0)
-            if (expr.right_idx >= 0)
-            {
-                let value_expr = expr_store_get(es, expr.right_idx)
-                value = codegen_expr_value_typed(b, es, store, value_expr, expected_ty)
-            }
-            value
-        }
-        "if_expr" -> {
-            let inferred_ty = codegen_expr_type(b, es, expr)
-            let result_ty = if (expected_ty != "" and expected_ty != "unknown") { expected_ty } else { inferred_ty }
-            let result_alloca = vix_LLVMBuildAlloca(b.builder, llvm_type_for(result_ty), llvm_temp(b, "ifexpr"))
-            let then_block = llvm_append_block(b, llvm_label_name(b, "ifexpr.then"))
-            let else_block = llvm_append_block(b, llvm_label_name(b, "ifexpr.else"))
-            let end_block = llvm_append_block(b, llvm_label_name(b, "ifexpr.end"))
-            let cond_expr = expr_store_get(es, expr.left_idx)
-            let cond_ty = codegen_expr_type(b, es, cond_expr)
-            let cond_val = codegen_expr_value_typed(b, es, store, cond_expr, cond_ty)
-            let cond_i1 = llvm_build_truthy_typed_i1(b, cond_val, cond_ty)
-            vix_LLVMBuildCondBr(b.builder, cond_i1, then_block, else_block)
-            
-            llvm_position_at_end(b, then_block)
-            let then_expr = expr_store_get(es, expr.right_idx)
-            let then_val = codegen_expr_value_typed(b, es, store, then_expr, result_ty)
-            vix_LLVMBuildStore(b.builder, then_val, result_alloca)
-            if (llvm_current_block_terminated(b) == 0)
-            {
-                llvm_emit_jmp_block(b, end_block)
-            }
-            
-            llvm_position_at_end(b, else_block)
-            let else_expr = expr_store_get(es, expr.args[0])
-            let else_val = codegen_expr_value_typed(b, es, store, else_expr, result_ty)
-            vix_LLVMBuildStore(b.builder, else_val, result_alloca)
-            if (llvm_current_block_terminated(b) == 0)
-            {
-                llvm_emit_jmp_block(b, end_block)
-            }
-            
-            llvm_position_at_end(b, end_block)
-            vix_LLVMBuildLoad2(b.builder, llvm_type_for(result_ty), result_alloca, llvm_temp(b, "ifexprval"))
-        }
-        "match_expr" -> {
-            let inferred_ty = codegen_expr_type(b, es, expr)
-            let result_ty = if (expected_ty != "" and expected_ty != "unknown") { expected_ty } else { inferred_ty }
-            let subject_expr = expr_store_get(es, expr.left_idx)
-            let subject_ty = codegen_expr_type(b, es, subject_expr)
-            let subject_val = codegen_expr_value_typed(b, es, store, subject_expr, subject_ty)
-            
-            let result_alloca = vix_LLVMBuildAlloca(b.builder, llvm_type_for(result_ty), llvm_temp(b, "matchres"))
-            let end_block = llvm_append_block(b, llvm_label_name(b, "match.end"))
-            let mut next_test = llvm_append_block(b, llvm_label_name(b, "match.test"))
-            
-            if (llvm_current_block_terminated(b) == 0)
-            {
-                llvm_emit_jmp_block(b, next_test)
-            }
-            
-            let mut num_arms = expr.args.length / 2
-            for (i in 0 .. num_arms)
-            {
-                let pattern_idx = expr.args[i * 2]
-                let body_idx = expr.args[i * 2 + 1]
-                if (body_idx < 0) { continue }
-                
-                if (pattern_idx < 0)
-                {
-                    llvm_position_at_end(b, next_test)
-                    let body_expr = expr_store_get(es, body_idx)
-                    let val = codegen_expr_value_typed(b, es, store, body_expr, result_ty)
-                    vix_LLVMBuildStore(b.builder, val, result_alloca)
-                    if (llvm_current_block_terminated(b) == 0)
-                    {
-                        llvm_emit_jmp_block(b, end_block)
-                    }
-                }
-                else
-                {
-                    llvm_position_at_end(b, next_test)
-                    let body_block = llvm_append_block(b, llvm_label_name(b, "match.body"))
-                    let after_block = llvm_append_block(b, llvm_label_name(b, "match.test"))
-                    let cmp = codegen_match_compare(b, es, store, subject_val, subject_ty, pattern_idx)
-                    let cmp_i1 = llvm_build_truthy_typed_i1(b, cmp, "bool")
-                    vix_LLVMBuildCondBr(b.builder, cmp_i1, body_block, after_block)
-                    
-                    llvm_position_at_end(b, body_block)
-                    codegen_bind_option_pattern(b, es, pattern_idx, subject_val, subject_ty)
-                    let body_expr = expr_store_get(es, body_idx)
-                    let val = codegen_expr_value_typed(b, es, store, body_expr, result_ty)
-                    vix_LLVMBuildStore(b.builder, val, result_alloca)
-                    if (llvm_current_block_terminated(b) == 0)
-                    {
-                        llvm_emit_jmp_block(b, end_block)
-                    }
-                    
-                    next_test = after_block
-                }
-            }
-            
-            llvm_position_at_end(b, next_test)
-            if (llvm_current_block_terminated(b) == 0)
-            {
-                vix_LLVMBuildStore(b.builder, llvm_zero_value_for(result_ty), result_alloca)
-                llvm_emit_jmp_block(b, end_block)
-            }
-            
-            llvm_position_at_end(b, end_block)
-            vix_LLVMBuildLoad2(b.builder, llvm_type_for(result_ty), result_alloca, llvm_temp(b, "matchval"))
-        }
-        "method_call" -> {
-            let mut out = llvm_const_i32(0)
-            if (expr.text == "push")
-            {
-                let base_expr = expr_store_get(es, expr.left_idx)
-                let base_ty = codegen_expr_type(b, es, base_expr)
-                let element_ty = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
-                let base = codegen_expr_value_typed(b, es, store, base_expr, "ptr")
-                let val_expr = expr_store_get(es, expr.args[0])
-                let val = codegen_expr_value_typed(b, es, store, val_expr, element_ty)
-                let args = [base, val]
-                let mut result = llvm_const_null_ptr()
-                if (codegen_type_is_pointer_like(element_ty) == 1)
-                {
-                    result = llvm_build_call_value(b, "vix_array_push_ptr", args)
-                }
-                elif (element_ty == "i32" or element_ty == "bool" or element_ty == "i8" or element_ty == "u8" or element_ty == "char")
-                {
-                    result = llvm_build_call_value(b, "vix_array_push_i32", args)
-                }
-                else
-                {
-                    let slot = vix_LLVMBuildAlloca(b.builder, llvm_type_for(element_ty), llvm_temp(b, "elem"))
-                    vix_LLVMBuildStore(b.builder, val, slot)
-                    result = llvm_build_call_value(b, "vix_array_push_bytes", [base, slot, llvm_sizeof_i64(b, element_ty)])
-                }
-                let base_addr = codegen_field_address(b, es, store, base_expr)
-                vix_LLVMBuildStore(b.builder, result, base_addr)
-                if (expected_ty == "ptr")
-                {
-                    out = result
-                }
-            }
-            out
-        }
-        _ -> llvm_const_i32(0)
+    if (expr.tag == "int")
+    {
+        if (expected_ty == "i64" or expected_ty == "u64" or expected_ty == "usize") { return llvm_const_i64(expr.int_value) }
+        if (expected_ty == "i8" or expected_ty == "u8" or expected_ty == "char") { return vix_LLVMConstInt(LLVMInt8Type(), i32_to_i64(expr.int_value), 0) }
+        if (expected_ty == "f32" or expected_ty == "f64") { return llvm_const_float(i32_to_f64(expr.int_value), expected_ty) }
+        return llvm_const_i32(expr.int_value)
     }
+    if (expr.tag == "float")
+    {
+        if (expected_ty == "f32") { return llvm_const_float(expr.float_value, "f32") }
+        return llvm_const_float(expr.float_value, "f64")
+    }
+    if (expr.tag == "bool")
+    {
+        if (expected_ty == "bool") { return llvm_const_bool(expr.int_value) }
+        return llvm_const_i32(expr.int_value)
+    }
+    if (expr.tag == "option") { return codegen_option_expr_value_typed(b, es, store, expr) }
+    if (expr.tag == "ident")
+    {
+        let var_ty = get_var_type(b, expr.text)
+        if (expected_ty == "ptr:" + var_ty) { return llvm_var_address(b, expr.text) }
+        if (is_ptr_to_struct(var_ty) == 1 and codegen_type_is_pointer_like(expected_ty) == 1) { return llvm_load_var(b, expr.text) }
+        if (vix_is_struct_type(var_ty) == 1 and codegen_type_is_pointer_like(expected_ty) == 1) { return llvm_var_address(b, expr.text) }
+        return llvm_cast_value(b, llvm_load_var(b, expr.text), var_ty, expected_ty)
+    }
+    if (expr.tag == "string") { return get_c_string_global(b, ".strlit" + llvm_temp(b, ""), expr.text) }
+    if (expr.tag == "addr")
+    {
+        let var_ty = get_var_type(b, expr.text)
+        if (type_text_is_array(var_ty) == 1) { return llvm_load_var(b, expr.text) }
+        return llvm_var_address(b, expr.text)
+    }
+    if (expr.tag == "deref")
+    {
+        let ptr_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = codegen_expr_type(b, es, ptr_expr)
+        let ptr_val = codegen_expr_value_typed(b, es, store, ptr_expr, "ptr")
+        let pointee_ty = if (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
+        let loaded = llvm_load_typed_pointer(b, ptr_val, pointee_ty)
+        return llvm_cast_value(b, loaded, pointee_ty, expected_ty)
+    }
+    if (expr.tag == "field") { return codegen_field_expr_value_typed(b, es, store, expr, expected_ty) }
+    if (expr.tag == "struct_literal")
+    {
+        let mut agg = llvm_undef(expr.text)
+        for (i in 0 .. expr.args.length)
+        {
+            let field_name = expr.field_names[i]
+            let field_ty = get_struct_field_type(expr.text, field_name)
+            let field_index = get_struct_field_index(expr.text, field_name)
+            let field_expr = expr_store_get(es, expr.args[i])
+            let val = if (codegen_expected_type_accepts_null(field_ty) == 1 and field_expr.tag == "int" and field_expr.int_value == 0) { llvm_const_null_ptr() } else { codegen_expr_value_typed(b, es, store, field_expr, field_ty) }
+            agg = llvm_insert_value(b, agg, val, field_index)
+        }
+        return agg
+    }
+    if (expr.tag == "index")
+    {
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let index_expr = expr_store_get(es, expr.right_idx)
+        let base_ty = codegen_expr_type(b, es, base_expr)
+        let base = codegen_expr_value_typed(b, es, store, base_expr, base_ty)
+        let index = codegen_expr_value_typed(b, es, store, index_expr, "i32")
+        if (base_ty == "string") { return llvm_load_string_char(b, base, index) }
+        if (base_ty == "ptr") { return llvm_load_ptr_index_as_string(b, base, index) }
+        let element_ty_text = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+        let element_ty = llvm_type_for(element_ty_text)
+        let indices = [index]
+        let slot = vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "idx"))
+        return vix_LLVMBuildLoad2(b.builder, element_ty, slot, llvm_temp(b, "loadidx"))
+    }
+    if (expr.tag == "binop") { return codegen_binop_expr_value_typed(b, es, store, expr, expected_ty) }
+    if (expr.tag == "unaryop") { return codegen_unary_expr_value_typed(b, es, store, expr) }
+    if (expr.tag == "call")
+    {
+        let mut args: [ptr] = []
+        for (i in 0 .. expr.args.length)
+        {
+            let arg_expr = expr_store_get(es, expr.args[i])
+            let expected_arg_ty = get_function_param_type(expr.text, i)
+            let arg = codegen_expr_value_typed(b, es, store, arg_expr, expected_arg_ty)
+            args.push(arg)
+        }
+        let call_val = llvm_build_call_value(b, expr.text, args)
+        return llvm_cast_value(b, call_val, get_function_return_type(expr.text), expected_ty)
+    }
+    if (expr.tag == "array_literal")
+    {
+        let mut arr = llvm_const_null_ptr()
+        for (i in 0 .. expr.args.length)
+        {
+            let elem_expr = expr_store_get(es, expr.args[i])
+            let elem_ty = codegen_expr_type(b, es, elem_expr)
+            if (codegen_type_is_pointer_like(elem_ty) == 1)
+            {
+                let val = codegen_expr_value_typed(b, es, store, elem_expr, "ptr")
+                arr = llvm_build_call_value(b, "vix_array_push_ptr", [arr, val])
+            }
+            elif (elem_ty != "i32" and elem_ty != "bool" and elem_ty != "i8" and elem_ty != "u8" and elem_ty != "char")
+            {
+                let val = codegen_expr_value_typed(b, es, store, elem_expr, elem_ty)
+                let slot = vix_LLVMBuildAlloca(b.builder, llvm_type_for(elem_ty), llvm_temp(b, "elem"))
+                vix_LLVMBuildStore(b.builder, val, slot)
+                arr = llvm_build_call_value(b, "vix_array_push_bytes", [arr, slot, llvm_sizeof_i64(b, elem_ty)])
+            }
+            else
+            {
+                let val = codegen_expr_value_typed(b, es, store, elem_expr, "i32")
+                arr = llvm_build_call_value(b, "vix_array_push_i32", [arr, val])
+            }
+        }
+        return arr
+    }
+    if (expr.tag == "block_expr")
+    {
+        codegen_stmt(b, es, store, expr.left_idx, if (expected_ty == "void") { 1 } else { 0 })
+        let mut value = llvm_const_i32(0)
+        if (expr.right_idx >= 0)
+        {
+            let value_expr = expr_store_get(es, expr.right_idx)
+            value = codegen_expr_value_typed(b, es, store, value_expr, expected_ty)
+        }
+        return value
+    }
+    if (expr.tag == "if_expr")
+    {
+        let inferred_ty = codegen_expr_type(b, es, expr)
+        let result_ty = if (expected_ty != "" and expected_ty != "unknown") { expected_ty } else { inferred_ty }
+        let result_alloca = vix_LLVMBuildAlloca(b.builder, llvm_type_for(result_ty), llvm_temp(b, "ifexpr"))
+        let then_block = llvm_append_block(b, llvm_label_name(b, "ifexpr.then"))
+        let else_block = llvm_append_block(b, llvm_label_name(b, "ifexpr.else"))
+        let end_block = llvm_append_block(b, llvm_label_name(b, "ifexpr.end"))
+        let cond_expr = expr_store_get(es, expr.left_idx)
+        let cond_ty = codegen_expr_type(b, es, cond_expr)
+        let cond_val = codegen_expr_value_typed(b, es, store, cond_expr, cond_ty)
+        let cond_i1 = llvm_build_truthy_typed_i1(b, cond_val, cond_ty)
+        vix_LLVMBuildCondBr(b.builder, cond_i1, then_block, else_block)
+
+        llvm_position_at_end(b, then_block)
+        let then_expr = expr_store_get(es, expr.right_idx)
+        let then_val = codegen_expr_value_typed(b, es, store, then_expr, result_ty)
+        vix_LLVMBuildStore(b.builder, then_val, result_alloca)
+        if (llvm_current_block_terminated(b) == 0) { llvm_emit_jmp_block(b, end_block) }
+
+        llvm_position_at_end(b, else_block)
+        let else_expr = expr_store_get(es, expr.args[0])
+        let else_val = codegen_expr_value_typed(b, es, store, else_expr, result_ty)
+        vix_LLVMBuildStore(b.builder, else_val, result_alloca)
+        if (llvm_current_block_terminated(b) == 0) { llvm_emit_jmp_block(b, end_block) }
+
+        llvm_position_at_end(b, end_block)
+        return vix_LLVMBuildLoad2(b.builder, llvm_type_for(result_ty), result_alloca, llvm_temp(b, "ifexprval"))
+    }
+    if (expr.tag == "match_expr")
+    {
+        let inferred_ty = codegen_expr_type(b, es, expr)
+        let result_ty = if (expected_ty != "" and expected_ty != "unknown") { expected_ty } else { inferred_ty }
+        let subject_expr = expr_store_get(es, expr.left_idx)
+        let subject_ty = codegen_expr_type(b, es, subject_expr)
+        let subject_val = codegen_expr_value_typed(b, es, store, subject_expr, subject_ty)
+
+        let result_alloca = vix_LLVMBuildAlloca(b.builder, llvm_type_for(result_ty), llvm_temp(b, "matchres"))
+        let end_block = llvm_append_block(b, llvm_label_name(b, "match.end"))
+        let mut next_test = llvm_append_block(b, llvm_label_name(b, "match.test"))
+
+        if (llvm_current_block_terminated(b) == 0) { llvm_emit_jmp_block(b, next_test) }
+
+        let mut num_arms = expr.args.length / 2
+        for (i in 0 .. num_arms)
+        {
+            let pattern_idx = expr.args[i * 2]
+            let body_idx = expr.args[i * 2 + 1]
+            if (body_idx < 0) { continue }
+
+            if (pattern_idx < 0)
+            {
+                llvm_position_at_end(b, next_test)
+                let body_expr = expr_store_get(es, body_idx)
+                let val = codegen_expr_value_typed(b, es, store, body_expr, result_ty)
+                vix_LLVMBuildStore(b.builder, val, result_alloca)
+                if (llvm_current_block_terminated(b) == 0) { llvm_emit_jmp_block(b, end_block) }
+            }
+            else
+            {
+                llvm_position_at_end(b, next_test)
+                let body_block = llvm_append_block(b, llvm_label_name(b, "match.body"))
+                let after_block = llvm_append_block(b, llvm_label_name(b, "match.test"))
+                let cmp = codegen_match_compare(b, es, store, subject_val, subject_ty, pattern_idx)
+                let cmp_i1 = llvm_build_truthy_typed_i1(b, cmp, "bool")
+                vix_LLVMBuildCondBr(b.builder, cmp_i1, body_block, after_block)
+
+                llvm_position_at_end(b, body_block)
+                codegen_bind_option_pattern(b, es, pattern_idx, subject_val, subject_ty)
+                let body_expr = expr_store_get(es, body_idx)
+                let val = codegen_expr_value_typed(b, es, store, body_expr, result_ty)
+                vix_LLVMBuildStore(b.builder, val, result_alloca)
+                if (llvm_current_block_terminated(b) == 0) { llvm_emit_jmp_block(b, end_block) }
+
+                next_test = after_block
+            }
+        }
+
+        llvm_position_at_end(b, next_test)
+        if (llvm_current_block_terminated(b) == 0)
+        {
+            vix_LLVMBuildStore(b.builder, llvm_zero_value_for(result_ty), result_alloca)
+            llvm_emit_jmp_block(b, end_block)
+        }
+
+        llvm_position_at_end(b, end_block)
+        return vix_LLVMBuildLoad2(b.builder, llvm_type_for(result_ty), result_alloca, llvm_temp(b, "matchval"))
+    }
+    if (expr.tag == "method_call")
+    {
+        let mut out = llvm_const_i32(0)
+        if (expr.text == "push")
+        {
+            let base_expr = expr_store_get(es, expr.left_idx)
+            let base_ty = codegen_expr_type(b, es, base_expr)
+            let element_ty = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+            let base = codegen_expr_value_typed(b, es, store, base_expr, "ptr")
+            let val_expr = expr_store_get(es, expr.args[0])
+            let val = codegen_expr_value_typed(b, es, store, val_expr, element_ty)
+            let args = [base, val]
+            let mut result = llvm_const_null_ptr()
+            if (codegen_type_is_pointer_like(element_ty) == 1)
+            {
+                result = llvm_build_call_value(b, "vix_array_push_ptr", args)
+            }
+            elif (element_ty == "i32" or element_ty == "bool" or element_ty == "i8" or element_ty == "u8" or element_ty == "char")
+            {
+                result = llvm_build_call_value(b, "vix_array_push_i32", args)
+            }
+            else
+            {
+                let slot = vix_LLVMBuildAlloca(b.builder, llvm_type_for(element_ty), llvm_temp(b, "elem"))
+                vix_LLVMBuildStore(b.builder, val, slot)
+                result = llvm_build_call_value(b, "vix_array_push_bytes", [base, slot, llvm_sizeof_i64(b, element_ty)])
+            }
+            let base_addr = codegen_field_address(b, es, store, base_expr)
+            vix_LLVMBuildStore(b.builder, result, base_addr)
+            if (expected_ty == "ptr") { out = result }
+        }
+        return out
+    }
+    return llvm_const_i32(0)
 }
 
 pub fn codegen_expr_value(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr): ptr
