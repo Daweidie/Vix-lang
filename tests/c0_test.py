@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CASES = ROOT / "tests" / "vixc0"
 VIXC0 = ROOT / "vixc0" / "vixc0"
+if platform.system() == "Windows" and not str(VIXC0).endswith(".exe"):
+    VIXC0 = Path(str(VIXC0) + ".exe")
 OUT = ROOT / "vixc0" / "test.ll"
 
 
