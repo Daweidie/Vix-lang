@@ -170,3 +170,43 @@ foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
     target_link_libraries(vixc PRIVATE ${lib})
 endforeach()
 install(TARGETS vixc RUNTIME DESTINATION bin)
+
+# ── Frontend test (no LLVM dependency) ────────────────────────────
+option(BUILD_FRONTEND_TEST "Build frontend library test" OFF)
+if(BUILD_FRONTEND_TEST)
+    set(VIXC_FRONTEND_SOURCES
+        playground/vixc_frontend.c
+        tests/test_frontend.c
+        src/frontend_globals.c
+        src/ast/ast.c
+        src/ast/typeinfer.c
+        src/semantic/semantic.c
+        src/utils/error.c
+        ${BISON_vix_parser_OUTPUTS}
+        ${FLEX_vix_lexer_OUTPUTS}
+        src/Typeck/Typeck.cpp
+        src/Typeck/TypeckInfer.cpp
+        src/Typeck/LayOut.cpp
+        src/Ownership/Ownership.cpp
+    )
+    add_executable(test_frontend ${VIXC_FRONTEND_SOURCES})
+    target_include_directories(test_frontend PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}/parser
+    )
+    target_compile_definitions(test_frontend PRIVATE VIXC_FRONTEND_ONLY)
+    target_compile_options(test_frontend PRIVATE
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<NOT:$<C_COMPILER_ID:MSVC>>>:-Wall -Wextra>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall -Wextra>
+    )
+    if(NOT WIN32)
+        target_compile_definitions(test_frontend PRIVATE
+            _POSIX_C_SOURCE=200809L
+            _XOPEN_SOURCE=700
+        )
+    endif()
+    if(FLEX_LIBRARIES)
+        target_link_libraries(test_frontend PRIVATE ${FLEX_LIBRARIES})
+    endif()
+endif()

@@ -406,7 +406,9 @@ int main(int argc, char **argv) {
   if (!eff_t && (no_std || no_main)) {
     eff_t = "x86_64-unknown-none";
   }
+#ifndef VIXC_FRONTEND_ONLY
   llvm_set_target_triple(eff_t);
+#endif
 
   int bare = 0;
   if (eff_t && (strstr(eff_t, "unknown-none") != NULL ||
@@ -521,6 +523,7 @@ int main(int argc, char **argv) {
       return get_error_count() > 0 ? 1 : 0;
     }
 
+#ifndef VIXC_FRONTEND_ONLY
     if (gen_llvm) {
       char llvm_filename[2048];
       if (!llvm_f) {
@@ -767,6 +770,17 @@ int main(int argc, char **argv) {
       print_error_summary();
       return 0;
     }
+#else
+    if (root) {
+      free_ast(root);
+    }
+    fclose(input_file);
+    if (show_time)
+      print_timing_table(t_start, t_file_ts, t_parse_ts, t_sema_ts,
+                         t_codegen_ts);
+    print_error_summary();
+    return 0;
+#endif
   } else {
     if (get_error_count() == 0) {
       const char *fname =
