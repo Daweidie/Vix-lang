@@ -293,18 +293,27 @@ pub fn tokenize(src: string): TokenStream
                         if (src[pos] == 92 and pos + 1 < src.length)
                         {
                             let next = src[pos + 1]
-                            value = match next {
-                                'n' -> 10
-                                't' -> 9
-                                'r' -> 13
-                                '0' -> 0
-                                92 -> 92
-                                39 -> 39
-                                '"' -> 34
-                                _ -> next
+                            if (next == '0' and pos + 3 < src.length and src[pos + 2] == '3' and src[pos + 3] == '3')
+                            {
+                                value = 27
+                                pos += 4
+                                column += 4
                             }
-                            pos += 2
-                            column += 2
+                            else
+                            {
+                                value = match next {
+                                    'n' -> 10
+                                    't' -> 9
+                                    'r' -> 13
+                                    '0' -> 0
+                                    92 -> 92
+                                    39 -> 39
+                                    '"' -> 34
+                                    _ -> next
+                                }
+                                pos += 2
+                                column += 2
+                            }
                         }
                         else
                         {
@@ -331,15 +340,24 @@ pub fn tokenize(src: string): TokenStream
                         if (src[pos] == 92 and pos + 1 < src.length)
                         {
                             let next = src[pos + 1]
-                            text = text + match next {
-                                'n' -> char_string(10)
-                                't' -> char_string(9)
-                                92 -> char_string(92)
-                                '"' -> char_string('"')
-                                _ -> char_string(next)
+                            if (next == '0' and pos + 3 < src.length and src[pos + 2] == '3' and src[pos + 3] == '3')
+                            {
+                                text = text + char_string(27)
+                                pos += 4
+                                column += 4
                             }
-                            pos += 2
-                            column += 2
+                            else
+                            {
+                                text = text + match next {
+                                    'n' -> char_string(10)
+                                    't' -> char_string(9)
+                                    92 -> char_string(92)
+                                    '"' -> char_string('"')
+                                    _ -> char_string(next)
+                                }
+                                pos += 2
+                                column += 2
+                            }
                         }
                         else
                         {

@@ -849,6 +849,10 @@ statement_list
                                    $$ = create_program_node_with_yyltype((YYLTYPE*) &@$);
                                    add_statement_to_program($$, $1);
                                }
+    | statement_list SEMICOLON statement   {
+                                   add_statement_to_program($1, $3);
+                                   $$ = $1;
+                               }
     | statement_list statement   {
                                    add_statement_to_program($1, $2);
                                    $$ = $1;
@@ -1656,9 +1660,14 @@ compound_assignment_statement
     ;
 
 block_statement
-    : LBRACE statement_list RBRACE { $$ = $2; }
-    | LBRACE RBRACE { $$ = create_program_node_with_yyltype((YYLTYPE*) &@$); }
+    : LBRACE opt_semi_list statement_list opt_semi_list RBRACE { $$ = $3; }
+    | LBRACE opt_semi_list RBRACE { $$ = create_program_node_with_yyltype((YYLTYPE*) &@$); }
     | statement                    { $$ = $1; }
+    ;
+
+opt_semi_list
+    : /* empty */ { }
+    | opt_semi_list SEMICOLON { }
     ;
 
 if_statement

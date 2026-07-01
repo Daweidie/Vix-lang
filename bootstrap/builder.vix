@@ -10,6 +10,8 @@ extern "C"
     fn LLVMDisposeModule(module: ptr)
     fn LLVMDisposeBuilder(builder: ptr)
     fn LLVMPrintModuleToString(module: ptr): string
+    fn vix_LLVMVerifyModule(module: ptr): i32
+    fn vix_debug_zero_value(ty_name: string, branch: string, result: ptr): ptr
     fn LLVMVoidType(): ptr
     fn LLVMInt1Type(): ptr
     fn LLVMInt32Type(): ptr
@@ -36,6 +38,7 @@ extern "C"
     fn vix_LLVMConstString(str: string, length: i32, dont_null_terminate: i32): ptr
     fn vix_LLVMArrayType(element_ty: ptr, count: i32): ptr
     fn vix_LLVMAppendBasicBlock(fn_ref: ptr, name: string): ptr
+    fn vix_LLVMGetInsertBlock(builder: ptr): ptr
     fn vix_LLVMPositionBuilderAtEnd(builder: ptr, block: ptr)
     fn vix_LLVMGetBasicBlockTerminator(block: ptr): ptr
     fn vix_LLVMBuildAdd(builder: ptr, left: ptr, right: ptr, name: string): ptr
@@ -68,6 +71,8 @@ extern "C"
     fn vix_LLVMBuildFPExt(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
     fn vix_LLVMBuildFPTrunc(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
     fn vix_LLVMBuildBitCast(builder: ptr, val: ptr, dest_ty: ptr, name: string): ptr
+    fn vix_LLVMBuildPHI(builder: ptr, ty: ptr, name: string): ptr
+    fn vix_LLVMAddIncoming(phi: ptr, value: ptr, block: ptr)
     fn vix_LLVMBuildBr(builder: ptr, block: ptr): ptr
     fn vix_LLVMBuildCondBr(builder: ptr, cond: ptr, then_block: ptr, else_block: ptr): ptr
     fn vix_LLVMBuildGEP2(builder: ptr, ty: ptr, pointer: ptr, indices: ptr, num_indices: i32, name: string): ptr
@@ -472,10 +477,11 @@ pub fn llvm_const_null_ptr(): ptr
 
 pub fn llvm_zero_value_for(ty: string): ptr
 {
-    if (ty == "f32" or ty == "f64") { return llvm_const_float(0.0, ty) }
-    if (ty == "i64" or ty == "u64" or ty == "usize") { return llvm_const_i64(0) }
-    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return llvm_const_null_ptr() }
-    return llvm_const_i32(0)
+    if (ty == "f32" or ty == "f64") { let r = llvm_const_float(0.0, ty); return vix_debug_zero_value(ty, "float", r) }
+    if (ty == "i64" or ty == "u64" or ty == "usize") { let r = llvm_const_i64(0); return vix_debug_zero_value(ty, "i64", r) }
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { let r = llvm_const_null_ptr(); return vix_debug_zero_value(ty, "ptr", r) }
+    let r = llvm_const_i32(0)
+    return vix_debug_zero_value(ty, "i32", r)
 }
 
 pub fn llvm_undef(ty: string): ptr

@@ -1,7 +1,9 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Types.h>
+#include <llvm-c/Analysis.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #define MAX_VARS 1024
 #define MAX_FIELDS 32
@@ -355,6 +357,11 @@ LLVMValueRef vix_LLVMConstReal(LLVMTypeRef ty, double val) {
   return LLVMConstReal(ty, val);
 }
 
+LLVMValueRef vix_debug_zero_value(const char *ty_name, const char *branch, LLVMValueRef result) {
+  fprintf(stderr, "DBG_ZERO: ty='%s' branch='%s' result=%p\n", ty_name, branch, (void*)result);
+  return result;
+}
+
 LLVMValueRef vix_LLVMConstPointerNull(LLVMTypeRef ty) {
   return LLVMConstPointerNull(ty);
 }
@@ -397,6 +404,10 @@ LLVMValueRef vix_LLVMAppendBasicBlock(LLVMValueRef fn, const char *name) {
   return (LLVMValueRef)LLVMAppendBasicBlock(fn, name);
 }
 
+LLVMValueRef vix_LLVMGetInsertBlock(LLVMBuilderRef builder) {
+  return (LLVMValueRef)LLVMGetInsertBlock(builder);
+}
+
 LLVMValueRef vix_LLVMAppendBasicBlockInContext(LLVMContextRef ctx,
                                                LLVMValueRef fn,
                                                const char *name) {
@@ -416,8 +427,8 @@ LLVMValueRef vix_LLVMBuildGEP2(LLVMBuilderRef builder, LLVMTypeRef ty,
 }
 
 LLVMValueRef vix_LLVMBuildLoad2(LLVMBuilderRef builder, LLVMTypeRef ty,
-                                LLVMValueRef ptr_val, const char *name) {
-  return LLVMBuildLoad2(builder, ty, ptr_val, name);
+                               LLVMValueRef ptr, const char *name) {
+  return LLVMBuildLoad2(builder, ty, ptr, name);
 }
 
 LLVMValueRef vix_LLVMBuildAlloca(LLVMBuilderRef builder, LLVMTypeRef ty,
@@ -560,6 +571,18 @@ LLVMValueRef vix_LLVMBuildBitCast(LLVMBuilderRef builder, LLVMValueRef val,
   return LLVMBuildBitCast(builder, val, dest_ty, name);
 }
 
+LLVMValueRef vix_LLVMBuildPHI(LLVMBuilderRef builder, LLVMTypeRef ty,
+                              const char *name) {
+  return LLVMBuildPhi(builder, ty, name);
+}
+
+void vix_LLVMAddIncoming(LLVMValueRef phi, LLVMValueRef value,
+                         LLVMValueRef block) {
+  LLVMValueRef values[] = {value};
+  LLVMBasicBlockRef blocks[] = {(LLVMBasicBlockRef)block};
+  LLVMAddIncoming(phi, values, blocks, 1);
+}
+
 LLVMValueRef vix_LLVMBuildBr(LLVMBuilderRef builder, LLVMValueRef dest) {
   return LLVMBuildBr(builder, (LLVMBasicBlockRef)dest);
 }
@@ -671,4 +694,28 @@ void *vix_array_push_bytes(void *arr, void *val, size_t elem_size) {
   char *data = (char *)new_block + 8;
   memcpy(data + ((size_t)old_len * elem_size), val, elem_size);
   return (void *)data;
+}
+
+int vix_LLVMVerifyModule(LLVMModuleRef module) {
+  char *msg = NULL;
+  LLVMBool result = LLVMVerifyModule(module, LLVMReturnStatusAction, &msg);
+  if (msg) {
+    if (result) {
+      fprintf(stderr, "LLVM Verify Module FAILED: %s\n", msg);
+    }
+    LLVMDisposeMessage(msg);
+  }
+  return (int)result;
+}
+
+void vix_debug_ptr(const char *label, void *ptr) {
+  fprintf(stderr, "DBG_PTR: %s = %p\n", label, ptr);
+}
+
+void vix_debug_str(const char *label, const char *str) {
+  fprintf(stderr, "DBG_STR: %s = '%s'\n", label, str ? str : "(null)");
+}
+
+void vix_debug_int(const char *label, int val) {
+  fprintf(stderr, "DBG_INT: %s = %d\n", label, val);
 }

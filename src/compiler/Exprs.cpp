@@ -273,6 +273,69 @@ using namespace llvm;
             }
         }
 
+        auto toBoolValue = [&](Value* v, ValueType vt, const char* name) -> Value* {
+            if (vt == ValueType::BOOL && v->getType()->isIntegerTy(1)) {
+                return v;
+            }
+            Type* ty = v->getType();
+            if (ty->isIntegerTy()) {
+                return builder.CreateICmpNE(v, ConstantInt::get(ty, 0), name);
+            }
+            if (ty->isFloatingPointTy()) {
+                return builder.CreateFCmpONE(v, ConstantFP::get(ty, 0.0), name);
+            }
+            if (ty->isPointerTy()) {
+                return builder.CreateICmpNE(v, ConstantPointerNull::get(cast<PointerType>(ty)), name);
+            }
+            return ConstantInt::getFalse(context);
+        };
+
+        /* Short-circuit evaluation for AND/OR: only evaluate right operand if needed */
+        if (op == OP_AND || op == OP_OR) {
+            VisitResult leftRes = visit(node->data.binop.left);
+            if (!leftRes.value) return VisitResult();
+            Value* leftBool = toBoolValue(leftRes.value, leftRes.type, op == OP_AND ? "and_lhs" : "or_lhs");
+
+            Function* curFn = builder.GetInsertBlock()->getParent();
+            BasicBlock* evalRightBB = BasicBlock::Create(context, op == OP_AND ? "and.rhs" : "or.rhs", curFn);
+            BasicBlock* mergeBB = BasicBlock::Create(context, op == OP_AND ? "and.merge" : "or.merge", curFn);
+            BasicBlock* shortcutBB = BasicBlock::Create(context, op == OP_AND ? "and.false" : "or.true", curFn);
+
+            if (op == OP_AND) {
+                builder.CreateCondBr(leftBool, evalRightBB, shortcutBB);
+            } else {
+                builder.CreateCondBr(leftBool, shortcutBB, evalRightBB);
+            }
+
+            builder.SetInsertPoint(evalRightBB);
+            VisitResult rightRes = visit(node->data.binop.right);
+            BasicBlock* rightEndBB = builder.GetInsertBlock();
+            if (!rightRes.value) rightRes = VisitResult(ConstantInt::get(Type::getInt32Ty(context), 0), ValueType::INT32);
+            Value* rightBool = toBoolValue(rightRes.value, rightRes.type, op == OP_AND ? "and_rhs" : "or_rhs");
+            bool rightReachedMerge = !rightEndBB->getTerminator();
+            if (rightReachedMerge)
+                builder.CreateBr(mergeBB);
+
+            builder.SetInsertPoint(shortcutBB);
+            Value* shortcutVal = op == OP_AND ? ConstantInt::getFalse(context) : ConstantInt::getTrue(context);
+            builder.CreateBr(mergeBB);
+
+            builder.SetInsertPoint(mergeBB);
+            if (rightReachedMerge) {
+                PHINode* phi = builder.CreatePHI(Type::getInt1Ty(context), 2, op == OP_AND ? "andtmp" : "ortmp");
+                if (op == OP_AND) {
+                    phi->addIncoming(rightBool, rightEndBB);
+                    phi->addIncoming(shortcutVal, shortcutBB);
+                } else {
+                    phi->addIncoming(shortcutVal, shortcutBB);
+                    phi->addIncoming(rightBool, rightEndBB);
+                }
+                return VisitResult(phi, ValueType::BOOL);
+            } else {
+                return VisitResult(shortcutVal, ValueType::BOOL);
+            }
+        }
+
         VisitResult leftRes = visit(node->data.binop.left);
         VisitResult rightRes = visit(node->data.binop.right);
         if (!leftRes.value || !rightRes.value) {
@@ -481,23 +544,6 @@ using namespace llvm;
                 return VisitResult();
             }
         }
-
-        auto toBoolValue = [&](Value* v, ValueType vt, const char* name) -> Value* {
-            if (vt == ValueType::BOOL && v->getType()->isIntegerTy(1)) {
-                return v;
-            }
-            Type* ty = v->getType();
-            if (ty->isIntegerTy()) {
-                return builder.CreateICmpNE(v, ConstantInt::get(ty, 0), name);
-            }
-            if (ty->isFloatingPointTy()) {
-                return builder.CreateFCmpONE(v, ConstantFP::get(ty, 0.0), name);
-            }
-            if (ty->isPointerTy()) {
-                return builder.CreateICmpNE(v, ConstantPointerNull::get(cast<PointerType>(ty)), name);
-            }
-            return ConstantInt::getFalse(context);
-        };
         
         if (!isFloat && leftVal->getType() != rightVal->getType()) {
             if (leftVal->getType()->isIntegerTy() && rightVal->getType()->isIntegerTy()) {
@@ -621,19 +667,8 @@ using namespace llvm;
                 if (isFloat) return VisitResult(builder.CreateFCmpOGE(leftVal, rightVal, "getmp"), ValueType::BOOL);
                 else return VisitResult(builder.CreateICmpSGE(leftVal, rightVal, "getmp"), ValueType::BOOL);
             case OP_AND:
-                {
-                    Value* leftBool = toBoolValue(leftRes.value, leftRes.type, "and_lhs");
-                    Value* rightBool = toBoolValue(rightRes.value, rightRes.type, "and_rhs");
-                    Value* result = builder.CreateAnd(leftBool, rightBool, "andtmp");
-                    return VisitResult(result, ValueType::BOOL);
-                }
             case OP_OR:
-                {
-                    Value* leftBool = toBoolValue(leftRes.value, leftRes.type, "or_lhs");
-                    Value* rightBool = toBoolValue(rightRes.value, rightRes.type, "or_rhs");
-                    Value* result = builder.CreateOr(leftBool, rightBool, "ortmp");
-                    return VisitResult(result, ValueType::BOOL);
-                }
+                return VisitResult();
             default: return VisitResult();
         }
     }
