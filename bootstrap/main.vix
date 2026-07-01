@@ -1,7 +1,7 @@
 import "lexer.vix"
 import "parser.vix"
 import "ast.vix"
-import "typeinfer.vix"
+import "typeck.vix"
 import "semantic.vix"
 import "codegen.vix"
 import "error.vix"
@@ -14,6 +14,8 @@ extern "C"
     fn fputs(s: string, file: ptr): i32
     fn fseek(file: ptr, offset: i64, whence: i32): i32
     fn ftell(file: ptr): i64
+    fn system(command: ptr): i32
+    fn vix_print_stderr(s: string)
     fn malloc(size: usize): string
     fn vix_diag_red(): string
     fn vix_diag_yellow(): string
@@ -35,7 +37,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
-    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--check") { return Some(arg) }
+    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-exe") { return Some(arg) }
     return None
 }
 
@@ -54,6 +56,30 @@ fn strip_vix_ext(name: string): string
     return name
 }
 
+fn shell_command(command: string): i32
+{
+    return system(command)
+}
+
+fn diag_print(text: string)
+{
+    vix_print_stderr(text)
+}
+
+fn ir_output_path(filename: string, output: string): string
+{
+    if (output != "") { return output }
+    return strip_vix_ext(filename) + ".ll"
+}
+
+fn artifact_output_path(filename: string, output: string, emit: string): string
+{
+    if (output != "") { return output }
+    let base = strip_vix_ext(filename)
+    if (emit == "exe") { return base }
+    return base + ".o"
+}
+
 fn print_help(): i32
 {
     print("OVERVIEW: Vix Compiler LLVM Bootstrap")
@@ -63,6 +89,8 @@ fn print_help(): i32
     print("OPTIONS:")
     print("  -o <file>              Write output to <file>")
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
+    print("  -obj                   Emit object file (default: <input>.o)")
+    print("  -exe                   Emit executable (default: <input>)")
     print("  --check                Syntax & type check only")
     print("  --lex                  Print tokens to stdout")
     print("  --parse-stats          Print lightweight parser input statistics")
@@ -94,11 +122,11 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     match mode
     {
         "--lex" -> {
-            print(tokenize_debug(src))
+            diag_print(tokenize_debug(src))
             return Some(0)
         }
         "--parse-stats" -> {
-            print(parse_program_stats(src, filename))
+            diag_print(parse_program_stats(src, filename))
             return Some(0)
         }
         _ -> {}
@@ -111,22 +139,22 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         "--parser" -> {
             if (program.ok == 0)
             {
-                print(program.error)
+                diag_print(program.error)
             }
             else
             {
-                print(ast_program_debug(program))
+                diag_print(ast_program_debug(program))
             }
             return Some(0)
         }
         "--ast" -> {
             if (program.ok == 0)
             {
-                print(program.error)
+                diag_print(program.error)
             }
             else
             {
-                print(ast(program))
+                diag_print(ast(program))
             }
             return Some(0)
         }
@@ -135,7 +163,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
 
     if (program.ok == 0)
     {
-        print(program.error)
+        diag_print(program.error)
         return Some(1)
     }
 
@@ -143,7 +171,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     match mode
     {
         "--semantic" -> {
-            print(semantic_result_debug(semantic_result))
+            diag_print(semantic_result_debug(semantic_result))
             return Some(0)
         }
         _ -> {}
@@ -151,15 +179,19 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
 
     if (semantic_result.error_count > 0)
     {
-        print(semantic_result_debug(semantic_result))
+        diag_print(semantic_result_debug(semantic_result))
         return Some(1)
     }
+    if (semantic_result.warning_count > 0)
+    {
+        diag_print(semantic_result_debug(semantic_result))
+    }
 
-    let infer_result = infer(program)
+    let infer_result = typeck_check_program(program)
     match mode
     {
         "--typeinfer" | "--tyinfer" -> {
-            print(typeinfer_result_debug(infer_result, src, filename))
+            diag_print(typeck_result_debug(infer_result, src, filename))
             return Some(0)
         }
         _ -> {}
@@ -167,7 +199,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
 
     if (infer_result.ok == 0)
     {
-        print(typeinfer_result_debug(infer_result, src, filename))
+        diag_print(typeck_result_debug(infer_result, src, filename))
         return Some(1)
     }
 
@@ -183,10 +215,38 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         print(ir)
         return None
     }
-    let base = strip_vix_ext(filename)
-    let path = if (output != "") { output } else { base + ".ll" }
-    write_text_file(path, ir)
-    print(path)
+    let mut ir_path = ""
+    if (emit == "ir")
+    {
+        ir_path = ir_output_path(filename, output)
+    }
+    else
+    {
+        ir_path = strip_vix_ext(filename) + ".ll"
+    }
+    write_text_file(ir_path, ir)
+    if (emit == "ir")
+    {
+        print(ir_path)
+        return Some(0)
+    }
+
+    let artifact_path = artifact_output_path(filename, output, emit)
+    let mut command = ""
+    if (emit == "-obj")
+    {
+        command = "clang -c " + ir_path + " -o " + artifact_path
+    }
+    else
+    {
+        command = "clang " + ir_path + " helper.o -o " + artifact_path + " -L /usr/lib -l LLVM-22"
+    }
+    if (shell_command(command) != 0)
+    {
+        diag_print("vixc0: error: failed to build '" + artifact_path + "'")
+        return Some(1)
+    }
+    print(artifact_path)
     return Some(0)
 }
 
@@ -195,7 +255,7 @@ fn write_text_file(path: string, content: string): i32
     let file = fopen(path, "w")
     if (file == 0)
     {
-        print("vixc0: error: cannot write file '" + path + "'")
+        diag_print("vixc0: error: cannot write file '" + path + "'")
         return 1
     }
     fputs(content, file)
@@ -245,7 +305,6 @@ fn main(argc: i32, argv: ptr): i32
         }
         elif (arg == "-o")
         {
-            emit = "ir"
             if (i + 1 < argc)
             {
                 i += 1
@@ -253,7 +312,7 @@ fn main(argc: i32, argv: ptr): i32
             }
             else
             {
-                print("vixc0: error: '-o' requires an argument")
+                diag_print("vixc0: error: '-o' requires an argument")
                 return 1
             }
         }
@@ -270,6 +329,14 @@ fn main(argc: i32, argv: ptr): i32
                 }
             }
         }
+        elif (arg == "-obj")
+        {
+            emit = "-obj"
+        }
+        elif (arg == "-exe")
+        {
+            emit = "-exe"
+        }
         else
         {
             match compiler_mode(arg)
@@ -277,6 +344,9 @@ fn main(argc: i32, argv: ptr): i32
                 Some(next_mode) -> {
                     if (next_mode == "--help") { want_help = 1 }
                     elif (next_mode == "--version") { want_version = 1 }
+                    elif (next_mode == "-ll") { emit = "ir" }
+                    elif (next_mode == "-obj") { emit = "-obj" }
+                    elif (next_mode == "-exe") { emit = "-exe" }
                     else { mode = next_mode }
                 }
                 None -> match source_file_arg(arg)
@@ -284,7 +354,7 @@ fn main(argc: i32, argv: ptr): i32
                     Some(path) -> {
                         if (has_input == 1)
                         {
-                            print("vixc0: error: multiple input files not supported")
+                            diag_print("vixc0: error: multiple input files not supported")
                             return 1
                         }
                         src = read_source_file(path)
@@ -292,7 +362,7 @@ fn main(argc: i32, argv: ptr): i32
                         has_input = 1
                     }
                     None -> {
-                        print("vixc0: error: unrecognized command-line option '" + arg + "'")
+                        diag_print("vixc0: error: unrecognized command-line option '" + arg + "'")
                         return 1
                     }
                 }
@@ -306,14 +376,14 @@ fn main(argc: i32, argv: ptr): i32
 
     if (has_input == 0)
     {
-        print("vixc0: fatal error: no input files")
-        print("compilation terminated.")
+        diag_print("vixc0: fatal error: no input files")
+        diag_print("compilation terminated.")
         return 1
     }
 
     if (src == "")
     {
-        print("vixc0: error: cannot read file '" + filename + "'")
+        diag_print("vixc0: error: cannot read file '" + filename + "'")
         return 1
     }
 

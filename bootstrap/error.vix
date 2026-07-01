@@ -126,6 +126,13 @@ pub fn error_code_for_type(error_type: string, message: string): string
         if (str_starts_with(msg, "entry function 'main'") == 1) { return "E4002" }
         return "E4000"
     }
+    if (error_type == "SemanticWarning")
+    {
+        if (str_starts_with(msg, "unused variable '") == 1) { return "W4001" }
+        if (str_starts_with(msg, "no 'main' function defined") == 1) { return "W4002" }
+        if (str_starts_with(msg, "entry function 'main'") == 1) { return "W4003" }
+        return "W4000"
+    }
     return "E0000"
 }
 
@@ -358,6 +365,7 @@ pub fn format_header(is_warning: i32, error_type: string, message: string): stri
         "TypeError" -> diag_blue()
         "NameError" -> diag_cyan()
         "SemanticError" -> diag_yellow()
+        "SemanticWarning" -> diag_yellow()
         _ -> diag_red()
     }
     let code = error_code_for_type(error_type, message)
