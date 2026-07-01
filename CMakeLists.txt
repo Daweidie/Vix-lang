@@ -171,6 +171,33 @@ foreach(lib IN LISTS LLVM_SYSTEM_LIBS)
 endforeach()
 install(TARGETS vixc RUNTIME DESTINATION bin)
 
+# ── Binaryen (for WASM codegen) ──────────────────────────────────
+option(BUILD_WASM_CODEGEN "Build WASM codegen support (requires Binaryen)" OFF)
+if(EMSCRIPTEN OR BUILD_WASM_CODEGEN)
+    if(EMSCRIPTEN)
+        # Emscripten: use submodule source
+        set(BINARYEN_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/binaryen")
+        if(EXISTS "${BINARYEN_SRC_DIR}/CMakeLists.txt")
+            set(BINARYEN_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/binaryen")
+            add_subdirectory("${BINARYEN_SRC_DIR}" "${BINARYEN_BUILD_DIR}" EXCLUDE_FROM_ALL)
+        endif()
+    else()
+        # Native: use system-installed Binaryen
+        find_library(BINARYEN_LIBRARY NAMES binaryen libbinaryen)
+        find_path(BINARYEN_INCLUDE_DIR binaryen-c.h)
+        if(BINARYEN_LIBRARY AND BINARYEN_INCLUDE_DIR)
+            message(STATUS "Found Binaryen: ${BINARYEN_LIBRARY}")
+            add_library(binaryen UNKNOWN IMPORTED)
+            set_target_properties(binaryen PROPERTIES
+                IMPORTED_LOCATION "${BINARYEN_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${BINARYEN_INCLUDE_DIR}"
+            )
+        else()
+            message(WARNING "Binaryen not found. Install mingw-w64-ucrt-x86_64-binaryen or set -DBUILD_WASM_CODEGEN=OFF")
+        endif()
+    endif()
+endif()
+
 # ── Frontend test (no LLVM dependency) ────────────────────────────
 option(BUILD_FRONTEND_TEST "Build frontend library test" OFF)
 if(BUILD_FRONTEND_TEST)
