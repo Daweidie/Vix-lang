@@ -10,6 +10,11 @@ var VixcWasm = {
     }
 };
 
+Module.onProgress = function(progress) {
+    var bar = document.getElementById('loading-bar');
+    if (bar) bar.style.width = (progress * 100) + '%';
+};
+
 function onVixcWasmReady() {
     VixcWasm._wasm_ready = true;
     VixcWasm._pending.forEach(function(p) { p.resolve(); });
