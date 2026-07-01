@@ -12,11 +12,13 @@
 </div>
 This is the main source repository for Vix It contains the compiler,
 runtime-related components, examples, and language documentation.
+
 [Vix]: https://vixlang.github.io
 [Getting Started]: Docs/en/getting-started.md
 [Learn]: Docs/en/what-is-vix.md
 [Documentation]: Docs/en/syntax.md
 [Contributing]: https://github.com/vixlang/Vix-lang/issues
+
 
 > 🎉 🎉 🎉 Vix is fully self-hosted! The compiler now compiles itself. No external dependencies. Next: stdlib, packages, and tooling 🚀
 
