@@ -8,17 +8,18 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 VIXC0 = ROOT / "bootstrap" / "vixc0"
+HOST_VIXC = ROOT / "build" / "vixc"
 
 
 @pytest.fixture(scope="session")
 def vixc0_binary():
-    if shutil.which("vixc") is None:
-        pytest.skip("vixc is required to build vixc0")
+    if not HOST_VIXC.exists():
+        pytest.skip("build/vixc is required to build vixc0")
     if shutil.which("make") is None:
         pytest.skip("make is required to build vixc0")
 
     result = subprocess.run(
-        ["make", "-C", str(ROOT / "bootstrap"), "clean", "all"],
+        ["make", "-C", str(ROOT / "bootstrap"), "clean", "bootstrap"],
         capture_output=True,
         text=True,
         timeout=60,
