@@ -33,12 +33,12 @@ pub fn semantic_add_error(result: &SemanticResult, source: string, filename: str
     result.ok = 0
 }
 
-pub fn semantic_add_error_loc(result: &SemanticResult, source: string, filename: string, error_type: string, message: string, func_name: string, line: i32, col: i32)
+pub fn semantic_add_error_loc(result: &SemanticResult, source: string, filename: string, error_type: string, message: string, func_name: string, line: i32, col: i32, length: i32)
 {
     let full_message = if (func_name != "") { "in function " + func_name + ": " + message } else { message }
     if (line > 0)
     {
-        result.diagnostics.push(format_diagnostic(source, filename, 0, error_type, full_message, line, col, 1))
+        result.diagnostics.push(format_diagnostic(source, filename, 0, error_type, full_message, line, col, length))
     }
     else
     {
@@ -71,7 +71,18 @@ pub fn semantic_add_warning_loc(result: &SemanticResult, source: string, filenam
 pub fn semantic_add_typeck_error(result: &SemanticResult, source: string, filename: string, check: TypeInferResult)
 {
     if (check.ok == 1) { return }
-    semantic_add_error_loc(result, source, filename, "TypeError", check.error, check.error_func, check.line, check.col)
+    let full_message = if (check.error_func != "") { "in function " + check.error_func + ": " + check.error } else { check.error }
+    if (check.line > 0)
+    {
+        result.diagnostics.push(format_diagnostic(source, filename, 0, "TypeError", full_message, check.line, check.col, check.span_len))
+    }
+    else
+    {
+        result.diagnostics.push(format_diagnostic_no_loc(0, "TypeError", full_message, filename))
+    }
+    result.error_count += 1
+    result.type_error_count += 1
+    result.ok = 0
 }
 
 pub type SemanticScope = struct {
@@ -127,7 +138,7 @@ pub fn semantic_scope_warn_unused_current(scope: &SemanticScope, result: &Semant
         if (scope.depths[i] < scope.depth) { return }
         if (scope.depths[i] == scope.depth and scope.warn_unused[i] == 1 and scope.used[i] == 0)
         {
-            semantic_add_warning_loc(result, source, filename, "SemanticWarning", "unused variable '" + scope.names[i] + "'", scope.lines[i], scope.cols[i], 1)
+            semantic_add_warning_loc(result, source, filename, "SemanticWarning", "unused variable '" + scope.names[i] + "'", scope.lines[i], scope.cols[i], diag_strlen(scope.names[i]))
         }
         i -= 1
     }
@@ -185,7 +196,7 @@ pub fn semantic_scope_declare(scope: &SemanticScope, result: &SemanticResult, so
 {
     if (semantic_scope_find_current(scope, name) >= 0)
     {
-        semantic_add_error_loc(result, source, filename, "NameError", "duplicate symbol '" + name + "'", func_name, line, col)
+        semantic_add_error_loc(result, source, filename, "NameError", "duplicate symbol '" + name + "'", func_name, line, col, diag_strlen(name))
         return 0
     }
     scope.names.push(name)
@@ -224,7 +235,7 @@ pub fn semantic_scope_require(scope: &SemanticScope, result: &SemanticResult, so
     if (name == "_") { return }
     if (semantic_scope_lookup(scope, name) < 0)
     {
-        semantic_add_error_loc(result, source, filename, "NameError", "undefined symbol '" + name + "'", func_name, line, col)
+        semantic_add_error_loc(result, source, filename, "NameError", "undefined symbol '" + name + "'", func_name, line, col, diag_strlen(name))
     }
 }
 
@@ -267,7 +278,7 @@ pub fn semantic_check_struct_literal_fields(expr: AstExpr, structs: [AstStructDe
     let struct_idx = semantic_find_struct(structs, expr.text)
     if (struct_idx < 0)
     {
-        semantic_add_error_loc(result, source, filename, "NameError", "unknown struct '" + expr.text + "'", func_name, expr.line, expr.col)
+        semantic_add_error_loc(result, source, filename, "NameError", "unknown struct '" + expr.text + "'", func_name, expr.line, expr.col, diag_strlen(expr.text))
         return
     }
     let decl = structs[struct_idx]
@@ -278,12 +289,12 @@ pub fn semantic_check_struct_literal_fields(expr: AstExpr, structs: [AstStructDe
         {
             if (field_name == expr.field_names[j])
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "duplicate initializer field '" + field_name + "' in struct '" + expr.text + "'", func_name, expr.line, expr.col)
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate initializer field '" + field_name + "' in struct '" + expr.text + "'", func_name, expr.line, expr.col, diag_strlen(field_name))
             }
         }
         if (semantic_struct_find_field(decl, field_name) < 0)
         {
-            semantic_add_error_loc(result, source, filename, "NameError", "unknown field '" + field_name + "' on struct '" + expr.text + "'", func_name, expr.line, expr.col)
+            semantic_add_error_loc(result, source, filename, "NameError", "unknown field '" + field_name + "' on struct '" + expr.text + "'", func_name, expr.line, expr.col, diag_strlen(field_name))
         }
     }
     for (i in 0 .. decl.field_names.length)
@@ -295,7 +306,7 @@ pub fn semantic_check_struct_literal_fields(expr: AstExpr, structs: [AstStructDe
         }
         if (found == 0)
         {
-            semantic_add_error_loc(result, source, filename, "NameError", "missing field '" + decl.field_names[i] + "' in struct '" + expr.text + "'", func_name, expr.line, expr.col)
+            semantic_add_error_loc(result, source, filename, "NameError", "missing field '" + decl.field_names[i] + "' in struct '" + expr.text + "'", func_name, expr.line, expr.col, diag_strlen(decl.field_names[i]))
         }
     }
 }
@@ -331,7 +342,7 @@ pub fn semantic_check_expr(scope: &SemanticScope, program: AstProgram, idx: i32,
         "call" -> {
             if (semantic_find_function_any(program.functions, program.extern_functions, expr.text) < 0)
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "undefined function '" + expr.text + "'", func_name, expr.line, expr.col)
+                semantic_add_error_loc(result, source, filename, "NameError", "undefined function '" + expr.text + "'", func_name, expr.line, expr.col, diag_strlen(expr.text))
             }
             for (i in 0 .. expr.args.length)
             {
@@ -504,7 +515,7 @@ pub fn semantic_check_stmt(scope: &SemanticScope, program: AstProgram, stmt_idx:
             semantic_check_expr(scope, program, stmt.assign_idx, result, source, filename, func_name)
             if (semantic_scope_lookup(scope, stmt.assign_name) >= 0)
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "for iterator '" + stmt.assign_name + "' conflicts with existing symbol", func_name, stmt.line, stmt.col)
+                semantic_add_error_loc(result, source, filename, "NameError", "for iterator '" + stmt.assign_name + "' conflicts with existing symbol", func_name, stmt.line, stmt.col, diag_strlen(stmt.assign_name))
             }
             semantic_scope_push(scope)
             semantic_scope_declare(scope, result, source, filename, func_name, stmt.assign_name, stmt.line, stmt.col)
@@ -594,7 +605,7 @@ pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFun
         {
             if (funcs[i].name == funcs[j].name and semantic_function_signature_equal(funcs[i], funcs[j]) == 0)
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + funcs[i].name + "'", "", funcs[j].line, funcs[j].col)
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + funcs[i].name + "'", "", funcs[j].line, funcs[j].col, diag_strlen(funcs[j].name))
             }
         }
     }
@@ -604,7 +615,7 @@ pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFun
         {
             if (externs[i].name == externs[j].name and semantic_function_signature_equal(externs[i], externs[j]) == 0)
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + externs[i].name + "'", "", externs[j].line, externs[j].col)
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate function '" + externs[i].name + "'", "", externs[j].line, externs[j].col, diag_strlen(externs[j].name))
             }
         }
     }
@@ -614,7 +625,7 @@ pub fn semantic_check_duplicate_functions(funcs: [AstFunction], externs: [AstFun
         {
             if (funcs[i].name == externs[j].name)
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "function '" + funcs[i].name + "' redeclared as extern", "", funcs[i].line, funcs[i].col)
+                semantic_add_error_loc(result, source, filename, "NameError", "function '" + funcs[i].name + "' redeclared as extern", "", funcs[i].line, funcs[i].col, diag_strlen(funcs[i].name))
             }
         }
     }
@@ -628,7 +639,7 @@ pub fn semantic_check_duplicate_structs(structs: [AstStructDecl], result: &Seman
         {
             if (structs[i].name == structs[j].name)
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "duplicate struct '" + structs[i].name + "'", "", structs[j].line, structs[j].col)
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate struct '" + structs[i].name + "'", "", structs[j].line, structs[j].col, diag_strlen(structs[j].name))
             }
         }
     }
@@ -642,7 +653,7 @@ pub fn semantic_check_duplicate_params(func: AstFunction, result: &SemanticResul
         {
             if (func.param_names[i] == func.param_names[j])
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "duplicate parameter '" + func.param_names[i] + "' in function '" + func.name + "'", "", func.line, func.col)
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate parameter '" + func.param_names[i] + "' in function '" + func.name + "'", "", func.line, func.col, diag_strlen(func.param_names[i]))
             }
         }
     }
@@ -656,7 +667,7 @@ pub fn semantic_check_duplicate_fields(decl: AstStructDecl, result: &SemanticRes
         {
             if (decl.field_names[i] == decl.field_names[j])
             {
-                semantic_add_error_loc(result, source, filename, "NameError", "duplicate field '" + decl.field_names[i] + "' in struct '" + decl.name + "'", "", decl.line, decl.col)
+                semantic_add_error_loc(result, source, filename, "NameError", "duplicate field '" + decl.field_names[i] + "' in struct '" + decl.name + "'", "", decl.line, decl.col, diag_strlen(decl.field_names[i]))
             }
         }
     }

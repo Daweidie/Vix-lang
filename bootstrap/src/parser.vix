@@ -93,7 +93,7 @@ pub fn parser_fail(parser: &Parser, message: string)
         let mut length = 1
         if (text != "" and text != ";" and text != "," and text != "{" and text != "}" and text != "(" and text != ")" and text != "[" and text != "]" and text != "=>" and text != "->" and text != ".." and text != "..." and text != "==" and text != "!=" and text != "<=" and text != ">=" and text != "+=" and text != "-=")
         {
-            length = text.length
+            length = diag_strlen(text)
         }
         if (parser_kind(parser) == tk_eof())
         {

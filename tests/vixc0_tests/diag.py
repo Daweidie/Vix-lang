@@ -49,7 +49,33 @@ def test_vixc0_type_error_reports_line_and_column(vixc0_binary, tmp_path):
     )
 
     out = strip_ansi(result.stdout + result.stderr)
-    assert f"{src}:2:5" in out
+    assert f"{src}:2:9" in out
     assert "cannot initialize 'x' of type 'i32' with 'string'" in out
     assert "let x: i32 = \"bad\";" in out
     assert "^" in out
+
+
+def test_vixc0_return_type_error_highlights_return_keyword(vixc0_binary, tmp_path):
+    src = tmp_path / "bad_return.vix"
+    src.write_text(
+        "fn foo(): i32 {\n"
+        "    return \"w\";\n"
+        "}\n"
+        "fn main(): i32 {\n"
+        "    return 0;\n"
+        "}\n"
+    )
+
+    result = subprocess.run(
+        [str(vixc0_binary), "--typeinfer", str(src)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    raw = result.stdout + result.stderr
+    out = strip_ansi(raw)
+    assert f"{src}:2:5" in out
+    assert "return \"w\";" in out
+    assert "^^^^^^" in out
+    assert "TypeError(E3012)\x1b[0m\x1b[2m]" in raw

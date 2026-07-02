@@ -190,22 +190,23 @@ pub type TypeInferResult = struct {
     return_type: string,
     error_func: string,
     line: i32,
-    col: i32
+    col: i32,
+    span_len: i32
 }
 
 pub fn typeinfer_ok(return_type: string): TypeInferResult
 {
-    return TypeInferResult{ ok: 1, error: "", return_type: return_type, error_func: "", line: 0, col: 0 }
+    return TypeInferResult{ ok: 1, error: "", return_type: return_type, error_func: "", line: 0, col: 0, span_len: 1 }
 }
 
 pub fn typeinfer_error(message: string, return_type: string, error_func: string, line: i32, col: i32): TypeInferResult
 {
-    return TypeInferResult{ ok: 0, error: message, return_type: return_type, error_func: error_func, line: line, col: col }
+    return TypeInferResult{ ok: 0, error: message, return_type: return_type, error_func: error_func, line: line, col: col, span_len: 1 }
 }
 
 pub fn typeinfer_error_from_env(env: &SymbolTable, return_type: string, error_func: string): TypeInferResult
 {
-    return typeinfer_error(env.error, return_type, error_func, env.error_line, env.error_col)
+    return TypeInferResult{ ok: 0, error: env.error, return_type: return_type, error_func: error_func, line: env.error_line, col: env.error_col, span_len: env.error_length }
 }
 
 pub fn is_ptr_to_struct_typeinfer(ty: string): i32
@@ -231,14 +232,36 @@ pub fn strip_ptr_prefix_typeinfer(ty: string): string
     return ty
 }
 
+pub fn expr_text_length(expr: AstExpr): i32
+{
+    if (expr.text == "")
+    {
+        return 1
+    }
+    return diag_strlen(expr.text)
+}
+
 pub fn symtable_fail_expr(env: &SymbolTable, message: string, expr: AstExpr)
 {
-    symtable_fail_at(env, message, expr.line, expr.col)
+    symtable_fail_at_len(env, message, expr.line, expr.col, expr_text_length(expr))
+}
+
+pub fn stmt_error_length(stmt: AstStmt): i32
+{
+    if (stmt.tag == "return") { return 6 }
+    if (stmt.tag == "return_expr") { return 6 }
+    if (stmt.tag == "break") { return 5 }
+    if (stmt.tag == "continue") { return 8 }
+    if (stmt.tag == "while") { return 5 }
+    if (stmt.tag == "for_range") { return 3 }
+    if (stmt.tag == "if") { return 2 }
+    if (stmt.assign_name != "") { return diag_strlen(stmt.assign_name) }
+    return 1
 }
 
 pub fn symtable_fail_stmt(env: &SymbolTable, message: string, stmt: AstStmt)
 {
-    symtable_fail_at(env, message, stmt.line, stmt.col)
+    symtable_fail_at_len(env, message, stmt.line, stmt.col, stmt_error_length(stmt))
 }
 
 pub fn infer_field_base_name(es: &ExprStore, idx: i32): string
@@ -969,8 +992,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                 let empty_array_init_ok = if (init_expr.tag == "array_literal" and init_expr.args.length == 0 and type_text_is_array_typeinfer(stmt.type_text) == 1) { 1 } else { 0 }
                 if (empty_array_init_ok == 0 and type_can_assign(stmt.type_text, ty) == 0)
                 {
-                    let let_col = if (stmt.is_mut == 1) { stmt.col - 8 } else { stmt.col - 4 }
-                    symtable_fail_at(env, "cannot initialize '" + stmt.assign_name + "' of type '" + stmt.type_text + "' with '" + ty + "'", stmt.line, if (let_col < 1) { 1 } else { let_col })
+                    symtable_fail_at(env, "cannot initialize '" + stmt.assign_name + "' of type '" + stmt.type_text + "' with '" + ty + "'", stmt.line, stmt.col)
                     return
                 }
                 ty = stmt.type_text
@@ -1079,7 +1101,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             }
             if (ret_ty != "i32" and ret_ty != "unknown")
             {
-                symtable_fail_stmt(env, "return value type 'i32' does not match function return type '" + ret_ty + "'", stmt)
+                symtable_fail_at_len(env, "return value type 'i32' does not match function return type '" + ret_ty + "'", stmt.line, stmt.col, 6)
             }
         }
         "return_expr" -> {
@@ -1087,7 +1109,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             if (env.ok == 0) { return }
             if (ret_ty != "void" and ret_ty != "unknown" and value_ty != "unknown" and type_can_assign(ret_ty, value_ty) == 0)
             {
-                symtable_fail_stmt(env, "return value type '" + value_ty + "' does not match function return type '" + ret_ty + "'", stmt)
+                symtable_fail_at_len(env, "return value type '" + value_ty + "' does not match function return type '" + ret_ty + "'", stmt.line, stmt.col, 6)
             }
         }
         "print" -> {
@@ -1361,7 +1383,7 @@ pub fn typeinfer_result_debug(result: TypeInferResult, source: string, filename:
         let message = if (result.error_func != "") { "in function " + result.error_func + ": " + result.error } else { result.error }
         if (result.line > 0)
         {
-            return format_diagnostic(source, filename, 0, "TypeError", message, result.line, result.col, 1)
+            return format_diagnostic(source, filename, 0, "TypeError", message, result.line, result.col, result.span_len)
         }
         if (result.error_func != "")
         {

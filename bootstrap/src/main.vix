@@ -39,7 +39,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
-    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-exe") { return Some(arg) }
+    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-exe") { return Some(arg) }
     return None
 }
 
@@ -137,7 +137,7 @@ fn print_help(): i32
     print("  --lex                  Print tokens to stdout")
     print("  --parse-stats          Print lightweight parser input statistics")
     print("  --parser               Print parse tree to stdout")
-    print("  --ast                  Print AST to stdout")
+    print("  --ast / -ast                 Print AST to stdout")
     print("  --typeinfer            Print type inference result to stdout")
     print("  --semantic             Print semantic analysis to stdout")
     print("  -v, --version          Display compiler version information")
@@ -189,7 +189,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
             }
             return Some(0)
         }
-        "--ast" -> {
+        "--ast" | "-ast" -> {
             if (program.ok == 0)
             {
                 info_print(program.error)
@@ -202,7 +202,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         }
         _ -> {}
     }
-
+    
     if (program.ok == 0)
     {
         diag_print(program.error)
@@ -299,7 +299,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     }
     if (shell_command(command) != 0)
     {
-        diag_print("vixc0: error: failed to build '" + artifact_path + "'")
+        diag_print("vixc: error: failed to build '" + artifact_path + "'")
         return Some(1)
     }
     print(artifact_path)
@@ -311,7 +311,7 @@ fn write_text_file(path: string, content: string): i32
     let file = fopen(path, "w")
     if (file == 0)
     {
-        diag_print("vixc0: error: cannot write file '" + path + "'")
+        diag_print("vixc: error: cannot write file '" + path + "'")
         return 1
     }
     fputs(content, file)
@@ -369,7 +369,7 @@ fn main(argc: i32, argv: ptr): i32
             }
             else
             {
-                diag_print("vixc0: error: '-o' requires an argument")
+                diag_print("vixc: error: '-o' requires an argument")
                 return 1
             }
         }
@@ -403,7 +403,7 @@ fn main(argc: i32, argv: ptr): i32
             }
             else
             {
-                diag_print("vixc0: error: '" + arg + "' requires an argument")
+                diag_print("vixc: error: '" + arg + "' requires an argument")
                 return 1
             }
         }
@@ -428,7 +428,7 @@ fn main(argc: i32, argv: ptr): i32
                     Some(path) -> {
                         if (has_input == 1)
                         {
-                            diag_print("vixc0: error: multiple input files not supported")
+                            diag_print("vixc: error: multiple input files not supported")
                             return 1
                         }
                         src = read_source_file(path)
@@ -436,7 +436,7 @@ fn main(argc: i32, argv: ptr): i32
                         has_input = 1
                     }
                     None -> {
-                        diag_print("vixc0: error: unrecognized command-line option '" + arg + "'")
+                        diag_print("vixc: error: unrecognized command-line option '" + arg + "'\n")
                         return 1
                     }
                 }
@@ -450,14 +450,14 @@ fn main(argc: i32, argv: ptr): i32
 
     if (has_input == 0)
     {
-        diag_print("vixc0: fatal error: no input files")
+        diag_print("vixc: fatal error: no input files")
         diag_print("compilation terminated.")
         return 1
     }
 
     if (src == "")
     {
-        diag_print("vixc0: error: cannot read file '" + filename + "'")
+        diag_print("vixc: error: cannot read file '" + filename + "'")
         return 1
     }
 

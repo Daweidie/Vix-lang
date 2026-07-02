@@ -52,6 +52,12 @@ const char *vix_diag_yellow(void) { return "\033[33m"; }
 
 const char *vix_diag_reset(void) { return "\033[0m"; }
 
+int vix_diag_strlen(const char *s) {
+  if (!s)
+    return 0;
+  return (int)strlen(s);
+}
+
 void vix_print_stderr(const char *s) {
   fputs(s, stderr);
 }

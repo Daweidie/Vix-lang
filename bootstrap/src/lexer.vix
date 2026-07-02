@@ -202,10 +202,15 @@ pub fn tokenize(src: string): TokenStream
         match peek_char(src, pos)
         {
             Some(c) -> {
-                if (c == 32 or c == 9 or c == 13)
+                if (c == 32 or c == 13)
                 {
                     pos += 1
                     column += 1
+                }
+                elif (c == 9)
+                {
+                    pos += 1
+                    column = ((column - 1) / 8 + 1) * 8 + 1
                 }
                 elif (c == 10)
                 {
