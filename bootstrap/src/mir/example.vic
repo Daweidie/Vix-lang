@@ -1,0 +1,534 @@
+;; ─────────────────────────────────────────────────────────────
+;;  Vix → MIR Lowering Examples
+;;  Demonstrates how real Vix code maps to MIR instructions
+;; ─────────────────────────────────────────────────────────────
+
+mir_module lowering_examples {
+
+;; ============================================================
+;;  EXAMPLE 1: Simple arithmetic
+;; ============================================================
+;; Vix: fn add(a: i32, b: i32): i32 { return a + b }
+
+fn @add(%a: i32, %b: i32): i32 {
+    block entry:
+        %0 = add i32 %a, %b
+        ret %0
+}
+
+;; ============================================================
+;;  EXAMPLE 2: Control flow — if/else
+;; ============================================================
+;; Vix:
+;;   fn max(a: i32, b: i32): i32 {
+;;       if (a > b) { return a }
+;;       return b
+;;   }
+
+fn @max(%a: i32, %b: i32): i32 {
+    block entry:
+        %0 = icmp sgt i32 %a, %b
+        br_cond %0, label %then, label %else
+
+    block %then:
+        ret %a
+
+    block %else:
+        ret %b
+}
+
+;; ============================================================
+;;  EXAMPLE 3: While loop
+;; ============================================================
+;; Vix:
+;;   fn sum_to(n: i32): i32 {
+;;       let mut i = 0
+;;       let mut s = 0
+;;       while (i < n) {
+;;           s = s + i
+;;           i = i + 1
+;;       }
+;;       return s
+;;   }
+
+fn @sum_to(%n: i32): i32 {
+    block entry:
+        ;; let mut i = 0
+        %i_addr = alloca i32
+        %init0 = const i32 0
+        store i32 %init0, %i_addr
+
+        ;; let mut s = 0
+        %s_addr = alloca i32
+        store i32 %init0, %s_addr
+
+        br label %while_cond
+
+    block %while_cond:
+        %i1 = load i32, %i_addr
+        %cond = icmp slt i32 %i1, %n
+        br_cond %cond, label %while_body, label %while_end
+
+    block %while_body:
+        ;; s = s + i
+        %i2 = load i32, %i_addr
+        %s1 = load i32, %s_addr
+        %new_s = add i32 %s1, %i2
+        store i32 %new_s, %s_addr
+
+        ;; i = i + 1
+        %i3 = load i32, %i_addr
+        %one = const i32 1
+        %new_i = add i32 %i3, %one
+        store i32 %new_i, %i_addr
+
+        br label %while_cond
+
+    block %while_end:
+        %result = load i32, %s_addr
+        ret %result
+}
+
+;; ============================================================
+;;  EXAMPLE 4: For-range loop
+;; ============================================================
+;; Vix:
+;;   fn sum_range(n: i32): i32 {
+;;       let mut s = 0
+;;       for (i in 0 .. n) { s = s + i }
+;;       return s
+;;   }
+;; For-range lowers to while loop in MIR.
+
+fn @sum_range(%n: i32): i32 {
+    block entry:
+        %s_addr = alloca i32
+        %init0 = const i32 0
+        store i32 %init0, %s_addr
+
+        %i_addr = alloca i32
+        store i32 %init0, %i_addr
+
+        br label %for_cond
+
+    block %for_cond:
+        %i1 = load i32, %i_addr
+        %cond = icmp slt i32 %i1, %n
+        br_cond %cond, label %for_body, label %for_end
+
+    block %for_body:
+        %s1 = load i32, %s_addr
+        %i2 = load i32, %i_addr
+        %new_s = add i32 %s1, %i2
+        store i32 %new_s, %s_addr
+
+        ;; i = i + 1
+        %i3 = load i32, %i_addr
+        %one = const i32 1
+        %inc = add i32 %i3, %one
+        store i32 %inc, %i_addr
+
+        br label %for_cond
+
+    block %for_end:
+        %result = load i32, %s_addr
+        ret %result
+}
+
+;; ============================================================
+;;  EXAMPLE 5: Structs and field access
+;; ============================================================
+;; Vix:
+;;   type Point = struct { x: i32, y: i32 }
+;;   fn make_point(x: i32, y: i32): Point {
+;;       return Point{ x: x, y: y }
+;;   }
+
+type @Point = { i32, i32 }
+
+fn @make_point(%x: i32, %y: i32): @Point {
+    block entry:
+        %undef = const @Point undef
+        %s1 = insertvalue @Point %undef, %x, [0]
+        %s2 = insertvalue @Point %s1, %y, [1]
+        ret %s2
+}
+
+;; ============================================================
+;;  EXAMPLE 6: Pointer/reference operations
+;; ============================================================
+;; Vix:
+;;   fn inc(x: &i32) {
+;;       @x = @x + 1
+;;   }
+
+fn @inc(%x: ptr): void {
+    block entry:
+        %v = load i32, %x
+        %one = const i32 1
+        %inc = add i32 %v, %one
+        store i32 %inc, %x
+        ret void
+}
+
+;; ============================================================
+;;  EXAMPLE 7: ADT lowering (Color = Red | Blue)
+;; ============================================================
+;; Vix:
+;;   type Color = Red | Blue
+;;   fn is_red(c: Color): i32 {
+;;       match c {
+;;           Red -> return 1
+;;           Blue -> return 0
+;;       }
+;;   }
+;;
+;; ADT lowering:
+;;   Color becomes a struct { tag: i32, payload: union }
+;;   Red = Color{ tag: 0 }
+;;   Blue = Color{ tag: 1 }
+;;   Match lowers to if-else chain on tag field
+
+type @Color = { i32, { i32 } }
+;; Tag values: Red=0, Blue=1
+;; Payload union: sized to maximum variant (all variants empty → min size i32)
+
+fn @Color_Red(): @Color {
+    block entry:
+        %u = const @Color undef
+        %tag0 = const i32 0
+        %c = insertvalue @Color %u, %tag0, [0]
+        ret %c
+}
+
+fn @Color_Blue(): @Color {
+    block entry:
+        %u = const @Color undef
+        %tag1 = const i32 1
+        %c = insertvalue @Color %u, %tag1, [0]
+        ret %c
+}
+
+fn @is_red(%c: @Color): i32 {
+    block entry:
+        %tag = extractvalue @Color %c, [0]
+        %tag0 = const i32 0
+        %is_red = icmp eq i32 %tag, %tag0
+        br_cond %is_red, label %match_red, label %match_blue
+
+    block %match_red:
+        %ret1 = const i32 1
+        ret %ret1
+
+    block %match_blue:
+        %ret0 = const i32 0
+        ret %ret0
+}
+
+;; ============================================================
+;;  EXAMPLE 8: Option type (ADT with payload)
+;; ============================================================
+;; Vix:
+;;   type Option:[T] = Some(T) | None
+;;   fn unwrap_or(opt: Option[i32], default: i32): i32 {
+;;       match opt {
+;;           Some(v) -> return v
+;;           None -> return default
+;;       }
+;;   }
+;;
+;; Option[T] lowers to struct { tag: i32, payload: T }
+;;   Some(v) → tag=0, payload=v
+;;   None   → tag=1, payload=undef
+
+type @Option_i32 = { i32, i32 }
+
+fn @Option_i32_Some(%v: i32): @Option_i32 {
+    block entry:
+        %u = const @Option_i32 undef
+        %tag0 = const i32 0
+        %s1 = insertvalue @Option_i32 %u, %tag0, [0]
+        %s2 = insertvalue @Option_i32 %s1, %v, [1]
+        ret %s2
+}
+
+fn @Option_i32_None(): @Option_i32 {
+    block entry:
+        %u = const @Option_i32 undef
+        %tag1 = const i32 1
+        %c = insertvalue @Option_i32 %u, %tag1, [0]
+        ret %c
+}
+
+fn @unwrap_or(%opt: @Option_i32, %default: i32): i32 {
+    block entry:
+        %tag = extractvalue @Option_i32 %opt, [0]
+        %tag0 = const i32 0
+        %is_some = icmp eq i32 %tag, %tag0
+        br_cond %is_some, label %match_some, label %match_none
+
+    block %match_some:
+        %v = extractvalue @Option_i32 %opt, [1]
+        ret %v
+
+    block %match_none:
+        ret %default
+}
+
+;; ============================================================
+;;  EXAMPLE 9: Pattern match with bound variable
+;; ============================================================
+;; Vix:
+;;   match opt {
+;;       Some(v) -> print(v)
+;;       None -> print("none")
+;;   }
+;;
+;; The variable binding `v` is already handled at the AST level
+;; by the desugar pass. Each arm contains the bound variable extraction.
+
+fn @print_option(%opt: @Option_i32): void {
+    block entry:
+        %tag = extractvalue @Option_i32 %opt, [0]
+        %tag0 = const i32 0
+        %is_some = icmp eq i32 %tag, %tag0
+        br_cond %is_some, label %arm_some, label %arm_none
+
+    block %arm_some:
+        ;; v = opt.payload (bound in Vix match arm)
+        %v = extractvalue @Option_i32 %opt, [1]
+        call void @print_i32(%v)
+        ret void
+
+    block %arm_none:
+        %msg = const string "none"
+        call void @print_string(%msg)
+        ret void
+}
+extern fn @print_i32(i32): void
+extern fn @print_string(ptr): void
+
+;; ============================================================
+;;  EXAMPLE 10: Dynamic arrays
+;; ============================================================
+;; Vix:
+;;   fn sum_array(arr: [i32]): i32 {
+;;       let mut s = 0
+;;       for (i in 0 .. arr.length) {
+;;           s = s + arr[i]
+;;       }
+;;       return s
+;;   }
+;;
+;; [T] is represented as a fat pointer struct { data: ptr, len: i32 }
+
+type @Array_i32 = { ptr, i32 }
+
+fn @sum_array(%arr: @Array_i32): i32 {
+    block entry:
+        ;; let mut s = 0
+        %s_addr = alloca i32
+        %init0 = const i32 0
+        store i32 %init0, %s_addr
+
+        ;; let mut i = 0
+        %i_addr = alloca i32
+        store i32 %init0, %i_addr
+
+        ;; arr.length
+        %len = extractvalue @Array_i32 %arr, [1]
+        ;; arr.data
+        %data = extractvalue @Array_i32 %arr, [0]
+
+        br label %for_cond
+
+    block %for_cond:
+        %i1 = load i32, %i_addr
+        %cond = icmp slt i32 %i1, %len
+        br_cond %cond, label %for_body, label %for_end
+
+    block %for_body:
+        ;; arr[i] — GEP to element i
+        %i2 = load i32, %i_addr
+        %elem_ptr = gep i32, %data, [%i2]
+        %elem = load i32, %elem_ptr
+
+        ;; s = s + arr[i]
+        %s1 = load i32, %s_addr
+        %new_s = add i32 %s1, %elem
+        store i32 %new_s, %s_addr
+
+        ;; i = i + 1
+        %i3 = load i32, %i_addr
+        %one = const i32 1
+        %inc = add i32 %i3, %one
+        store i32 %inc, %i_addr
+
+        br label %for_cond
+
+    block %for_end:
+        %result = load i32, %s_addr
+        ret %result
+}
+
+;; ============================================================
+;;  EXAMPLE 11: String operations
+;; ============================================================
+;; Vix:
+;;   fn string_len(s: string): i32 {
+;;       return s.length
+;;   }
+;;
+;; Vix `string` = ptr (like i8* in C), .length calls runtime
+
+fn @string_len(%s: ptr): i32 {
+    block entry:
+        ;; s.length → call strlen (runtime function)
+        %len = call i32 @strlen(%s)
+        ret %len
+}
+extern fn @strlen(ptr): i32
+
+;; ============================================================
+;;  EXAMPLE 12: Recursion (factorial)
+;; ============================================================
+;; Vix:
+;;   fn factorial(n: i32): i32 {
+;;       if (n <= 1) { return 1 }
+;;       return n * factorial(n - 1)
+;;   }
+
+fn @factorial(%n: i32): i32 {
+    block entry:
+        %one = const i32 1
+        %cond = icmp sle i32 %n, %one
+        br_cond %cond, label %base, label %recurse
+
+    block %base:
+        ret %one
+
+    block %recurse:
+        %n1 = sub i32 %n, %one
+        %rec = call i32 @factorial(%n1)
+        %result = mul i32 %n, %rec
+        ret %result
+}
+
+;; ============================================================
+;;  EXAMPLE 13: If-as-expression
+;; ============================================================
+;; Vix:
+;;   let v = if (cond) { 1 } else { 0 }
+;;
+;; This uses phi nodes at the merge point:
+
+fn @if_expr(%cond: i1): i32 {
+    block entry:
+        br_cond %cond, label %then, label %else
+
+    block %then:
+        %v1 = const i32 1
+        br label %merge
+
+    block %else:
+        %v0 = const i32 0
+        br label %merge
+
+    block %merge:
+        %result = phi i32 [
+            %v1, label %then,
+            %v0, label %else
+        ]
+        ret %result
+}
+
+;; ============================================================
+;;  EXAMPLE 14: Short-circuit logical operators
+;; ============================================================
+;; Vix:
+;;   return a > 0 and b > 0
+;;
+;; Short-circuit `and` lowers to conditional branches + phi:
+
+fn @both_positive(%a: i32, %b: i32): i1 {
+    block entry:
+        %zero = const i32 0
+        %c1 = icmp sgt i32 %a, %zero
+        br_cond %c1, label %check_b, label %short_false
+
+    block %check_b:
+        %c2 = icmp sgt i32 %b, %zero
+        br label %merge
+
+    block %short_false:
+        br label %merge
+
+    block %merge:
+        %result = phi i1 [
+            %c2, label %check_b,
+            %c1, label %short_false
+        ]
+        ret %result
+}
+
+;; ============================================================
+;;  EXAMPLE 15: Multi-arm match on integers
+;; ============================================================
+;; Vix:
+;;   match x {
+;;       0 -> return "zero"
+;;       1 -> return "one"
+;;       _ -> return "other"
+;;   }
+;;
+;; Lowers to a switch instruction (for dense integer cases):
+
+fn @number_name(%x: i32): ptr {
+    block entry:
+        switch i32 %x, label %default [
+            0: label %case0,
+            1: label %case1
+        ]
+
+    block %case0:
+        %s0 = const string "zero"
+        ret %s0
+
+    block %case1:
+        %s1 = const string "one"
+        ret %s1
+
+    block %default:
+        %sdef = const string "other"
+        ret %sdef
+}
+}
+
+;; ─────────────────────────────────────────────────────────────
+;;  Summary of Vix → MIR lowering rules:
+;;
+;;  | Vix construct          | MIR lowering                           |
+;;  |------------------------|----------------------------------------|
+;;  | let x = <expr>         | %x = alloca T; store T %v, %x         |
+;;  | let mut x = <expr>     | same as let (mutability is source-level)|
+;;  | x = <expr>             | store T %v, %x_addr                   |
+;;  | if / elif / else       | br_cond → target blocks               |
+;;  | while                  | cond block → body block → cond block  |
+;;  | for i in a .. b        | while loop with loop index            |
+;;  | ADT constructors       | struct with tag + union payload       |
+;;  | match on ADT           | extractvalue tag → br_cond chain      |
+;;  | match on int           | switch instruction                    |
+;;  | if-as-expression       | phi nodes at merge block              |
+;;  | a and b / a or b       | short-circuit br_cond + phi           |
+;;  | &x (address-of)        | identity (x already has alloca)       |
+;;  | @x (dereference)       | load T, %x                            |
+;;  | @x = v (store thru ptr)| store T %v, %x                        |
+;;  | struct literal         | insertvalue chain                     |
+;;  | p.field                | extractvalue T %p, [field_idx]        |
+;;  | arr[i]                 | gep + load                            |
+;;  | arr[i] = v             | gep + store                           |
+;;  | arr.length             | extractvalue from fat ptr [1]         |
+;;  | arr.push(v)            | call @vix_array_push_*(%arr, %v)      |
+;;  | None / null            | null pointer constant                 |
+;;  | return                 | ret / ret void                        |
+;; ─────────────────────────────────────────────────────────────

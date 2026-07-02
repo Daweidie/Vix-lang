@@ -15,7 +15,7 @@ helper.o: $(SRC_DIR)/helper.c
 runtime.o: $(SRC_DIR)/runtime.c
 	gcc -c $< -o $@
 
-SOURCES = $(addprefix $(SRC_DIR)/,main.vix lexer.vix parser.vix ast.vix desugar.vix typeinfer.vix semantic.vix symtable.vix codegen.vix builder.vix error.vix)
+SOURCES = $(addprefix $(SRC_DIR)/,main.vix lexer.vix parser.vix ast.vix desugar.vix typeinfer.vix semantic.vix symtable.vix codegen.vix mir.vix mir_builder.vix builder.vix error.vix)
 
 vixc.o: $(SOURCES)
 	../build/vixc $(SRC_DIR)/main.vix -obj $@ -opt=l2

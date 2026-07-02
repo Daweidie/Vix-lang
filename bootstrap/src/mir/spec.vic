@@ -1,0 +1,356 @@
+;; ─────────────────────────────────────────────────────────────
+;;  Vix MIR (Mid-level Intermediate Representation) Specification
+;;  File extension: .vic
+;;  Version: 0.1.0
+;;
+;;  Design goals:
+;;    1. Human-readable SSA text format – easy owner analysis
+;;    2. Near 1:1 mapping to LLVM IR – trivial codegen
+;;    3. All Vix sugar (ADT, match, generics) already lowered
+;;    4. Basic-block CFG with terminators
+;;    5. Explicit type annotations on every value
+;; ─────────────────────────────────────────────────────────────
+
+;; ============================================================
+;;  1. MODULE STRUCTURE
+;; ============================================================
+
+;; A .vic file contains exactly one module:
+
+;;   mir_module <name> {
+;;       <top_level_items...>
+;;   }
+
+;; Top-level items (any order):
+;;   - type definitions
+;;   - global variable declarations
+;;   - external function declarations
+;;   - function definitions
+;;   - metadata / analysis hints
+
+;; ============================================================
+;;  2. TYPE SYSTEM
+;; ============================================================
+
+;; Primitive types:
+;;   i1                             boolean
+;;   i8, i16, i32, i64             signed integers
+;;   u8, u16, u32, u64, usize      unsigned integers
+;;   f32, f64                       IEEE-754 floats
+;;   void                           no value (only for fn return)
+
+;; Pointer types:
+;;   ptr                            opaque pointer (address space 0)
+;;   ptr:T                          typed pointer to T
+
+;; Aggregate types (anonymous):
+;;   { T1, T2, ..., Tn }           anonymous struct
+;;   [N x T]                        fixed-size array of N elements of T
+
+;; Named types:
+;;   @Name                          reference to named struct/type
+
+;; Dynamic array (Vix [T] lowers to a fat-pointer struct):
+;;   [T]                            lowers to { ptr, i32 }  (data_ptr, length)
+
+;; String (Vix `string` lowers to ptr):
+;;   string                         lowers to ptr (i8* in LLVM)
+
+;; Function type:
+;;   fn(T1, ..., Tn) -> R          first-class function pointer type
+
+;; Struct declaration example:
+;;   type @Point = { i32, i32 }
+
+;; ============================================================
+;;  3. GLOBALS & EXTERNS
+;; ============================================================
+
+;; Global variable (immutable by default):
+;;   global @name: T = <const_init>
+
+;; Global variable (mutable):
+;;   global_mut @name: T = <const_init>
+
+;; External function (C ABI):
+;;   extern fn @name(T1, ..., Tn): R
+
+;; External function (vararg C ABI):
+;;   extern_vararg fn @name(T1, ..., Tn): R
+
+;; ============================================================
+;;  4. FUNCTIONS
+;; ============================================================
+
+;;   fn @name(%p1: T1, %p2: T2, ...): R {
+;;       block %entry:
+;;           <instructions>
+;;           <terminator>
+;;       block %label:
+;;           <instructions>
+;;           <terminator>
+;;       ...
+;;   }
+
+;; - Parameters are SSA values (prefixed with %)
+;; - First block must be %entry
+;; - Every block ends with exactly one terminator
+;; - Blocks are in SSA form — each %v is assigned exactly once
+
+;; ============================================================
+;;  5. INSTRUCTIONS — TERMINATORS
+;; ============================================================
+
+;;   ret void                              return from void function
+;;   ret T %val                            return value
+;;
+;;   br label %target                      unconditional branch
+;;
+;;   br_cond %cond, label %true, label %false    conditional branch
+;;     ;; %cond must be i1
+;;
+;;   switch i32 %val, label %default [
+;;       0: label %case0,
+;;       1: label %case1,
+;;       2: label %case2
+;;   ]
+;;
+;;   unreachable                           UB hint — no path reaches here
+
+;; ============================================================
+;;  6. INSTRUCTIONS — MEMORY
+;; ============================================================
+
+;;   %r = alloca T                         stack allocation, returns ptr:T
+;;   %r = alloca_n T, %count               stack array of %count elements
+;;
+;;   %r = load T, %ptr                     load typed value from pointer
+;;        ;; T must match the pointee type
+;;
+;;   store T %val, %ptr                    store typed value to pointer
+;;
+;;   %r = gep T, %base, [%idx1, %idx2, ...]
+;;        ;; GetElementPtr — pointer arithmetic on aggregates
+;;        ;; T is the source type being indexed into
+;;        ;; First index indexes into the pointer itself
+;;        ;; Subsequent indices index into aggregate members
+;;
+;;   %r = offset T, %base, %offset
+;;        ;; Simple byte-offset pointer arithmetic
+;;        ;; r = base + offset  (opaque pointer GEP)
+;;
+;;   %r = global_addr @name               get address of global
+
+;; ============================================================
+;;  7. INSTRUCTIONS — INTEGER ARITHMETIC
+;; ============================================================
+
+;;   %r = add  T %a, %b                   integer addition
+;;   %r = sub  T %a, %b                   integer subtraction
+;;   %r = mul  T %a, %b                   integer multiplication
+;;   %r = sdiv T %a, %b                   signed division
+;;   %r = udiv T %a, %b                   unsigned division
+;;   %r = srem T %a, %b                   signed remainder
+;;   %r = urem T %a, %b                   unsigned remainder
+;;   %r = neg  T %a                       unary negation (0 - a)
+
+;; ============================================================
+;;  8. INSTRUCTIONS — FLOAT ARITHMETIC
+;; ============================================================
+
+;;   %r = fadd  T %a, %b
+;;   %r = fsub  T %a, %b
+;;   %r = fmul  T %a, %b
+;;   %r = fdiv  T %a, %b
+;;   %r = frem  T %a, %b
+;;   %r = fneg  T %a
+
+;; ============================================================
+;;  9. INSTRUCTIONS — BITWISE
+;; ============================================================
+
+;;   %r = and  T %a, %b                   bitwise AND
+;;   %r = or   T %a, %b                   bitwise OR
+;;   %r = xor  T %a, %b                   bitwise XOR
+;;   %r = shl  T %a, %b                   shift left
+;;   %r = ashr T %a, %b                   arithmetic shift right (sign-extend)
+;;   %r = lshr T %a, %b                   logical shift right (zero-fill)
+
+;; ============================================================
+;;  10. INSTRUCTIONS — COMPARISON
+;; ============================================================
+
+;; Integer comparisons (return i1):
+;;   %r = icmp eq  T %a, %b               equal
+;;   %r = icmp ne  T %a, %b               not equal
+;;   %r = icmp slt T %a, %b               signed less than
+;;   %r = icmp sle T %a, %b               signed less or equal
+;;   %r = icmp sgt T %a, %b               signed greater than
+;;   %r = icmp sge T %a, %b               signed greater or equal
+;;   %r = icmp ult T %a, %b               unsigned less than
+;;   %r = icmp ule T %a, %b               unsigned less or equal
+;;   %r = icmp ugt T %a, %b               unsigned greater than
+;;   %r = icmp uge T %a, %b               unsigned greater or equal
+
+;; Float comparisons (return i1):
+;;   %r = fcmp oeq  T %a, %b              ordered equal
+;;   %r = fcmp one  T %a, %b              ordered not equal
+;;   %r = fcmp olt  T %a, %b              ordered less than
+;;   %r = fcmp ole  T %a, %b              ordered less or equal
+;;   %r = fcmp ogt  T %a, %b              ordered greater than
+;;   %r = fcmp oge  T %a, %b              ordered greater or equal
+;;   %r = fcmp ueq  T %a, %b              unordered or equal
+;;   %r = fcmp une  T %a, %b              unordered or not equal
+;;   %r = fcmp ult  T %a, %b              unordered or less than
+;;   %r = fcmp ule  T %a, %b              unordered or less or equal
+;;   %r = fcmp ugt  T %a, %b              unordered or greater than
+;;   %r = fcmp uge  T %a, %b              unordered or greater or equal
+;;   %r = fcmp ord  T %a, %b              ordered (both not NaN)
+;;   %r = fcmp uno  T %a, %b              unordered (either NaN)
+
+;; ============================================================
+;;  11. INSTRUCTIONS — CASTS
+;; ============================================================
+
+;;   %r = trunc   T_from %val to T_to     truncate integer (e.g. i64 -> i32)
+;;   %r = zext    T_from %val to T_to     zero-extend integer (e.g. i32 -> i64)
+;;   %r = sext    T_from %val to T_to     sign-extend integer
+;;   %r = fptrunc T_from %val to T_to     float truncate (f64 -> f32)
+;;   %r = fpext   T_from %val to T_to     float extend (f32 -> f64)
+;;   %r = fptoui  T_from %val to T_to     float to unsigned integer
+;;   %r = fptosi  T_from %val to T_to     float to signed integer
+;;   %r = uitofp  T_from %val to T_to     unsigned integer to float
+;;   %r = sitofp  T_from %val to T_to     signed integer to float
+;;   %r = ptrtoint T_from %val to T_to    pointer to integer
+;;   %r = inttoptr T_from %val to T_to    integer to pointer
+;;   %r = bitcast  T_from %val to T_to    bitwise reinterpretation
+
+;; ============================================================
+;;  12. INSTRUCTIONS — CALL
+;; ============================================================
+
+;;   %r = call T @fn(%a1, %a2, ...)       direct call
+;;   call void @fn(%a1, ...)              void direct call
+;;   %r = call_indirect T %fnptr(%a1, ...) indirect call
+;;   call_indirect void %fnptr(%a1, ...)  void indirect call
+
+;; ============================================================
+;;  13. INSTRUCTIONS — AGGREGATE
+;; ============================================================
+
+;;   %r = extractvalue T %agg, [idx0, idx1, ...]
+;;        ;; Extract member from aggregate (struct or array constant)
+;;
+;;   %r = insertvalue T %agg, %val, [idx0, idx1, ...]
+;;        ;; Insert member into aggregate (returns new aggregate)
+;;
+;;   %r = array_len [T] %arr             get dynamic array length
+;;   %r = array_data [T] %arr            get dynamic array data pointer
+
+;; ============================================================
+;;  14. INSTRUCTIONS — PHI & SELECT
+;; ============================================================
+
+;;   %r = phi T [
+;;       %v1, label %block1,
+;;       %v2, label %block2,
+;;       ...
+;;   ]
+;;        ;; Merge values from different predecessor blocks
+;;        ;; Must appear at the start of a block
+;;
+;;   %r = select T %cond, %true_val, %false_val
+;;        ;; Ternary conditional select
+
+;; ============================================================
+;;  15. INSTRUCTIONS — CONSTANTS
+;; ============================================================
+
+;;   %r = const T <literal>              typed constant
+;;   ;; Supported literals:
+;;   ;;   const i32 42
+;;   ;;   const i64 -999
+;;   ;;   const f32 3.14
+;;   ;;   const f64 2.718281828
+;;   ;;   const i1 true  /  const i1 false
+;;   ;;   const ptr null    (null pointer)
+;;   ;;   const string "hello"  (global string constant)
+;;   ;;   const [4 x i8] "abcd"  (byte array from string)
+;;   ;;   const [N x T] [v0, v1, ...]  (array literal)
+;;   ;;   const @Point { %x, %y }  (struct literal)
+
+;; ============================================================
+;;  16. INSTRUCTIONS — SIZE / INTRINSIC
+;; ============================================================
+
+;;   %r = size_of T                       compile-time size in bytes (as usize)
+;;   %r = align_of T                      compile-time alignment in bytes
+
+;; ============================================================
+;;  17. INSTRUCTIONS — INLINE ASSEMBLY
+;; ============================================================
+
+;;   %r = asm [volatile] "arch" T
+;;       "instruction; template"
+;;       : [ %out = out_type (constraint) ]
+;;       : [ %in = in_type (constraint) ]
+;;       : [ "clobber1", "clobber2" ]
+;;
+;;   ;; Example:
+;;   %0 = asm "x86_64" i32
+;;       "add $0, $1"
+;;       : [ %0 = i32 (r) ]
+;;       : [ %a = i32 (r), %b = i32 (r) ]
+;;       : [ "cc" ]
+
+;; ============================================================
+;;  18. METADATA & ANALYSIS HINTS
+;; ============================================================
+
+;;   ;; Source location
+;;   #loc "file.vix" <line> <col>
+;;
+;;   ;; Variable name hint (debug info)
+;;   #name %v "variable_name"
+;;
+;;   ;; Loop hint
+;;   #loop %header_block
+;;
+;;   ;; Inline hint
+;;   #inline @fn_name
+
+;; ============================================================
+;;  19. COMPLETE EXAMPLE
+;; ============================================================
+
+;; Vix source:
+;;   type Point = struct { x: i32, y: i32 }
+;;   fn dist_sq(p: Point, scale: i32): i32 {
+;;       let dx = p.x * scale
+;;       let dy = p.y * scale
+;;       return dx * dx + dy * dy
+;;   }
+
+;; Lowered to MIR:
+
+mir_module example {
+    type @Point = { i32, i32 }
+
+    fn @dist_sq(%p: @Point, %scale: i32): i32 {
+        block entry:
+            ;; dx = p.x * scale
+            %x = extractvalue @Point %p, [0]
+            %dx = mul i32 %x, %scale
+
+            ;; dy = p.y * scale
+            %y = extractvalue @Point %p, [1]
+            %dy = mul i32 %y, %scale
+
+            ;; dx * dx + dy * dy
+            %dx2 = mul i32 %dx, %dx
+            %dy2 = mul i32 %dy, %dy
+            %sum = add i32 %dx2, %dy2
+
+            ret %sum
+    }
+}

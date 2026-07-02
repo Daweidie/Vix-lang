@@ -1,13 +1,872 @@
-type Color = Red | Blue
-fn main(): i32
-{
-	let c = Red
-	match c
-	{
-		Red -> print("Red")
-		Blue -> print("Blue")
-		_ -> print("uk")
-	}
-	let a = 10
-        return 0
+// ═══════════════════════════════════════════════════════════════
+//  Vix Standard Library Design & Inline Assembly Syntax
+// ═══════════════════════════════════════════════════════════════
+//
+//  std/ organization:
+//    std/
+//    ├─ prelude.vix   — Option, Result, core traits (auto-imported)
+//    ├─ io.vix        — print, println, File, stdin/stdout
+//    ├─ string.vix    — String type, utf-8 ops, format
+//    ├─ vec.vix       — Vec[T] growable array
+//    ├─ map.vix       — HashMap[K, V]
+//    ├─ math.vix      — sin/cos/sqrt, min/max/clamp, rand
+//    ├─ mem.vix       — alloc, free, copy, cmp, zero
+//    ├─ os.vix        — args, env, exit, clock
+//    ├─ fmt.vix       — printf-style formatting with type safety
+//    ├─ iter.vix      — Iterator trait, range, map/filter adaptors
+//    └─ asm.vix       — inline assembly definitions (arch bindings)
+// ═══════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PART 1: INLINE ASSEMBLY SYNTAX
+// ═══════════════════════════════════════════════════════════════
+//
+//  Inline assembly is a first-class language construct introduced
+//  with the `asm` keyword. It produces a typed value and integrates
+//  with the compiler's register allocator.
+//
+//  Three forms are supported:
+//
+//  A. Minimal form  —  asm <ret_type> """<template>"""
+//  B. Short form    —  asm <ret_type>(<template>, <inputs...>)
+//  C. Full form     —  asm block with explicit operands & clobbers
+//
+//  Architecture can be specified with a tag:
+//    asm x86_64 i32 { ... }
+//    asm aarch64 void { ... }
+
+
+// --- A. Minimal inline assembly ----------------------------------
+
+fn asm_minimal_example(): i32 {
+    // Single instruction, returns eax (implicit on x86_64)
+    let cpuid_eax: i32 = asm i32 """
+        cpuid
+    """
+
+    // Return register value directly
+    let timestamp: i64 = asm i64 """
+        rdtsc
+    """
+
+    return cpuid_eax
 }
+
+
+// --- B. Short form: positional operands --------------------------
+
+fn asm_short_form_example(a: i32, b: i32): i32 {
+    // $0, $1, ... map to function arguments positionally
+    let result: i32 = asm i32(
+        "add $0, $1",
+        a, b
+    )
+
+    // Multiple instructions separated by \n
+    let product: i32 = asm i32(
+        "mov eax, $0\nmul $1",
+        a, b
+    )
+
+    return result
+}
+
+
+// --- C. Full form: explicit operands & clobbers -------------------
+
+fn asm_full_form_example(ptr: ptr, n: i32): i32 {
+    // Named template placeholders {name}
+    // Explicit input/output bindings
+    // Registered clobbers for correct codegen
+    let result: i32 = asm i32 {
+        template:
+            "mov esi, {src}"
+            "mov ecx, {count}"
+            "xor eax, eax"
+            "1: add eax, [esi]"
+            "add esi, 4"
+            "loop 1b"
+        inputs:
+            src: ptr = ptr,
+            count: i32 = n
+        output: eax
+        clobbers: "esi", "ecx", "cc"
+    }
+
+    return result
+}
+
+fn asm_volatile_example(): void {
+    // volatile — not optimized away; alignstack — ensure stack alignment
+    asm void {
+        template: "int 0x80"
+        volatile: true
+        alignstack: true
+        clobbers: "memory"
+    }
+}
+
+fn asm_multiarch_example(val: i32): i32 {
+    // Compiler selects template based on target arch
+    let result: i32 = asm i32 {
+        x86_64: "mov eax, {v}\nadd eax, 42",
+        aarch64: "add w0, {v}, #42",
+        riscv64: "addi a0, {v}, 42",
+        inputs:
+            v: i32 = val
+        output: return_register
+    }
+
+    return result
+}
+
+
+// --- D. Extended operand constraints (GCC/LLVM style) -------------
+//
+//  Operand constraints tell the compiler what register class to use:
+//    "r"   — any general-purpose register
+//    "a"   — eax/rax (x86_64)
+//    "b"   — ebx/rbx
+//    "c"   — ecx/rcx
+//    "d"   — edx/rdx
+//    "m"   — memory operand
+//    "i"   — immediate operand
+//    "=&r" — early-clobber output
+
+fn asm_constraints_example(a: i32, b: i32): i32 {
+    let out: i32 = asm i32 {
+        template: "imul {b}, {a}",
+        inputs:
+            a: "r"(i32) = a,
+            b: "r"(i32) = b
+        output: "=a"(i32) out
+        clobbers: "cc"
+    }
+
+    return out
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PART 2: STANDARD LIBRARY
+// ═══════════════════════════════════════════════════════════════
+
+// ── std/prelude.vix ─────────────────────────────────────────
+
+// Core types available without explicit import
+
+pub type Option:[T] = Some(T) | None
+pub type Result:[T, E] = Ok(T) | Err(E)
+
+// Error type
+pub type Error = struct {
+    code: i32,
+    message: string
+}
+
+// Drop trait (for RAII cleanup)
+// trait syntax — future language feature, shown as design
+//
+// trait Drop {
+//     fn drop(self: &Self)
+// }
+//
+// trait Clone {
+//     fn clone(self: &Self): Self
+// }
+//
+// trait Eq {
+//     fn eq(self: &Self, other: &Self): i1
+//     fn ne(self: &Self, other: &Self): i1
+// }
+//
+// trait Ord: Eq {
+//     fn cmp(self: &Self, other: &Self): i32
+// }
+//
+// trait Hash {
+//     fn hash(self: &Self): u64
+// }
+//
+// trait Iterator {
+//     type Item
+//     fn next(self: &mut Self): ?Self::Item
+//     fn size_hint(self: &Self): (usize, ?usize)
+// }
+//
+// trait IntoIterator {
+//     type Item
+//     type IntoIter: Iterator<Item = Self::Item>
+//     fn into_iter(self): Self::IntoIter
+// }
+
+
+// ── std/io.vix ───────────────────────────────────────────────
+
+// File I/O, standard streams, formatted printing
+
+pub type File = struct {
+    handle: ptr,
+    closed: i1
+}
+
+pub type SeekFrom = Start(i64) | Current(i64) | End(i64)
+
+pub type Stdout = struct {}
+pub type Stderr = struct {}
+
+// Global standard stream handles
+pub global stdout: Stdout
+pub global stderr: Stderr
+
+// Core output
+pub fn print(s: string) { ... }
+pub fn println(s: string) { ... }
+pub fn eprint(s: string) { ... }
+pub fn eprintln(s: string) { ... }
+
+// File operations
+pub fn File_open(path: string): Result:[File, Error] { ... }
+pub fn File_read(self: &File, buf: &mut [u8]): Result:[usize, Error] { ... }
+pub fn File_write(self: &File, data: &[u8]): Result:[usize, Error] { ... }
+pub fn File_read_to_string(self: &File): Result:[string, Error] { ... }
+pub fn File_write_string(self: &File, s: string): Result:[usize, Error] { ... }
+pub fn File_seek(self: &File, pos: SeekFrom): Result:[u64, Error] { ... }
+pub fn File_size(self: &File): Result:[u64, Error] { ... }
+pub fn File_close(mut self: File): Result:[void, Error] { ... }
+pub fn File_read_all(path: string): Result:[string, Error] { ... }
+pub fn File_write_all(path: string, data: &[u8]): Result:[void, Error] { ... }
+
+// Stdin
+pub fn stdin_read_line(): Result:[string, Error] { ... }
+pub fn stdin_read_all(): Result:[string, Error] { ... }
+
+impl File {
+    // fn drop(self: &mut Self) — auto-close on drop
+    fn drop(self: &mut File) {
+        if (not self.closed) {
+            File_close(self)
+        }
+    }
+}
+
+// Usage example:
+fn io_example() {
+    let file = File_open("test.txt")
+    match file {
+        Ok(f) -> {
+            let content = f.read_to_string()
+            match content {
+                Ok(s) -> println(s),
+                Err(e) -> eprintln("read error")
+            }
+        }
+        Err(_) -> eprintln("open error")
+    }
+}
+
+
+// ── std/string.vix ───────────────────────────────────────────
+
+pub type String = struct {
+    data: ptr,
+    len: usize,
+    cap: usize
+}
+
+// Constructors
+pub fn String_new(): String { ... }
+pub fn String_from(s: string): String { ... }
+pub fn String_from_utf8(bytes: &[u8]): Result:[String, Error] { ... }
+pub fn String_with_capacity(cap: usize): String { ... }
+
+// Properties
+pub fn String_len(self: &String): usize { ... }
+pub fn String_is_empty(self: &String): i1 { ... }
+pub fn String_capacity(self: &String): usize { ... }
+
+// Mutation
+pub fn String_push(self: &mut String, ch: char) { ... }
+pub fn String_push_str(self: &mut String, s: string) { ... }
+pub fn String_pop(self: &mut String): ?char { ... }
+pub fn String_clear(self: &mut String) { ... }
+pub fn String_insert(self: &mut String, idx: usize, ch: char) { ... }
+pub fn String_remove(self: &mut String, idx: usize): char { ... }
+pub fn String_reserve(self: &mut String, additional: usize) { ... }
+pub fn String_shrink(self: &mut String) { ... }
+
+// Slicing
+pub fn String_slice(self: &String, start: usize, end: usize): &str { ... }
+pub fn String_as_bytes(self: &String): &[u8] { ... }
+pub fn String_as_ptr(self: &String): ptr { ... }
+
+// Search & compare
+pub fn String_contains(self: &String, needle: string): i1 { ... }
+pub fn String_starts_with(self: &String, prefix: string): i1 { ... }
+pub fn String_ends_with(self: &String, suffix: string): i1 { ... }
+pub fn String_find(self: &String, needle: string): ?usize { ... }
+pub fn String_rfind(self: &String, needle: string): ?usize { ... }
+pub fn String_eq(self: &String, other: &String): i1 { ... }
+
+// Split & join
+pub fn String_split(self: &String, delim: string): Vec:[String] { ... }
+pub fn String_lines(self: &String): Vec:[String] { ... }
+pub fn String_trim(self: &String): String { ... }
+pub fn String_trim_start(self: &String): String { ... }
+pub fn String_trim_end(self: &String): String { ... }
+pub fn String_replace(self: &String, from: string, to: string): String { ... }
+pub fn String_join(strings: &[String], sep: string): String { ... }
+
+// Case conversion
+pub fn String_to_lower(self: &String): String { ... }
+pub fn String_to_upper(self: &String): String { ... }
+
+// Numeric conversion
+pub fn String_parse_i32(self: &String): Result:[i32, Error] { ... }
+pub fn String_parse_i64(self: &String): Result:[i64, Error] { ... }
+pub fn String_parse_f64(self: &String): Result:[f64, Error] { ... }
+
+impl String {
+    fn drop(self: &mut String) {
+        if (self.data != null) {
+            free(self.data)
+        }
+    }
+}
+
+
+// ── std/vec.vix ──────────────────────────────────────────────
+
+// Growable array with generics
+
+pub type Vec:[T] = struct {
+    data: ptr,
+    len: usize,
+    cap: usize
+}
+
+pub fn Vec_new:[T](): Vec:[T] { ... }
+pub fn Vec_with_capacity:[T](cap: usize): Vec:[T] { ... }
+pub fn Vec_from_slice:[T](slice: &[T]): Vec:[T] { ... }
+
+// Size
+pub fn Vec_len:[T](self: &Vec:[T]): usize { ... }
+pub fn Vec_is_empty:[T](self: &Vec:[T]): i1 { ... }
+pub fn Vec_capacity:[T](self: &Vec:[T]): usize { ... }
+
+// Element access
+pub fn Vec_get:[T](self: &Vec:[T], idx: usize): ?T { ... }
+pub fn Vec_get_mut:[T](self: &mut Vec:[T], idx: usize): ?&mut T { ... }
+pub fn Vec_first:[T](self: &Vec:[T]): ?T { ... }
+pub fn Vec_last:[T](self: &Vec:[T]): ?T { ... }
+
+// Mutation
+pub fn Vec_push:[T](self: &mut Vec:[T], val: T) { ... }
+pub fn Vec_pop:[T](self: &mut Vec:[T]): ?T { ... }
+pub fn Vec_insert:[T](self: &mut Vec:[T], idx: usize, val: T) { ... }
+pub fn Vec_remove:[T](self: &mut Vec:[T], idx: usize): T { ... }
+pub fn Vec_clear:[T](self: &mut Vec:[T]) { ... }
+pub fn Vec_resize:[T](self: &mut Vec:[T], new_len: usize, fill: T) { ... }
+pub fn Vec_reserve:[T](self: &mut Vec:[T], additional: usize) { ... }
+pub fn Vec_shrink:[T](self: &mut Vec:[T]) { ... }
+pub fn Vec_extend:[T](self: &mut Vec:[T], other: &Vec:[T]) { ... }
+pub fn Vec_truncate:[T](self: &mut Vec:[T], len: usize) { ... }
+
+// Search & sort
+pub fn Vec_contains:[T](self: &Vec:[T], val: &T): i1 { ... }
+pub fn Vec_sort:[T](self: &mut Vec:[T]) { ... }
+pub fn Vec_sort_by:[T](self: &mut Vec:[T], cmp: fn(&T, &T): i32) { ... }
+pub fn Vec_binary_search:[T](self: &Vec:[T], val: &T): Result:[usize, usize] { ... }
+pub fn Vec_reverse:[T](self: &mut Vec:[T]) { ... }
+
+// Transform
+pub fn Vec_map:[T, U](self: &Vec:[T], f: fn(&T): U): Vec:[U] { ... }
+pub fn Vec_filter:[T](self: &Vec:[T], pred: fn(&T): i1): Vec:[T] { ... }
+pub fn Vec_fold:[T, Acc](self: &Vec:[T], init: Acc, f: fn(Acc, &T): Acc): Acc { ... }
+
+// Conversion
+pub fn Vec_as_slice:[T](self: &Vec:[T]): &[T] { ... }
+pub fn Vec_as_mut_slice:[T](self: &mut Vec:[T]): &mut [T] { ... }
+
+impl Vec:[T] {
+    fn drop(self: &mut Vec:[T]) {
+        if (self.data != null) {
+            free(self.data)
+        }
+    }
+}
+
+// Usage example
+fn vec_example(): i32 {
+    let mut v: Vec:[i32] = Vec_new:[i32]()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+
+    let mut sum = 0
+    for (i in 0 .. v.len()) {
+        match v.get(i) {
+            Some(x) -> sum = sum + x
+            None -> {}
+        }
+    }
+    return sum
+}
+
+
+// ── std/map.vix ──────────────────────────────────────────────
+
+// Hash map with open addressing, Robin-Hood hashing
+
+pub type HashMap:[K, V] = struct {
+    entries: ptr,
+    len: usize,
+    cap: usize
+}
+
+pub fn HashMap_new:[K, V](): HashMap:[K, V] { ... }
+pub fn HashMap_with_capacity:[K, V](cap: usize): HashMap:[K, V] { ... }
+
+pub fn HashMap_insert:[K, V](self: &mut HashMap:[K, V], key: K, val: V): ?V { ... }
+pub fn HashMap_get:[K, V](self: &HashMap:[K, V], key: &K): ?V { ... }
+pub fn HashMap_get_mut:[K, V](self: &mut HashMap:[K, V], key: &K): ?&mut V { ... }
+pub fn HashMap_remove:[K, V](self: &mut HashMap:[K, V], key: &K): ?V { ... }
+pub fn HashMap_contains:[K, V](self: &HashMap:[K, V], key: &K): i1 { ... }
+pub fn HashMap_len:[K, V](self: &HashMap:[K, V]): usize { ... }
+pub fn HashMap_is_empty:[K, V](self: &HashMap:[K, V]): i1 { ... }
+pub fn HashMap_clear:[K, V](self: &mut HashMap:[K, V]) { ... }
+pub fn HashMap_keys:[K, V](self: &HashMap:[K, V]): Vec:[K] { ... }
+pub fn HashMap_values:[K, V](self: &HashMap:[K, V]): Vec:[V] { ... }
+
+// Usage example
+fn map_example(): i32 {
+    let mut scores: HashMap:[string, i32] = HashMap_new()
+    scores.insert("alice", 100)
+    scores.insert("bob", 85)
+
+    match scores.get("alice") {
+        Some(score) -> return score
+        None -> return -1
+    }
+}
+
+
+// ── std/math.vix ─────────────────────────────────────────────
+
+extern "C" {
+    fn sin(x: f64): f64
+    fn cos(x: f64): f64
+    fn tan(x: f64): f64
+    fn asin(x: f64): f64
+    fn acos(x: f64): f64
+    fn atan(x: f64): f64
+    fn atan2(y: f64, x: f64): f64
+    fn sqrt(x: f64): f64
+    fn cbrt(x: f64): f64
+    fn pow(base: f64, exp: f64): f64
+    fn exp(x: f64): f64
+    fn ln(x: f64): f64
+    fn log10(x: f64): f64
+    fn log2(x: f64): f64
+    fn floor(x: f64): f64
+    fn ceil(x: f64): f64
+    fn round(x: f64): f64
+    fn fabs(x: f64): f64
+    fn fmod(x: f64, y: f64): f64
+}
+
+// Constants
+pub global PI: f64 = 3.14159265358979323846
+pub global E: f64 = 2.71828182845904523536
+pub global TAU: f64 = 6.28318530717958647692
+
+// Generic min/max/clamp (requires trait bounds in practice)
+pub fn min:[T](a: T, b: T): T { if (a < b) { return a } return b }
+pub fn max:[T](a: T, b: T): T { if (a > b) { return a } return b }
+pub fn clamp:[T](val: T, lo: T, hi: T): T {
+    if (val < lo) { return lo }
+    if (val > hi) { return hi }
+    return val
+}
+pub fn abs:[T](val: T): T { if (val < 0) { return -val } return val }
+
+// Linear interpolation
+pub fn lerp(a: f64, b: f64, t: f64): f64 { return a + (b - a) * t }
+
+// Power of two utilities (uses asm on supported archs)
+pub fn is_power_of_two(x: usize): i1 { return x != 0 and (x & (x - 1)) == 0 }
+pub fn next_power_of_two(x: usize): usize {
+    let mut v = x - 1
+    v = v | (v >> 1)
+    v = v | (v >> 2)
+    v = v | (v >> 4)
+    v = v | (v >> 8)
+    v = v | (v >> 16)
+    v = v | (v >> 32)
+    return v + 1
+}
+
+// Fast bit operations via inline assembly
+pub fn popcount(x: u64): u32 {
+    return asm u32 {
+        template: "popcnt {out}, {x}",
+        inputs: x: "r"(u64) = x,
+        output: "=r"(u32) out
+    }
+}
+
+pub fn count_leading_zeros(x: u64): u32 {
+    return asm u32 {
+        template: "lzcnt {out}, {x}",
+        inputs: x: "r"(u64) = x,
+        output: "=r"(u32) out
+    }
+}
+
+
+// ── std/mem.vix ──────────────────────────────────────────────
+
+extern "C" {
+    fn malloc(size: usize): ptr
+    fn calloc(nmemb: usize, size: usize): ptr
+    fn realloc(ptr: ptr, size: usize): ptr
+    fn free(ptr: ptr)
+    fn memcpy(dest: ptr, src: ptr, n: usize): ptr
+    fn memmove(dest: ptr, src: ptr, n: usize): ptr
+    fn memset(s: ptr, c: i32, n: usize): ptr
+    fn memcmp(s1: ptr, s2: ptr, n: usize): i32
+}
+
+// Typed wrappers
+pub fn alloc:[T](): ptr { return malloc(size_of(T)) }
+pub fn alloc_array:[T](count: usize): ptr { return calloc(count, size_of(T)) }
+pub fn zero_mem(ptr: ptr, size: usize) { memset(ptr, 0, size) }
+pub fn copy_mem:[T](dest: &mut T, src: &T, count: usize) { memcpy(dest, src, count * size_of(T)) }
+pub fn swap:[T](a: &mut T, b: &mut T) {
+    let tmp: T = @a
+    @a = @b
+    @b = tmp
+}
+
+// Sized memory block
+pub type Buf = struct {
+    data: ptr,
+    size: usize
+}
+
+pub fn Buf_alloc(size: usize): Result:[Buf, Error] {
+    let data = malloc(size)
+    if (data == null) {
+        return Err(Error{ code: 1, message: "oom" })
+    }
+    return Ok(Buf{ data: data, size: size })
+}
+
+
+// ── std/os.vix ───────────────────────────────────────────────
+
+extern "C" {
+    fn getenv(name: ptr): ptr
+    fn system(cmd: ptr): i32
+    fn clock(): i64  // CLOCKS_PER_SEC ticks
+}
+
+pub fn exit(code: i32): void {
+    // noreturn
+    asm void {
+        template: "mov edi, {c}\nmov eax, 60\nsyscall",
+        x86_64: "mov edi, {c}\nmov eax, 60\nsyscall",
+        aarch64: "mov x0, {c}\nmov x8, #93\nsvc #0",
+        inputs: c: "r"(i32) = code
+    }
+}
+
+pub fn args(): Vec:[string] { ... }
+pub fn env_var(name: string): ?string { ... }
+pub fn set_env_var(name: string, val: string) { ... }
+pub fn current_dir(): string { ... }
+pub fn change_dir(path: string): Result:[void, Error] { ... }
+pub fn cpu_count(): usize { ... }
+pub fn page_size(): usize { ... }
+
+// High-resolution time
+pub fn time_nanos(): u64 {
+    return asm u64 {
+        x86_64: "rdtsc\nshl rdx, 32\nor rax, rdx",
+        output: "=a"(u64) out
+    }
+}
+
+// Platform detection (comptime)
+// pub comptime OS: string = "linux" | "macos" | "windows"
+// pub comptime ARCH: string = "x86_64" | "aarch64" | "riscv64"
+
+
+// ── std/fmt.vix ──────────────────────────────────────────────
+
+// Type-safe formatting (compile-time format string checking)
+
+// Format trait
+// trait Display {
+//     fn fmt(self: &Self, f: &mut Formatter): Result:[void, Error]
+// }
+
+pub type Formatter = struct {
+    buf: Vec:[u8],
+    width: ?usize,
+    precision: ?usize,
+    flags: u8
+}
+
+pub fn Formatter_write_str(self: &mut Formatter, s: string) { ... }
+pub fn Formatter_write_char(self: &mut Formatter, ch: char) { ... }
+pub fn Formatter_write_int(self: &mut Formatter, val: i64) { ... }
+pub fn Formatter_write_uint(self: &mut Formatter, val: u64) { ... }
+pub fn Formatter_write_float(self: &mut Formatter, val: f64) { ... }
+pub fn Formatter_write_bool(self: &mut Formatter, val: i1) { ... }
+
+pub fn format(fmt_str: string, args: ...): String { ... }
+pub fn print_fmt(fmt_str: string, args: ...) { ... }
+pub fn eprint_fmt(fmt_str: string, args: ...) { ... }
+
+// Macro-like convenience (design note: uses compile-time expansion)
+// The compiler recognizes format!() and expands to type-checked calls:
+//   let msg = format!("{} + {} = {}", a, b, a + b)
+
+
+// ── std/iter.vix ─────────────────────────────────────────────
+
+// Iterator protocol
+
+pub type Range = struct {
+    start: i64,
+    end: i64,
+    step: i64
+}
+
+pub fn Range_new(start: i64, end: i64): Range {
+    return Range{ start: start, end: end, step: 1 }
+}
+
+pub fn Range_step(start: i64, end: i64, step: i64): Range {
+    return Range{ start: start, end: end, step: step }
+}
+
+pub fn Range_next(self: &mut Range): ?i64 {
+    if (self.start >= self.end) {
+        return None
+    }
+    let val = self.start
+    self.start = self.start + self.step
+    return Some(val)
+}
+
+// Map adaptor
+pub type MapIter:[T, U] = struct {
+    inner: ptr,      // erased iterator
+    f: fn(T): U,
+    next_fn: fn(ptr): ?U
+}
+
+pub fn map:[T, U](iter: &Iter:[T], f: fn(T): U): MapIter:[T, U] { ... }
+
+// Filter adaptor
+pub type FilterIter:[T] = struct {
+    inner: ptr,
+    pred: fn(&T): i1,
+    next_fn: fn(ptr): ?T
+}
+
+pub fn filter:[T](iter: &Iter:[T], pred: fn(&T): i1): FilterIter:[T] { ... }
+
+// Collect into container
+pub fn collect:[T, Container](iter: &mut Iter:[T]): Container { ... }
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PART 3: USAGE EXAMPLES
+// ═══════════════════════════════════════════════════════════════
+
+// Example 1: File reading with error handling
+fn example_read_config(): Result:[String, Error] {
+    let file = File_open("config.json")
+    match file {
+        Ok(f) -> {
+            let content = f.read_to_string()
+            return content
+        }
+        Err(e) -> return Err(e)
+    }
+}
+
+// Example 2: Vector operations
+fn example_vector_ops(): i32 {
+    let mut nums: Vec:[i32] = Vec_new()
+    nums.push(1)
+    nums.push(2)
+    nums.push(3)
+    nums.push(4)
+    nums.push(5)
+
+    // Sum of squares: {1,2,3,4,5} → 1+4+9+16+25 = 55
+    let mut sum_sq = 0
+    for (i in 0 .. nums.len()) {
+        match nums.get(i) {
+            Some(x) -> sum_sq = sum_sq + x * x
+            None -> {}
+        }
+    }
+    return sum_sq
+}
+
+// Example 3: HashMap usage
+fn example_hashmap(): void {
+    let mut freq: HashMap:[string, i32] = HashMap_new()
+    freq.insert("apple", 3)
+    freq.insert("banana", 5)
+    freq.insert("cherry", 2)
+
+    match freq.get("banana") {
+        Some(count) -> println("bananas: " + count.to_string())
+        None -> println("no bananas")
+    }
+}
+
+// Example 4: High-performance bit operations via asm
+fn example_asm_bitops(val: u64): u32 {
+    let bits = popcount(val)
+    let lz = count_leading_zeros(val)
+    return bits + lz
+}
+
+// Example 5: String manipulation
+fn example_string_ops(): String {
+    let mut s = String_from("  hello, vix world!  ")
+    let trimmed = s.trim()
+    let upper = trimmed.to_upper()
+    let parts = upper.split(" ")
+    return String_join(&parts, "-")
+    // Returns: "HELLO,-VIX-WORLD!"
+}
+
+// Example 6: Math with sqrt and constants
+fn example_math(x: f64, y: f64): f64 {
+    let hypot = sqrt(x * x + y * y)
+    let angle = atan2(y, x) * 180.0 / PI
+    return hypot * cos(angle * PI / 180.0)
+}
+
+// Example 7: Inline assembly for SIMD
+fn example_asm_simd(a: &[f32], b: &[f32], out: &mut [f32], n: usize) {
+    // Add two float arrays using SSE
+    let mut i: usize = 0
+    while (i + 4 <= n) {
+        asm void {
+            template:
+                "movups xmm0, [{a} + {off}]"
+                "movups xmm1, [{b} + {off}]"
+                "addps  xmm0, xmm1"
+                "movups [{out} + {off}], xmm0"
+            inputs:
+                a: ptr = a.as_ptr(),
+                b: ptr = b.as_ptr(),
+                out: ptr = out.as_ptr(),
+                off: usize = i * 4
+            clobbers: "xmm0", "xmm1", "memory"
+        }
+        i = i + 4
+    }
+    // Scalar remainder
+    while (i < n) {
+        out[i] = a[i] + b[i]
+        i = i + 1
+    }
+}
+
+// Example 8: Atomic operations via asm
+pub fn atomic_add(ptr: &mut i32, val: i32): i32 {
+    return asm i32 {
+        template: "lock xadd [{ptr}], {val}",
+        inputs:
+            ptr: "r"(ptr) = ptr,
+            val: "r"(i32) = val
+        output: "=a"(i32) out
+        clobbers: "memory"
+    }
+}
+
+pub fn atomic_cmpxchg(ptr: &mut i32, expected: i32, desired: i32): i32 {
+    return asm i32 {
+        template:
+            "mov eax, {exp}"
+            "lock cmpxchg [{ptr}], {des}"
+        inputs:
+            ptr: "r"(ptr) = ptr,
+            exp: "r"(i32) = expected,
+            des: "r"(i32) = desired
+        output: "=a"(i32) out
+        clobbers: "memory"
+    }
+}
+
+// Example 9: Memory management
+fn example_memory(): Result:[void, Error] {
+    let buf = Buf_alloc(4096)
+    match buf {
+        Ok(b) -> {
+            zero_mem(b.data, b.size)
+            // ... use buffer ...
+            free(b.data)
+            return Ok(void)
+        }
+        Err(e) -> return Err(e)
+    }
+}
+
+// Example 10: Using format! macro
+fn example_format(name: string, age: i32): void {
+    let msg = format!("Hello, {}! You are {} years old.", name, age)
+    println(msg)
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  SUMMARY: Standard Library API Surface
+// ═══════════════════════════════════════════════════════════════
+//
+//  Module      | Key types              | Key functions
+//  ────────────┼────────────────────────┼─────────────────────────────
+//  prelude     | Option[T], Result[T,E] | Some, None, Ok, Err
+//  io          | File, Stdout, Stderr   | File_open, read/write/close
+//  string      | String                 | new, push, split, trim, fmt
+//  vec         | Vec[T]                 | new, push/pop, get, sort, map
+//  map         | HashMap[K,V]           | insert, get, remove, contains
+//  math        | —                      | sin/cos/sqrt, min/max/clamp
+//  mem         | Buf                    | malloc/free, copy, zero, swap
+//  os          | —                      | args, env, exit, time
+//  fmt         | Formatter              | format!, print_fmt
+//  iter        | Range, MapIter, etc.   | map, filter, collect
+//  asm         | —                      | inline assembly intrinsics
+//
+// ═══════════════════════════════════════════════════════════════
+//  SUMMARY: Inline Assembly Syntax
+// ═══════════════════════════════════════════════════════════════
+//
+//  Form          | Syntax
+//  ──────────────┼───────────────────────────────────────────────────
+//  Minimal       | asm <type> """<template>"""
+//  Short         | asm <type>(<template>, <arg0>, <arg1>, ...)
+//  Full          | asm <type> { template: ... inputs: ... output: ...
+//                |             clobbers: ... volatile: bool ... }
+//  Multi-arch    | asm <type> { x86_64: "...", aarch64: "...", ... }
+//  Constraints   | "r", "a", "b", "c", "d", "m", "i", "=&r", ...
+//  Clobbers      | Register names, "cc" (flags), "memory"
+//
+//  Design principles:
+//    1. Type-safe: asm always has an explicit return type
+//    2. Explicit: inputs, outputs, clobbers must be declared
+//    3. Multi-arch: conditional compilation by target
+//    4. Familiar: constraint syntax mirrors GCC inline asm
+//    5. Vix-native: block syntax matches match/if/while style
+// ═══════════════════════════════════════════════════════════════

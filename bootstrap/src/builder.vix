@@ -159,6 +159,23 @@ pub fn set_var_type(b: &LlvmBuilder, name: string, ty: string)
     vix_set_var_type(name, ty)
 }
 
+pub fn reset_local_vars()
+{
+    vix_reset_vars()
+}
+
+pub fn set_local_var_type(name: string, ty: string)
+{
+    vix_set_var_type(name, ty)
+}
+
+pub fn get_local_var_type(name: string): string
+{
+    let ty = vix_get_var_type(name)
+    if (ty == nil) { return "i32" }
+    return ty
+}
+
 pub fn reset_function_sigs()
 {
     vix_reset_function_sigs()

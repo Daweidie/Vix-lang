@@ -5,6 +5,7 @@ import "typeck.vix"
 import "semantic.vix"
 import "desugar.vix"
 import "codegen.vix"
+import "mir.vix"
 import "error.vix"
 
 extern "C"
@@ -39,7 +40,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
-    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-exe") { return Some(arg) }
+    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--mir" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-exe") { return Some(arg) }
     return None
 }
 
@@ -140,6 +141,7 @@ fn print_help(): i32
     print("  --ast / -ast                 Print AST to stdout")
     print("  --typeinfer            Print type inference result to stdout")
     print("  --semantic             Print semantic analysis to stdout")
+    print("  --mir                  Emit Vix MIR (.vic) to stdout")
     print("  -v, --version          Display compiler version information")
     print("  -h, --help             Display this help message")
     return 0
@@ -257,6 +259,15 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         diag_print(typeck_result_debug(infer_result, src, filename))
         return Some(1)
+    }
+
+    match mode
+    {
+        "--mir" -> {
+            info_print(mir_program(lowered_program))
+            return Some(0)
+        }
+        _ -> {}
     }
 
     match mode

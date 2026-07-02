@@ -1,8 +1,10 @@
-fn foo(): i32
-{
-    return "w"
-}
 fn main(): i32
 {
-    return 0
+	let mut a = 10
+	while(a > 0)
+	{
+		a=a-1
+	}
+	print(a)
+	return 0
 }
