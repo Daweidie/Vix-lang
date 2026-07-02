@@ -21,11 +21,11 @@ pub fn semantic_add_error(result: &SemanticResult, source: string, filename: str
 {
     let located = if (func_name != "")
     {
-        format_diagnostic_no_loc(0, error_type, "in function " + func_name + ": " + message, filename)
+        format_diagnostic_no_loc(diag_error_level(), error_type, "in function " + func_name + ": " + message, filename)
     }
     else
     {
-        format_diagnostic_no_loc(0, error_type, message, filename)
+        format_diagnostic_no_loc(diag_error_level(), error_type, message, filename)
     }
     result.diagnostics.push(located)
     result.error_count += 1
@@ -38,11 +38,11 @@ pub fn semantic_add_error_loc(result: &SemanticResult, source: string, filename:
     let full_message = if (func_name != "") { "in function " + func_name + ": " + message } else { message }
     if (line > 0)
     {
-        result.diagnostics.push(format_diagnostic(source, filename, 0, error_type, full_message, line, col, length))
+        result.diagnostics.push(format_diagnostic(source, filename, diag_error_level(), error_type, full_message, line, col, length))
     }
     else
     {
-        result.diagnostics.push(format_diagnostic_no_loc(0, error_type, full_message, filename))
+        result.diagnostics.push(format_diagnostic_no_loc(diag_error_level(), error_type, full_message, filename))
     }
     result.error_count += 1
     if (error_type == "TypeError") { result.type_error_count += 1 }
@@ -51,7 +51,7 @@ pub fn semantic_add_error_loc(result: &SemanticResult, source: string, filename:
 
 pub fn semantic_add_warning(result: &SemanticResult, filename: string, error_type: string, message: string)
 {
-    result.diagnostics.push(format_diagnostic_no_loc(1, error_type, message, filename))
+    result.diagnostics.push(format_diagnostic_no_loc(diag_warning_level(), error_type, message, filename))
     result.warning_count += 1
 }
 
@@ -59,11 +59,11 @@ pub fn semantic_add_warning_loc(result: &SemanticResult, source: string, filenam
 {
     if (line > 0)
     {
-        result.diagnostics.push(format_diagnostic(source, filename, 1, error_type, message, line, col, length))
+        result.diagnostics.push(format_diagnostic(source, filename, diag_warning_level(), error_type, message, line, col, length))
     }
     else
     {
-        result.diagnostics.push(format_diagnostic_no_loc(1, error_type, message, filename))
+        result.diagnostics.push(format_diagnostic_no_loc(diag_warning_level(), error_type, message, filename))
     }
     result.warning_count += 1
 }
@@ -74,11 +74,11 @@ pub fn semantic_add_typeck_error(result: &SemanticResult, source: string, filena
     let full_message = if (check.error_func != "") { "in function " + check.error_func + ": " + check.error } else { check.error }
     if (check.line > 0)
     {
-        result.diagnostics.push(format_diagnostic(source, filename, 0, "TypeError", full_message, check.line, check.col, check.span_len))
+        result.diagnostics.push(format_diagnostic(source, filename, diag_error_level(), "TypeError", full_message, check.line, check.col, check.span_len))
     }
     else
     {
-        result.diagnostics.push(format_diagnostic_no_loc(0, "TypeError", full_message, filename))
+        result.diagnostics.push(format_diagnostic_no_loc(diag_error_level(), "TypeError", full_message, filename))
     }
     result.error_count += 1
     result.type_error_count += 1

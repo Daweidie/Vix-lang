@@ -396,7 +396,7 @@ pub fn mir_store_expr_to_name(b: &MirBuilder, es: &ExprStore, store: &StmtStore,
 
 pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32, break_label: string, continue_label: string)
 {
-    if (stmt_idx < 0 or b.terminated == 1) { return }
+    if (stmt_idx < 0 or mir_block_is_open(b) == 0) { return }
     let stmt = stmt_store_get(store, stmt_idx)
     match stmt.tag {
         "return" -> {
@@ -458,10 +458,10 @@ pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32
             mir_emit_term(b, "br_cond " + cond.name + ", label " + then_label + ", label " + else_label)
             mir_block(b, then_label)
             mir_stmt(b, es, store, stmt.body_idx, break_label, continue_label)
-            if (b.terminated == 0) { mir_emit_term(b, "br label " + end_label) }
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
             mir_block(b, else_label)
             if (stmt.assign_idx >= 0) { mir_stmt(b, es, store, stmt.assign_idx, break_label, continue_label) }
-            if (b.terminated == 0) { mir_emit_term(b, "br label " + end_label) }
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
             mir_block(b, end_label)
         }
         "while" -> {
@@ -474,7 +474,7 @@ pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32
             mir_emit_term(b, "br_cond " + cond.name + ", label " + body_label + ", label " + end_label)
             mir_block(b, body_label)
             mir_stmt(b, es, store, stmt.body_idx, end_label, cond_label)
-            if (b.terminated == 0) { mir_emit_term(b, "br label " + cond_label) }
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + cond_label) }
             mir_block(b, end_label)
         }
         "for_range" -> {
@@ -498,7 +498,7 @@ pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32
             mir_emit_term(b, "br_cond " + cmp + ", label " + body_label + ", label " + end_label)
             mir_block(b, body_label)
             mir_stmt(b, es, store, stmt.body_idx, end_label, step_label)
-            if (b.terminated == 0) { mir_emit_term(b, "br label " + step_label) }
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + step_label) }
             mir_block(b, step_label)
             let cur = mir_expr_value_typed(b, es, store, AstExpr{ tag: "ident", text: stmt.assign_name, int_value: 0, float_value: 0.0, left_idx: -1, right_idx: -1, args: [], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 }, "i32")
             let inc = mir_temp(b)
@@ -602,7 +602,7 @@ pub fn mir_match_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt: A
             mir_emit_term(b, "br_cond " + cmp.name + ", label " + body_label + ", label " + after_label)
             mir_block(b, body_label)
             mir_stmt(b, es, store, stmt.match_body_indices[i], break_label, continue_label)
-            if (b.terminated == 0) { mir_emit_term(b, "br label " + end_label) }
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
             next_label = after_label
         }
     }
@@ -611,7 +611,7 @@ pub fn mir_match_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt: A
     {
         mir_stmt(b, es, store, default_body, break_label, continue_label)
     }
-    if (b.terminated == 0) { mir_emit_term(b, "br label " + end_label) }
+    if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
     mir_block(b, end_label)
 }
 
@@ -641,7 +641,7 @@ pub fn mir_emit_function(program: AstProgram, func: AstFunction): string
         mir_inst(&b, "store " + mir_type(func.param_types[i]) + " %" + func.param_names[i] + ", " + mir_var_addr(func.param_names[i]))
     }
     mir_stmt(&b, program.expr_store, program.store, func.body_idx, "", "")
-    if (b.terminated == 0)
+    if (mir_block_is_open(&b) == 1)
     {
         if (func.ret_ty == "void") { mir_emit_term(&b, "ret void") }
         else { mir_emit_term(&b, "ret " + mir_type(func.ret_ty) + " " + mir_zero_value(func.ret_ty)) }

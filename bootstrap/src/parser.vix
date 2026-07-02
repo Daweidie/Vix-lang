@@ -103,7 +103,7 @@ pub fn parser_fail(parser: &Parser, message: string)
                 col = stream_col_at(parser.stream, parser.pos - 1)
             }
         }
-        parser.error = format_diagnostic(parser.source, parser.filename, 0, "ParseError", message, line, col, length)
+        parser.error = format_diagnostic(parser.source, parser.filename, diag_error_level(), "ParseError", message, line, col, length)
     }
 }
 

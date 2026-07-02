@@ -145,9 +145,18 @@ pub fn error_code_for_type(error_type: string, message: string): string
     return "E0000"
 }
 
+pub fn diag_error_level(): i32 { return 0 }
+pub fn diag_warning_level(): i32 { return 1 }
+
+pub fn diagnostic_level_is_warning(level: i32): i32
+{
+    if (level == diag_warning_level()) { return 1 }
+    return 0
+}
+
 pub type Diagnostic = struct {
     code: string,
-    is_warning: i32,
+    level: i32,
     error_type: string,
     message: string,
     line: i32,
@@ -156,9 +165,9 @@ pub type Diagnostic = struct {
     func_name: string
 }
 
-pub fn diagnostic_new(code: string, is_warning: i32, error_type: string, message: string): Diagnostic
+pub fn diagnostic_new(code: string, level: i32, error_type: string, message: string): Diagnostic
 {
-    return Diagnostic{ code: code, is_warning: is_warning, error_type: error_type, message: message, line: 0, col: 0, span_len: 1, func_name: "" }
+    return Diagnostic{ code: code, level: level, error_type: error_type, message: message, line: 0, col: 0, span_len: 1, func_name: "" }
 }
 
 pub fn source_get_line(src: string, target_line: i32): string
@@ -353,11 +362,12 @@ pub fn line_blank_str(width: i32): string
     return out
 }
 
-pub fn show_source_context(src: string, line: i32, col: i32, length: i32, is_warning: i32): string
+pub fn show_source_context(src: string, line: i32, col: i32, length: i32, level: i32): string
 {
     if (line <= 0 or src == "") { return "" }
 
     let width = line_number_width(line)
+    let is_warning = diagnostic_level_is_warning(level)
     let highlight_color = if (is_warning == 1) { diag_yellow() } else { diag_red() }
     let gutter = diag_dim()
     let reset = diag_reset()
@@ -396,8 +406,9 @@ pub fn show_source_context(src: string, line: i32, col: i32, length: i32, is_war
     return out
 }
 
-pub fn format_header(is_warning: i32, error_type: string, message: string): string
+pub fn format_header(level: i32, error_type: string, message: string): string
 {
+    let is_warning = diagnostic_level_is_warning(level)
     let level_text = if (is_warning == 1) { "warning" } else { "error" }
     let level_color = if (is_warning == 1) { diag_yellow() } else { diag_red() }
     let type_color = match error_type {
@@ -416,20 +427,20 @@ pub fn format_header(is_warning: i32, error_type: string, message: string): stri
     return out
 }
 
-pub fn format_diagnostic(src: string, filename: string, is_warning: i32, error_type: string, message: string, line: i32, col: i32, length: i32): string
+pub fn format_diagnostic(src: string, filename: string, level: i32, error_type: string, message: string, line: i32, col: i32, length: i32): string
 {
-    let mut out = format_header(is_warning, error_type, message)
+    let mut out = format_header(level, error_type, message)
     if (filename != "" and line > 0)
     {
         out = out + line_blank_str(line_number_width(line)) + diag_blue() + "-->" + diag_reset() + " " + filename + ":" + i32_to_str(line) + ":" + i32_to_str(col) + "\n"
-        out = out + show_source_context(src, line, col, length, is_warning)
+        out = out + show_source_context(src, line, col, length, level)
     }
     return out
 }
 
-pub fn format_diagnostic_no_loc(is_warning: i32, error_type: string, message: string, filename: string): string
+pub fn format_diagnostic_no_loc(level: i32, error_type: string, message: string, filename: string): string
 {
-    let mut out = format_header(is_warning, error_type, message)
+    let mut out = format_header(level, error_type, message)
     if (filename != "")
     {
         out = out + "  " + diag_blue() + "-->" + diag_reset() + " " + filename + "\n"

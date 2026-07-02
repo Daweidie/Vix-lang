@@ -14,6 +14,12 @@ pub fn mir_builder_new(): MirBuilder
     return MirBuilder{ out: "", temp_counter: 0, label_counter: 0, terminated: 0, ret_ty: "void" }
 }
 
+pub fn mir_block_is_open(b: &MirBuilder): i32
+{
+    if (b.terminated == 0) { return 1 }
+    return 0
+}
+
 pub fn mir_i32(n: i32): string
 {
     return i32_to_str(n)
@@ -52,7 +58,7 @@ pub fn mir_block(b: &MirBuilder, name: string)
 
 pub fn mir_emit_term(b: &MirBuilder, text: string)
 {
-    if (b.terminated == 0)
+    if (mir_block_is_open(b) == 1)
     {
         mir_inst(b, text)
         b.terminated = 1

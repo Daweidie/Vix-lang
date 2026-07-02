@@ -6,5 +6,6 @@ fn main(): i32
 		a=a-1
 	}
 	print(a)
+    //test
 	return 0
 }

@@ -161,17 +161,21 @@ fn source_file_arg(arg: string): ?string
     }
 }
 
+fn mode_success(): ?i32 { return Some(0) }
+fn mode_failure(): ?i32 { return Some(1) }
+fn mode_continue(): ?i32 { return None }
+
 fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, runtime_object: string, link_args: string): ?i32
 {
     match mode
     {
         "--lex" -> {
             info_print(tokenize_debug(src))
-            return Some(0)
+            return mode_success()
         }
         "--parse-stats" -> {
             info_print(parse_program_stats(src, filename))
-            return Some(0)
+            return mode_success()
         }
         _ -> {}
     }
@@ -189,7 +193,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
             {
                 info_print(ast_program_debug(program))
             }
-            return Some(0)
+            return mode_success()
         }
         "--ast" | "-ast" -> {
             if (program.ok == 0)
@@ -200,7 +204,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
             {
                 info_print(ast(program))
             }
-            return Some(0)
+            return mode_success()
         }
         _ -> {}
     }
@@ -208,7 +212,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     if (program.ok == 0)
     {
         diag_print(program.error)
-        return Some(1)
+        return mode_failure()
     }
 
     let lowered_program = desugar_program(program)
@@ -218,7 +222,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         "--semantic" -> {
             info_print(semantic_result_debug(semantic_result))
-            return Some(0)
+            return mode_success()
         }
         _ -> {}
     }
@@ -231,14 +235,14 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
                 info_print(semantic_result_debug(semantic_result))
                 if (semantic_result.error_count == semantic_result.type_error_count)
                 {
-                    return Some(0)
+                    return mode_success()
                 }
-                return Some(1)
+                return mode_failure()
             }
             _ -> {}
         }
         diag_print(semantic_result_debug(semantic_result))
-        return Some(1)
+        return mode_failure()
     }
     if (semantic_result.warning_count > 0)
     {
@@ -250,7 +254,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         "--typeinfer" | "--tyinfer" -> {
             info_print(typeck_result_debug(infer_result, src, filename))
-            return Some(0)
+            return mode_success()
         }
         _ -> {}
     }
@@ -258,21 +262,21 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     if (infer_result.ok == 0)
     {
         diag_print(typeck_result_debug(infer_result, src, filename))
-        return Some(1)
+        return mode_failure()
     }
 
     match mode
     {
         "--mir" -> {
             info_print(mir_program(lowered_program))
-            return Some(0)
+            return mode_success()
         }
         _ -> {}
     }
 
     match mode
     {
-        "--check" -> { return Some(0) }
+        "--check" -> { return mode_success() }
         _ -> {}
     }
 
@@ -280,7 +284,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     if (emit == "stdout")
     {
         print(ir)
-        return None
+        return mode_continue()
     }
     let mut ir_path = ""
     if (emit == "ir")
@@ -295,7 +299,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     if (emit == "ir")
     {
         print(ir_path)
-        return Some(0)
+        return mode_success()
     }
 
     let artifact_path = artifact_output_path(filename, output, emit)
@@ -311,10 +315,10 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     if (shell_command(command) != 0)
     {
         diag_print("vixc: error: failed to build '" + artifact_path + "'")
-        return Some(1)
+        return mode_failure()
     }
     print(artifact_path)
-    return Some(0)
+    return mode_success()
 }
 
 fn write_text_file(path: string, content: string): i32

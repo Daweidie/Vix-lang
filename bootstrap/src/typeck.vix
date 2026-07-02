@@ -1383,13 +1383,13 @@ pub fn typeinfer_result_debug(result: TypeInferResult, source: string, filename:
         let message = if (result.error_func != "") { "in function " + result.error_func + ": " + result.error } else { result.error }
         if (result.line > 0)
         {
-            return format_diagnostic(source, filename, 0, "TypeError", message, result.line, result.col, result.span_len)
+            return format_diagnostic(source, filename, diag_error_level(), "TypeError", message, result.line, result.col, result.span_len)
         }
         if (result.error_func != "")
         {
-            return format_diagnostic_no_loc(0, "TypeError", "in function " + result.error_func + ": " + result.error, filename)
+            return format_diagnostic_no_loc(diag_error_level(), "TypeError", "in function " + result.error_func + ": " + result.error, filename)
         }
-        return format_diagnostic_no_loc(0, "TypeError", result.error, filename)
+        return format_diagnostic_no_loc(diag_error_level(), "TypeError", result.error, filename)
     }
     return "TypeOk(return_type=" + result.return_type + ")"
 }
