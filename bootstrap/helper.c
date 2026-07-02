@@ -1,9 +1,15 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Types.h>
 #include <llvm-c/Analysis.h>
+#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 #define MAX_VARS 1024
 #define MAX_FIELDS 32
@@ -48,6 +54,91 @@ const char *vix_diag_reset(void) { return "\033[0m"; }
 
 void vix_print_stderr(const char *s) {
   fputs(s, stderr);
+}
+
+static char *vix_join_helper_object(const char *dir) {
+  const char *helper = "/helper.o";
+  size_t len = strlen(dir) + strlen(helper) + 1;
+  char *out = (char *)malloc(len);
+  if (!out)
+    return NULL;
+  snprintf(out, len, "%s%s", dir, helper);
+  return out;
+}
+
+static char *vix_helper_from_executable_path(const char *path) {
+  char resolved[PATH_MAX];
+  const char *usable = path;
+  char *allocated = NULL;
+
+  if (realpath(path, resolved) != NULL) {
+    usable = resolved;
+  } else {
+    allocated = strdup(path);
+    if (!allocated)
+      return NULL;
+    usable = allocated;
+  }
+
+  const char *slash = strrchr(usable, '/');
+  if (!slash) {
+    free(allocated);
+    return strdup("./helper.o");
+  }
+
+  if (slash == usable) {
+    free(allocated);
+    return strdup("/helper.o");
+  }
+
+  size_t dir_len = (size_t)(slash - usable);
+  char *dir = (char *)malloc(dir_len + 1);
+  if (!dir) {
+    free(allocated);
+    return NULL;
+  }
+  memcpy(dir, usable, dir_len);
+  dir[dir_len] = '\0';
+
+  char *out = vix_join_helper_object(dir);
+  free(dir);
+  free(allocated);
+  return out;
+}
+
+char *vix_compiler_helper_object_path(const char *argv0) {
+  if (!argv0 || argv0[0] == '\0')
+    return strdup("./helper.o");
+
+  if (strchr(argv0, '/') != NULL)
+    return vix_helper_from_executable_path(argv0);
+
+  const char *path_env = getenv("PATH");
+  if (path_env) {
+    char *paths = strdup(path_env);
+    if (paths) {
+      char *save = NULL;
+      for (char *dir = strtok_r(paths, ":", &save); dir != NULL;
+           dir = strtok_r(NULL, ":", &save)) {
+        const char *usable_dir = dir[0] == '\0' ? "." : dir;
+        size_t len = strlen(usable_dir) + 1 + strlen(argv0) + 1;
+        char *candidate = (char *)malloc(len);
+        if (!candidate)
+          continue;
+        snprintf(candidate, len, "%s/%s", usable_dir, argv0);
+        if (access(candidate, X_OK) == 0) {
+          char *out = vix_helper_from_executable_path(candidate);
+          free(candidate);
+          free(paths);
+          return out;
+        }
+        free(candidate);
+      }
+      free(paths);
+    }
+  }
+
+  return strdup("./helper.o");
 }
 
 void vix_reset_vars(void) { var_count = 0; }

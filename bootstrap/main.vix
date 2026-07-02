@@ -21,6 +21,7 @@ extern "C"
     fn vix_diag_red(): string
     fn vix_diag_yellow(): string
     fn vix_diag_reset(): string
+    fn vix_compiler_helper_object_path(argv0: string): string
 }
 
 fn string_ends_with(text: string, suffix: string): i32
@@ -87,7 +88,7 @@ fn dirname(path: string): string
 
 fn helper_object_path(compiler_path: string): string
 {
-    return dirname(compiler_path) + "/helper.o"
+    return vix_compiler_helper_object_path(compiler_path)
 }
 
 fn shell_command(command: string): i32
@@ -110,7 +111,7 @@ fn artifact_output_path(filename: string, output: string, emit: string): string
 {
     if (output != "") { return output }
     let base = strip_vix_ext(filename)
-    if (emit == "exe") { return base }
+    if (emit == "exe" or emit == "-exe") { return base }
     return base + ".o"
 }
 

@@ -9,10 +9,10 @@ helper.o: helper.c
 SOURCES = main.vix lexer.vix parser.vix ast.vix desugar.vix typeinfer.vix semantic.vix symtable.vix codegen.vix builder.vix error.vix
 
 vixc.o: $(SOURCES)
-	vixc main.vix -obj $@ -opt=l2
+	../build/vixc main.vix -obj $@ -opt=l2
 
 $(TARGET): helper.o vixc.o
-	vixc $^ -o $@ -L /usr/lib -l LLVM-22
+	../build/vixc $^ -o $@ -L /usr/lib -l LLVM-22
 
 clean:
 	rm -f helper.o vixc.o $(TARGET) test test.ll 
