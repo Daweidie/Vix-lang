@@ -3,6 +3,7 @@ import "parser.vix"
 import "ast.vix"
 import "typeck.vix"
 import "semantic.vix"
+import "desugar.vix"
 import "codegen.vix"
 import "error.vix"
 
@@ -56,6 +57,39 @@ fn strip_vix_ext(name: string): string
     return name
 }
 
+fn find_last_char(text: string, needle: i8): i32
+{
+    let mut found = -1
+    for (i in 0 .. text.length)
+    {
+        if (text[i] == needle) { found = i }
+    }
+    return found
+}
+
+fn slice_string(text: string, start: i32, end: i32): string
+{
+    let mut out = ""
+    for (i in start .. end)
+    {
+        out = out + char_string(text[i])
+    }
+    return out
+}
+
+fn dirname(path: string): string
+{
+    let slash = find_last_char(path, '/')
+    if (slash < 0) { return "." }
+    if (slash == 0) { return "/" }
+    return slice_string(path, 0, slash)
+}
+
+fn helper_object_path(compiler_path: string): string
+{
+    return dirname(compiler_path) + "/helper.o"
+}
+
 fn shell_command(command: string): i32
 {
     return system(command)
@@ -91,6 +125,8 @@ fn print_help(): i32
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
     print("  -obj                   Emit object file (default: <input>.o)")
     print("  -exe                   Emit executable (default: <input>)")
+    print("  -l<lib>, -l <lib>      Link executable with a system library")
+    print("  -L<dir>, -L <dir>      Add a system library search path")
     print("  --check                Syntax & type check only")
     print("  --lex                  Print tokens to stdout")
     print("  --parse-stats          Print lightweight parser input statistics")
@@ -117,7 +153,7 @@ fn source_file_arg(arg: string): ?string
     }
 }
 
-fn run_mode(mode: string, src: string, filename: string, emit: string, output: string): ?i32
+fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, helper_object: string, link_args: string): ?i32
 {
     match mode
     {
@@ -167,7 +203,9 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         return Some(1)
     }
 
-    let semantic_result = semantic_check_program(program, src, filename)
+    let lowered_program = desugar_program(program)
+
+    let semantic_result = semantic_check_program(lowered_program, src, filename)
     match mode
     {
         "--semantic" -> {
@@ -187,7 +225,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         diag_print(semantic_result_debug(semantic_result))
     }
 
-    let infer_result = typeck_check_program(program)
+    let infer_result = typeck_check_program(lowered_program)
     match mode
     {
         "--typeinfer" | "--tyinfer" -> {
@@ -209,7 +247,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         _ -> {}
     }
 
-    let ir = codegen_program(program)
+    let ir = codegen_program(lowered_program)
     if (emit == "stdout")
     {
         print(ir)
@@ -239,7 +277,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     }
     else
     {
-        command = "clang " + ir_path + " helper.o -o " + artifact_path + " -L /usr/lib -l LLVM-22"
+        command = "clang " + ir_path + " " + helper_object + " -o " + artifact_path + " -L /usr/lib -l LLVM-22 " + link_args
     }
     if (shell_command(command) != 0)
     {
@@ -290,6 +328,7 @@ fn main(argc: i32, argv: ptr): i32
     let mut emit = "stdout"
     let mut output = ""
     let mut has_input = 0
+    let mut link_args = ""
 
     let mut i = 1
     while (i < argc)
@@ -336,6 +375,23 @@ fn main(argc: i32, argv: ptr): i32
         elif (arg == "-exe")
         {
             emit = "-exe"
+        }
+        elif (arg == "-l" or arg == "-L")
+        {
+            if (i + 1 < argc)
+            {
+                i += 1
+                link_args = link_args + " " + arg + argv[i]
+            }
+            else
+            {
+                diag_print("vixc0: error: '" + arg + "' requires an argument")
+                return 1
+            }
+        }
+        elif (str_starts_with(arg, "-l") == 1 or str_starts_with(arg, "-L") == 1)
+        {
+            link_args = link_args + " " + arg
         }
         else
         {
@@ -387,7 +443,7 @@ fn main(argc: i32, argv: ptr): i32
         return 1
     }
 
-    match run_mode(mode, src, filename, emit, output)
+    match run_mode(mode, src, filename, emit, output, helper_object_path(argv[0]), link_args)
     {
         Some(code) -> return code
         None -> return 0

@@ -1,5 +1,13 @@
+type Color = Red | Blue
 fn main(): i32
 {
+	let c = Red
+	match c
+	{
+		Red -> print("Red")
+		Blue -> print("Blue")
+		_ -> print("uk")
+	}
 	let a = 10
         return 0
 }

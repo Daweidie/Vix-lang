@@ -147,11 +147,21 @@ pub type AstStructDecl = struct {
     col: i32
 }
 
+pub type AstAdtDecl = struct {
+    name: string,
+    type_params: [string],
+    variant_names: [string],
+    variant_payload_types: [string],
+    line: i32,
+    col: i32
+}
+
 pub type AstProgram = struct {
     function: AstFunction,
     functions: [AstFunction],
     extern_functions: [AstFunction],
     structs: [AstStructDecl],
+    adts: [AstAdtDecl],
     expr_store: ExprStore,
     store: StmtStore,
     ok: i32,
@@ -433,7 +443,7 @@ pub fn ast_function_with_loc(func: AstFunction, line: i32, col: i32): AstFunctio
 pub fn ast_program_ok(function: AstFunction, expr_store: ExprStore, store: StmtStore): AstProgram
 {
     let entry = ast_function_with_loc(function, function.line, function.col)
-    return AstProgram{ function: entry, functions: [function], extern_functions: [], structs: [], expr_store: expr_store, store: store, ok: 1, error: "" }
+    return AstProgram{ function: entry, functions: [function], extern_functions: [], structs: [], adts: [], expr_store: expr_store, store: store, ok: 1, error: "" }
 }
 
 pub fn ast_program_ok_functions(functions: [AstFunction], expr_store: ExprStore, store: StmtStore): AstProgram
@@ -448,6 +458,11 @@ pub fn ast_program_ok_functions_with_externs(functions: [AstFunction], extern_fu
 
 pub fn ast_program_ok_functions_with_externs_and_structs(functions: [AstFunction], extern_functions: [AstFunction], structs: [AstStructDecl], expr_store: ExprStore, store: StmtStore): AstProgram
 {
+    return ast_program_ok_functions_with_externs_structs_and_adts(functions, extern_functions, structs, [], expr_store, store)
+}
+
+pub fn ast_program_ok_functions_with_externs_structs_and_adts(functions: [AstFunction], extern_functions: [AstFunction], structs: [AstStructDecl], adts: [AstAdtDecl], expr_store: ExprStore, store: StmtStore): AstProgram
+{
     let mut entry = ast_function("main", "i32", -1)
     if (functions.length > 0)
     {
@@ -460,12 +475,12 @@ pub fn ast_program_ok_functions_with_externs_and_structs(functions: [AstFunction
             }
         }
     }
-    return AstProgram{ function: entry, functions: functions, extern_functions: extern_functions, structs: structs, expr_store: expr_store, store: store, ok: 1, error: "" }
+    return AstProgram{ function: entry, functions: functions, extern_functions: extern_functions, structs: structs, adts: adts, expr_store: expr_store, store: store, ok: 1, error: "" }
 }
 
 pub fn ast_program_err(message: string): AstProgram
 {
-    return AstProgram{ function: ast_function("main", "i32", -1), functions: [], extern_functions: [], structs: [], expr_store: expr_store_new(), store: stmt_store_new(), ok: 0, error: message }
+    return AstProgram{ function: ast_function("main", "i32", -1), functions: [], extern_functions: [], structs: [], adts: [], expr_store: expr_store_new(), store: stmt_store_new(), ok: 0, error: message }
 }
 
 pub fn ast_expr_debug(store: &ExprStore, idx: i32): string
@@ -491,6 +506,150 @@ pub fn ast_expr_debug(store: &ExprStore, idx: i32): string
         "if_expr" -> "if (...)"
         _ -> expr.tag
     }
+}
+
+pub fn ast_type_base_name(ty: string): string
+{
+    let mut result = ""
+    for (i in 0 .. ty.length)
+    {
+        if (ty[i] == '[' or ty[i] == ':') { return result }
+        let s: string = malloc(2)
+        s[0] = ty[i]
+        s[1] = 0
+        result = result + s
+    }
+    return result
+}
+
+pub fn ast_generic_arg_count(ty: string): i32
+{
+    let mut in_args = 0
+    let mut count = 0
+    let mut has_arg = 0
+    for (i in 0 .. ty.length)
+    {
+        if (ty[i] == '[')
+        {
+            in_args = 1
+            has_arg = 0
+        }
+        elif (ty[i] == ']')
+        {
+            if (in_args == 1 and has_arg == 1) { count += 1 }
+            in_args = 0
+        }
+        elif (in_args == 1 and ty[i] == ',')
+        {
+            count += 1
+            has_arg = 0
+        }
+        elif (in_args == 1 and ty[i] != ' ')
+        {
+            has_arg = 1
+        }
+    }
+    return count
+}
+
+pub fn ast_generic_arg_at(ty: string, target: i32): string
+{
+    let mut in_args = 0
+    let mut idx = 0
+    let mut result = ""
+    for (i in 0 .. ty.length)
+    {
+        if (ty[i] == '[')
+        {
+            in_args = 1
+            idx = 0
+            result = ""
+        }
+        elif (ty[i] == ']')
+        {
+            if (in_args == 1 and idx == target) { return result }
+            in_args = 0
+        }
+        elif (in_args == 1 and ty[i] == ',')
+        {
+            if (idx == target) { return result }
+            idx += 1
+            result = ""
+        }
+        elif (in_args == 1 and idx == target and ty[i] != ' ')
+        {
+            let s: string = malloc(2)
+            s[0] = ty[i]
+            s[1] = 0
+            result = result + s
+        }
+    }
+    return result
+}
+
+pub fn ast_adt_variant_index(adts: [AstAdtDecl], variant_name: string): i32
+{
+    let mut ordinal = 0
+    for (i in 0 .. adts.length)
+    {
+        for (j in 0 .. adts[i].variant_names.length)
+        {
+            if (adts[i].variant_names[j] == variant_name) { return ordinal }
+            ordinal += 1
+        }
+    }
+    return -1
+}
+
+pub fn ast_adt_find_by_name(adts: [AstAdtDecl], name: string): i32
+{
+    let base = ast_type_base_name(name)
+    for (i in 0 .. adts.length)
+    {
+        if (adts[i].name == base) { return i }
+    }
+    return -1
+}
+
+pub fn ast_adt_find_variant_decl(adts: [AstAdtDecl], variant_name: string): i32
+{
+    for (i in 0 .. adts.length)
+    {
+        for (j in 0 .. adts[i].variant_names.length)
+        {
+            if (adts[i].variant_names[j] == variant_name) { return i }
+        }
+    }
+    return -1
+}
+
+pub fn ast_adt_variant_local_index(decl: AstAdtDecl, variant_name: string): i32
+{
+    for (i in 0 .. decl.variant_names.length)
+    {
+        if (decl.variant_names[i] == variant_name) { return i }
+    }
+    return -1
+}
+
+pub fn ast_adt_payload_type_for_subject(adts: [AstAdtDecl], subject_ty: string, variant_name: string): string
+{
+    let decl_idx = ast_adt_find_by_name(adts, subject_ty)
+    if (decl_idx < 0) { return "unknown" }
+    let decl = adts[decl_idx]
+    let local_idx = ast_adt_variant_local_index(decl, variant_name)
+    if (local_idx < 0) { return "unknown" }
+    let payload_ty = decl.variant_payload_types[local_idx]
+    if (payload_ty == "") { return "" }
+    for (i in 0 .. decl.type_params.length)
+    {
+        if (payload_ty == decl.type_params[i])
+        {
+            let arg = ast_generic_arg_at(subject_ty, i)
+            if (arg != "") { return arg }
+        }
+    }
+    return payload_ty
 }
 pub fn ast_program_debug(program: AstProgram): string
 {
@@ -856,6 +1015,33 @@ pub fn ast_struct_yaml(decl: AstStructDecl, depth: i32): string
     return out
 }
 
+pub fn ast_adt_yaml(decl: AstAdtDecl, depth: i32): string
+{
+    let indent = yaml_indent(depth)
+    let indent1 = yaml_indent(depth + 1)
+    let indent2 = yaml_indent(depth + 2)
+    let mut out = indent + "type: Adt\n"
+    out = out + indent1 + "name: " + decl.name + "\n"
+    if (decl.type_params.length > 0)
+    {
+        out = out + indent1 + "params:\n"
+        for (i in 0 .. decl.type_params.length)
+        {
+            out = out + indent2 + "- " + decl.type_params[i] + "\n"
+        }
+    }
+    out = out + indent1 + "variants:\n"
+    for (i in 0 .. decl.variant_names.length)
+    {
+        out = out + indent2 + "- name: " + decl.variant_names[i] + "\n"
+        if (decl.variant_payload_types[i] != "")
+        {
+            out = out + indent2 + "  payload: " + decl.variant_payload_types[i] + "\n"
+        }
+    }
+    return out
+}
+
 pub fn ast(program: AstProgram): string
 {
     if (program.ok == 0)
@@ -869,6 +1055,14 @@ pub fn ast(program: AstProgram): string
         for (i in 0 .. program.structs.length)
         {
             out = out + ast_struct_yaml(program.structs[i], 1)
+        }
+    }
+    if (program.adts.length > 0)
+    {
+        out = out + "adts:\n"
+        for (i in 0 .. program.adts.length)
+        {
+            out = out + ast_adt_yaml(program.adts[i], 1)
         }
     }
     if (program.extern_functions.length > 0)

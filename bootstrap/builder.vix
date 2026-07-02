@@ -258,6 +258,20 @@ pub fn type_text_is_option(ty: string): i32
     return 0
 }
 
+pub fn type_text_base_name_builder(ty: string): string
+{
+    let mut result = ""
+    for (i in 0 .. ty.length)
+    {
+        if (ty[i] == ':' or ty[i] == '[') { return result }
+        let s: string = malloc(2)
+        s[0] = ty[i]
+        s[1] = 0
+        result = result + s
+    }
+    return result
+}
+
 pub fn type_text_option_inner(ty: string): string
 {
     if (type_text_is_option(ty) == 0) { return "unknown" }
@@ -292,6 +306,11 @@ pub fn llvm_type_for(ty: string): ptr
     if (vix_is_struct_type(ty) == 1)
     {
         return vix_get_llvm_type_for_struct(ty)
+    }
+    let base_ty = type_text_base_name_builder(ty)
+    if (base_ty != ty and vix_is_struct_type(base_ty) == 1)
+    {
+        return vix_get_llvm_type_for_struct(base_ty)
     }
     if (type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1)
     {
@@ -476,6 +495,7 @@ pub fn llvm_zero_value_for(ty: string): ptr
     if (ty == "f32" or ty == "f64") { return llvm_const_float(0.0, ty) }
     if (ty == "i64" or ty == "u64" or ty == "usize") { return llvm_const_i64(0) }
     if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return llvm_const_null_ptr() }
+    if (vix_is_struct_type(type_text_base_name_builder(ty)) == 1) { return llvm_undef(type_text_base_name_builder(ty)) }
     return llvm_const_i32(0)
 }
 

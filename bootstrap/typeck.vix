@@ -101,6 +101,7 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
 {
     if (target_ty == "" or target_ty == "unknown" or value_ty == "unknown") { return 1 }
     if (target_ty == value_ty) { return 1 }
+    if (ast_type_base_name(target_ty) != "" and ast_type_base_name(target_ty) == ast_type_base_name(value_ty)) { return 1 }
     if (type_is_array_text_semantic(target_ty) == 1 and value_ty == "[unknown]") { return 1 }
     if (type_is_option_text(target_ty) == 1 and type_is_option_text(value_ty) == 1)
     {
@@ -318,14 +319,15 @@ pub fn struct_symbols_declare(symbols: &StructSymbols, decl: AstStructDecl)
 
 pub fn struct_symbols_field_type(symbols: &StructSymbols, struct_name: string, field_name: string): string
 {
-    if (struct_symbols_find(symbols, struct_name) < 0)
+    let base_struct_name = ast_type_base_name(struct_name)
+    if (struct_symbols_find(symbols, struct_name) < 0 and struct_symbols_find(symbols, base_struct_name) < 0)
     {
         struct_symbols_fail(symbols, "unknown struct '" + struct_name + "'")
         return "unknown"
     }
     for (i in 0 .. symbols.field_names.length)
     {
-        if (symbols.field_structs[i] == struct_name and symbols.field_names[i] == field_name)
+        if ((symbols.field_structs[i] == struct_name or symbols.field_structs[i] == base_struct_name) and symbols.field_names[i] == field_name)
         {
             return symbols.field_types[i]
         }
