@@ -7,13 +7,14 @@ import "typeck.vix"
 pub type SemanticResult = struct {
     ok: i32,
     error_count: i32,
+    type_error_count: i32,
     warning_count: i32,
     diagnostics: [string]
 }
 
 pub fn semantic_result_new(): SemanticResult
 {
-    return SemanticResult{ ok: 1, error_count: 0, warning_count: 0, diagnostics: [] }
+    return SemanticResult{ ok: 1, error_count: 0, type_error_count: 0, warning_count: 0, diagnostics: [] }
 }
 
 pub fn semantic_add_error(result: &SemanticResult, source: string, filename: string, error_type: string, message: string, func_name: string)
@@ -28,6 +29,7 @@ pub fn semantic_add_error(result: &SemanticResult, source: string, filename: str
     }
     result.diagnostics.push(located)
     result.error_count += 1
+    if (error_type == "TypeError") { result.type_error_count += 1 }
     result.ok = 0
 }
 
@@ -43,6 +45,7 @@ pub fn semantic_add_error_loc(result: &SemanticResult, source: string, filename:
         result.diagnostics.push(format_diagnostic_no_loc(0, error_type, full_message, filename))
     }
     result.error_count += 1
+    if (error_type == "TypeError") { result.type_error_count += 1 }
     result.ok = 0
 }
 

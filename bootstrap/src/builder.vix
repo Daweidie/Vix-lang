@@ -20,10 +20,8 @@ extern "C"
     fn LLVMDoubleType(): ptr
     fn LLVMPointerType(element_ty: ptr, address_space: i32): ptr
 
-    fn vix_LLVMFunctionType0(ret_ty: ptr, is_var_arg: i32): ptr
     fn vix_LLVMFunctionType1(ret_ty: ptr, p0: ptr, is_var_arg: i32): ptr
     fn vix_LLVMFunctionType2(ret_ty: ptr, p0: ptr, p1: ptr, is_var_arg: i32): ptr
-    fn vix_LLVMFunctionTypeI32N(ret_ty: ptr, param_count: i32, is_var_arg: i32): ptr
     fn vix_LLVMFunctionTypeTypedN(ret_ty: ptr, param_types: ptr, param_count: i32, is_var_arg: i32): ptr
     fn vix_LLVMConstInt(ty: ptr, val: i64, sign_extend: i32): ptr
     fn vix_LLVMConstReal(ty: ptr, val: f64): ptr
@@ -85,7 +83,6 @@ extern "C"
     fn vix_set_var_type(name: string, ty: string)
     fn vix_get_var_type(name: string): string
     fn vix_reset_function_sigs()
-    fn vix_register_function_sig(name: string, ret_ty: string, param_types: ptr, param_count: i32)
     fn vix_register_function_sig_vararg(name: string, ret_ty: string, param_types: ptr, param_count: i32, is_var_arg: i32)
     fn vix_get_function_return_type(name: string): string
     fn vix_get_function_param_type(name: string, index: i32): string

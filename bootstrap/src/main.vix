@@ -21,7 +21,7 @@ extern "C"
     fn vix_diag_red(): string
     fn vix_diag_yellow(): string
     fn vix_diag_reset(): string
-    fn vix_compiler_helper_object_path(argv0: string): string
+    fn vix_compiler_runtime_object_path(argv0: string): string
 }
 
 fn string_ends_with(text: string, suffix: string): i32
@@ -86,9 +86,9 @@ fn dirname(path: string): string
     return slice_string(path, 0, slash)
 }
 
-fn helper_object_path(compiler_path: string): string
+fn runtime_object_path(compiler_path: string): string
 {
-    return vix_compiler_helper_object_path(compiler_path)
+    return vix_compiler_runtime_object_path(compiler_path)
 }
 
 fn shell_command(command: string): i32
@@ -99,6 +99,11 @@ fn shell_command(command: string): i32
 fn diag_print(text: string)
 {
     vix_print_stderr(text)
+}
+
+fn info_print(text: string)
+{
+    print(text)
 }
 
 fn ir_output_path(filename: string, output: string): string
@@ -154,16 +159,16 @@ fn source_file_arg(arg: string): ?string
     }
 }
 
-fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, helper_object: string, link_args: string): ?i32
+fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, runtime_object: string, link_args: string): ?i32
 {
     match mode
     {
         "--lex" -> {
-            diag_print(tokenize_debug(src))
+            info_print(tokenize_debug(src))
             return Some(0)
         }
         "--parse-stats" -> {
-            diag_print(parse_program_stats(src, filename))
+            info_print(parse_program_stats(src, filename))
             return Some(0)
         }
         _ -> {}
@@ -176,22 +181,22 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         "--parser" -> {
             if (program.ok == 0)
             {
-                diag_print(program.error)
+                info_print(program.error)
             }
             else
             {
-                diag_print(ast_program_debug(program))
+                info_print(ast_program_debug(program))
             }
             return Some(0)
         }
         "--ast" -> {
             if (program.ok == 0)
             {
-                diag_print(program.error)
+                info_print(program.error)
             }
             else
             {
-                diag_print(ast(program))
+                info_print(ast(program))
             }
             return Some(0)
         }
@@ -210,7 +215,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     match mode
     {
         "--semantic" -> {
-            diag_print(semantic_result_debug(semantic_result))
+            info_print(semantic_result_debug(semantic_result))
             return Some(0)
         }
         _ -> {}
@@ -218,6 +223,18 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
 
     if (semantic_result.error_count > 0)
     {
+        match mode
+        {
+            "--typeinfer" | "--tyinfer" -> {
+                info_print(semantic_result_debug(semantic_result))
+                if (semantic_result.error_count == semantic_result.type_error_count)
+                {
+                    return Some(0)
+                }
+                return Some(1)
+            }
+            _ -> {}
+        }
         diag_print(semantic_result_debug(semantic_result))
         return Some(1)
     }
@@ -230,7 +247,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     match mode
     {
         "--typeinfer" | "--tyinfer" -> {
-            diag_print(typeck_result_debug(infer_result, src, filename))
+            info_print(typeck_result_debug(infer_result, src, filename))
             return Some(0)
         }
         _ -> {}
@@ -278,7 +295,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     }
     else
     {
-        command = "clang " + ir_path + " " + helper_object + " -o " + artifact_path + " -L /usr/lib -l LLVM-22 " + link_args
+        command = "clang " + ir_path + " " + runtime_object + " -o " + artifact_path + " " + link_args
     }
     if (shell_command(command) != 0)
     {
@@ -444,7 +461,7 @@ fn main(argc: i32, argv: ptr): i32
         return 1
     }
 
-    match run_mode(mode, src, filename, emit, output, helper_object_path(argv[0]), link_args)
+    match run_mode(mode, src, filename, emit, output, runtime_object_path(argv[0]), link_args)
     {
         Some(code) -> return code
         None -> return 0

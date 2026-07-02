@@ -11,7 +11,7 @@ Vix 0.4.2 introduces the LLVM backend for vixc0 (the self-hosted compiler), alon
 ### LLVM Backend for vixc0
 
 - **LLVM C API Integration**: vixc0 now uses the LLVM C API for code generation instead of the QBE backend
-- **helper.c Wrapper**: A C helper file (`vixc0/helper.c`) wraps LLVM C API functions that require array parameters, enabling vixc to call them
+- **Bootstrap C Helpers**: `bootstrap/src/helper.c` wraps LLVM C API functions that require array parameters, while `bootstrap/src/runtime.c` contains the runtime helpers linked into generated executables
 - **Variable Tracking**: Added global variable tracking system for LLVM IR generation, allowing proper alloca/store/load operations
 
 ### Compiler Improvements
@@ -46,7 +46,7 @@ Vix 0.4.2 introduces the LLVM backend for vixc0 (the self-hosted compiler), alon
 
 ## Build System
 
-- **Updated build.sh**: Now compiles `helper.c` and links with LLVM libraries
+- **Updated build.sh**: Now compiles the bootstrap helper/runtime objects and links the compiler with LLVM libraries
 - **LLVM Linking**: Uses `-l LLVM-22` to link against LLVM 22
 
 ## Testing

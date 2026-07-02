@@ -56,17 +56,17 @@ void vix_print_stderr(const char *s) {
   fputs(s, stderr);
 }
 
-static char *vix_join_helper_object(const char *dir) {
-  const char *helper = "/helper.o";
-  size_t len = strlen(dir) + strlen(helper) + 1;
+static char *vix_join_object(const char *dir, const char *object_name) {
+  size_t len = strlen(dir) + 1 + strlen(object_name) + 1;
   char *out = (char *)malloc(len);
   if (!out)
     return NULL;
-  snprintf(out, len, "%s%s", dir, helper);
+  snprintf(out, len, "%s/%s", dir, object_name);
   return out;
 }
 
-static char *vix_helper_from_executable_path(const char *path) {
+static char *vix_object_from_executable_path(const char *path,
+                                             const char *object_name) {
   char resolved[PATH_MAX];
   const char *usable = path;
   char *allocated = NULL;
@@ -83,12 +83,12 @@ static char *vix_helper_from_executable_path(const char *path) {
   const char *slash = strrchr(usable, '/');
   if (!slash) {
     free(allocated);
-    return strdup("./helper.o");
+    return vix_join_object(".", object_name);
   }
 
   if (slash == usable) {
     free(allocated);
-    return strdup("/helper.o");
+    return vix_join_object("", object_name);
   }
 
   size_t dir_len = (size_t)(slash - usable);
@@ -100,18 +100,19 @@ static char *vix_helper_from_executable_path(const char *path) {
   memcpy(dir, usable, dir_len);
   dir[dir_len] = '\0';
 
-  char *out = vix_join_helper_object(dir);
+  char *out = vix_join_object(dir, object_name);
   free(dir);
   free(allocated);
   return out;
 }
 
-char *vix_compiler_helper_object_path(const char *argv0) {
+static char *vix_compiler_object_path(const char *argv0,
+                                      const char *object_name) {
   if (!argv0 || argv0[0] == '\0')
-    return strdup("./helper.o");
+    return vix_join_object(".", object_name);
 
   if (strchr(argv0, '/') != NULL)
-    return vix_helper_from_executable_path(argv0);
+    return vix_object_from_executable_path(argv0, object_name);
 
   const char *path_env = getenv("PATH");
   if (path_env) {
@@ -127,7 +128,7 @@ char *vix_compiler_helper_object_path(const char *argv0) {
           continue;
         snprintf(candidate, len, "%s/%s", usable_dir, argv0);
         if (access(candidate, X_OK) == 0) {
-          char *out = vix_helper_from_executable_path(candidate);
+          char *out = vix_object_from_executable_path(candidate, object_name);
           free(candidate);
           free(paths);
           return out;
@@ -138,7 +139,11 @@ char *vix_compiler_helper_object_path(const char *argv0) {
     }
   }
 
-  return strdup("./helper.o");
+  return vix_join_object(".", object_name);
+}
+
+char *vix_compiler_runtime_object_path(const char *argv0) {
+  return vix_compiler_object_path(argv0, "runtime.o");
 }
 
 void vix_reset_vars(void) { var_count = 0; }
@@ -365,12 +370,6 @@ void vix_register_function_sig_vararg(const char *name, const char *return_type,
   }
 }
 
-void vix_register_function_sig(const char *name, const char *return_type,
-                               const char **param_types, int param_count) {
-  vix_register_function_sig_vararg(name, return_type, param_types, param_count,
-                                   0);
-}
-
 const char *vix_get_function_return_type(const char *name) {
   for (int i = func_count - 1; i >= 0; i--) {
     if (strcmp(funcs[i].name, name) == 0) {
@@ -410,10 +409,6 @@ int vix_get_function_is_var_arg(const char *name) {
   return 0;
 }
 
-LLVMTypeRef vix_LLVMFunctionType0(LLVMTypeRef ret_ty, int is_var_arg) {
-  return LLVMFunctionType(ret_ty, NULL, 0, is_var_arg);
-}
-
 LLVMTypeRef vix_LLVMFunctionType1(LLVMTypeRef ret_ty, LLVMTypeRef p0,
                                   int is_var_arg) {
   LLVMTypeRef params[1] = {p0};
@@ -424,17 +419,6 @@ LLVMTypeRef vix_LLVMFunctionType2(LLVMTypeRef ret_ty, LLVMTypeRef p0,
                                   LLVMTypeRef p1, int is_var_arg) {
   LLVMTypeRef params[2] = {p0, p1};
   return LLVMFunctionType(ret_ty, params, 2, is_var_arg);
-}
-
-LLVMTypeRef vix_LLVMFunctionTypeI32N(LLVMTypeRef ret_ty, unsigned param_count,
-                                     int is_var_arg) {
-  LLVMTypeRef params[256];
-  if (param_count > 256)
-    param_count = 256;
-  for (unsigned i = 0; i < param_count; i++) {
-    params[i] = LLVMInt32Type();
-  }
-  return LLVMFunctionType(ret_ty, params, param_count, is_var_arg);
 }
 
 LLVMTypeRef vix_LLVMFunctionTypeTypedN(LLVMTypeRef ret_ty, LLVMTypeRef *params,
@@ -450,11 +434,6 @@ LLVMValueRef vix_LLVMConstInt(LLVMTypeRef ty, long long val, int sign_extend) {
 
 LLVMValueRef vix_LLVMConstReal(LLVMTypeRef ty, double val) {
   return LLVMConstReal(ty, val);
-}
-
-LLVMValueRef vix_debug_zero_value(const char *ty_name, const char *branch, LLVMValueRef result) {
-  fprintf(stderr, "DBG_ZERO: ty='%s' branch='%s' result=%p\n", ty_name, branch, (void*)result);
-  return result;
 }
 
 LLVMValueRef vix_LLVMConstPointerNull(LLVMTypeRef ty) {
@@ -501,12 +480,6 @@ LLVMValueRef vix_LLVMAppendBasicBlock(LLVMValueRef fn, const char *name) {
 
 LLVMValueRef vix_LLVMGetInsertBlock(LLVMBuilderRef builder) {
   return (LLVMValueRef)LLVMGetInsertBlock(builder);
-}
-
-LLVMValueRef vix_LLVMAppendBasicBlockInContext(LLVMContextRef ctx,
-                                               LLVMValueRef fn,
-                                               const char *name) {
-  return (LLVMValueRef)LLVMAppendBasicBlockInContext(ctx, fn, name);
 }
 
 LLVMValueRef vix_LLVMBuildCall2(LLVMBuilderRef builder, LLVMTypeRef ty,
@@ -709,88 +682,6 @@ void vix_LLVMSetLinkage(LLVMValueRef global, int linkage) {
   LLVMSetLinkage(global, (LLVMLinkage)linkage);
 }
 
-int vix_array_len(void *arr) {
-  if (arr == NULL) return 0;
-  int *header = (int *)((char *)arr - 8);
-  return *header;
-}
-
-void *vix_array_push_i32(void *arr, int val) {
-  int old_len = vix_array_len(arr);
-  int new_len = old_len + 1;
-  void *base = (arr == NULL) ? NULL : (void *)((char *)arr - 8);
-  size_t data_bytes = new_len * sizeof(int);
-  size_t total_bytes = 8 + data_bytes;
-  void *new_block = realloc(base, total_bytes);
-  if (new_block == NULL) return NULL;
-  *(int *)new_block = new_len;
-  int *data = (int *)((char *)new_block + 8);
-  data[old_len] = val;
-  return (void *)((char *)new_block + 8);
-}
-
-void *vix_string_concat(const char *a, const char *b) {
-  if (a == NULL) a = "";
-  if (b == NULL) b = "";
-  size_t len_a = strlen(a);
-  size_t len_b = strlen(b);
-  size_t total = len_a + len_b + 1;
-  char *result = (char *)malloc(total);
-  if (result == NULL) return NULL;
-  memcpy(result, a, len_a);
-  memcpy(result + len_a, b, len_b);
-  result[len_a + len_b] = '\0';
-  return result;
-}
-
-int vix_is_ptr_type(const char *type) {
-  if (strcmp(type, "ptr") == 0) return 1;
-  if (strncmp(type, "ptr:", 4) == 0) return 1;
-  return 0;
-}
-
-const char *vix_ptr_pointee_type(const char *type) {
-  if (strncmp(type, "ptr:", 4) == 0) return type + 4;
-  return "unknown";
-}
-
-int vix_is_ptr_to_struct(const char *type) {
-  if (strncmp(type, "ptr:", 4) != 0) return 0;
-  const char *pointee = type + 4;
-  return vix_find_struct_index(pointee) >= 0;
-}
-
-void *vix_array_push_ptr(void *arr, void *val) {
-  int old_len = vix_array_len(arr);
-  int new_len = old_len + 1;
-  void *base = (arr == NULL) ? NULL : (void *)((char *)arr - 8);
-  size_t data_bytes = new_len * sizeof(void *);
-  size_t total_bytes = 8 + data_bytes;
-  void *new_block = realloc(base, total_bytes);
-  if (new_block == NULL) return NULL;
-  *(int *)new_block = new_len;
-  void **data = (void **)((char *)new_block + 8);
-  data[old_len] = val;
-  return (void *)((char *)new_block + 8);
-}
-
-void *vix_array_push_bytes(void *arr, void *val, size_t elem_size) {
-  if (elem_size == 0)
-    return arr;
-  int old_len = vix_array_len(arr);
-  int new_len = old_len + 1;
-  void *base = (arr == NULL) ? NULL : (void *)((char *)arr - 8);
-  size_t data_bytes = (size_t)new_len * elem_size;
-  size_t total_bytes = 8 + data_bytes;
-  void *new_block = realloc(base, total_bytes);
-  if (new_block == NULL)
-    return NULL;
-  *(int *)new_block = new_len;
-  char *data = (char *)new_block + 8;
-  memcpy(data + ((size_t)old_len * elem_size), val, elem_size);
-  return (void *)data;
-}
-
 int vix_LLVMVerifyModule(LLVMModuleRef module) {
   char *msg = NULL;
   LLVMBool result = LLVMVerifyModule(module, LLVMReturnStatusAction, &msg);
@@ -801,16 +692,4 @@ int vix_LLVMVerifyModule(LLVMModuleRef module) {
     LLVMDisposeMessage(msg);
   }
   return (int)result;
-}
-
-void vix_debug_ptr(const char *label, void *ptr) {
-  fprintf(stderr, "DBG_PTR: %s = %p\n", label, ptr);
-}
-
-void vix_debug_str(const char *label, const char *str) {
-  fprintf(stderr, "DBG_STR: %s = '%s'\n", label, str ? str : "(null)");
-}
-
-void vix_debug_int(const char *label, int val) {
-  fprintf(stderr, "DBG_INT: %s = %d\n", label, val);
 }

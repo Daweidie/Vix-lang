@@ -969,7 +969,8 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                 let empty_array_init_ok = if (init_expr.tag == "array_literal" and init_expr.args.length == 0 and type_text_is_array_typeinfer(stmt.type_text) == 1) { 1 } else { 0 }
                 if (empty_array_init_ok == 0 and type_can_assign(stmt.type_text, ty) == 0)
                 {
-                    symtable_fail_stmt(env, "cannot initialize '" + stmt.assign_name + "' of type '" + stmt.type_text + "' with '" + ty + "'", stmt)
+                    let let_col = if (stmt.is_mut == 1) { stmt.col - 8 } else { stmt.col - 4 }
+                    symtable_fail_at(env, "cannot initialize '" + stmt.assign_name + "' of type '" + stmt.type_text + "' with '" + ty + "'", stmt.line, if (let_col < 1) { 1 } else { let_col })
                     return
                 }
                 ty = stmt.type_text
