@@ -6,6 +6,7 @@ import "semantic.vix"
 import "desugar.vix"
 import "codegen.vix"
 import "mir/mir.vix"
+import "mir/mir2asm.vix"
 import "error.vix"
 
 extern "C"
@@ -42,7 +43,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
-    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--mir" or arg == "--check" or arg == "-ll" or arg == "-obj") { return Some(arg) }
+    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--mir" or arg == "--debug-asm" or arg == "--check" or arg == "-ll" or arg == "-obj") { return Some(arg) }
     return None
 }
 
@@ -139,6 +140,7 @@ fn print_help(): i32
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
     print("  -obj                   Emit object file (default: <input>.o)")
     print("  --target <triple>      Generate code for target triple (default: host)")
+    print("  --backend <llvm|self>  Select codegen backend (default: llvm)")
     print("  -l<lib>, -l <lib>      Link executable with a system library")
     print("  -L<dir>, -L <dir>      Add a system library search path")
     print("  --check                Syntax & type check only")
@@ -149,6 +151,7 @@ fn print_help(): i32
     print("  --typeinfer            Print type inference result to stdout")
     print("  --semantic             Print semantic analysis to stdout")
     print("  --mir                  Emit Vix MIR (.vic) to stdout")
+    print("  --debug-asm            Emit Vix MIR and self backend NASM to stdout")
     print("  -v, --version          Display compiler version information")
     print("  -h, --help             Display this help message")
     return 0
@@ -189,7 +192,7 @@ fn clang_target_arg(target_triple: string): string
     return " --target=" + target_triple
 }
 
-fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, runtime_object: string, link_args: string, target_triple: string): ?i32
+fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, runtime_object: string, link_args: string, target_triple: string, backend: string): ?i32
 {
     match mode
     {
@@ -295,6 +298,12 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
             info_print(mir_program(lowered_program))
             return mode_success()
         }
+        "--debug-asm" -> {
+            let mir = mir_program(lowered_program)
+            let asm = mir2asm(mir)
+            info_print(";; MIR\n" + mir + "\n;; ASM\n" + asm)
+            return mode_success()
+        }
         _ -> {}
     }
 
@@ -302,6 +311,37 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         "--check" -> { return mode_success() }
         _ -> {}
+    }
+
+    if (backend == "self" and emit != "ir" and emit != "stdout")
+    {
+        let mir = mir_program(lowered_program)
+        let asm = mir2asm(mir)
+        let artifact_path = artifact_output_path(filename, output, emit)
+        let asm_path = artifact_path + ".tmp.asm"
+        let obj_path = if (emit == "-obj") { artifact_path } else { artifact_path + ".tmp.o" }
+        write_text_file(asm_path, asm)
+        let asm_result = shell_command("nasm -f elf64 " + asm_path + " -o " + obj_path)
+        delete_file(asm_path)
+        if (asm_result != 0)
+        {
+            diag_print("vixc: error: failed to assemble '" + obj_path + "'")
+            return mode_failure()
+        }
+        if (emit == "-obj")
+        {
+            print(obj_path)
+            return mode_success()
+        }
+        let link_result = shell_command("clang " + obj_path + " " + runtime_object + " -o " + artifact_path + " " + link_args)
+        delete_file(obj_path)
+        if (link_result != 0)
+        {
+            diag_print("vixc: error: failed to link '" + artifact_path + "'")
+            return mode_failure()
+        }
+        print(artifact_path)
+        return mode_success()
     }
 
     let ir = codegen_program_target(lowered_program, target_triple)
@@ -398,6 +438,7 @@ fn main(argc: i32, argv: ptr): i32
     let mut has_input = 0
     let mut link_args = ""
     let mut target_triple = host_target_triple()
+    let mut backend = "llvm"
 
     let mut i = 1
     while (i < argc)
@@ -453,6 +494,27 @@ fn main(argc: i32, argv: ptr): i32
                 diag_print("vixc: error: '--target' requires an argument")
                 return 1
             }
+        }
+        elif (arg == "--backend")
+        {
+            if (i + 1 < argc)
+            {
+                i += 1
+                backend = argv[i]
+            }
+            else
+            {
+                diag_print("vixc: error: '--backend' requires an argument")
+                return 1
+            }
+        }
+        elif (arg == "--backend=self")
+        {
+            backend = "self"
+        }
+        elif (arg == "--backend=llvm")
+        {
+            backend = "llvm"
         }
         elif (arg == "-l" or arg == "-L")
         {
@@ -520,7 +582,13 @@ fn main(argc: i32, argv: ptr): i32
         return 1
     }
 
-    match run_mode(mode, src, filename, emit, output, runtime_object_path(argv[0]), link_args, target_triple)
+    if (backend != "llvm" and backend != "self")
+    {
+        diag_print("vixc: error: unknown backend '" + backend + "'")
+        return 1
+    }
+
+    match run_mode(mode, src, filename, emit, output, runtime_object_path(argv[0]), link_args, target_triple, backend)
     {
         Some(code) -> return code
         None -> return 0

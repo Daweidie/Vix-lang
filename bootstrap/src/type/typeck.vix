@@ -1,7 +1,7 @@
 #[no_main]
 
 import "ast.vix"
-import "symtable.vix"
+import "../symtable.vix"
 import "error.vix"
 
 
