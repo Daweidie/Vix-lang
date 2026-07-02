@@ -240,6 +240,7 @@ pub fn skip_macro_definition(src: string, start: i32, macros: &MacroSet): i32
     if (start + 5 < src.length and is_macro_ident_char(src[start + 5]) == 1) { return -1 }
 
     let mut i = skip_spaces(src, start + 5)
+    if (i < src.length and src[i] == '$') { i += 1 }
     let name_start = i
     while (i < src.length and is_macro_ident_char(src[i]) == 1) { i += 1 }
     if (i == name_start) { return -1 }
@@ -253,6 +254,7 @@ pub fn skip_macro_definition(src: string, start: i32, macros: &MacroSet): i32
     i = skip_spaces(src, i)
     let open_ch = if (i < src.length and src[i] == '[') { '[' } else { '(' }
     let close_ch = if (open_ch == '[') { ']' } else { ')' }
+    if (open_ch == '[') { bracket_call = 1 }
     let params_end = scan_balanced(src, i, open_ch, close_ch)
     if (params_end < 0) { return -1 }
     let params_text = slice_text(src, i + 1, params_end - 1)
@@ -282,10 +284,16 @@ pub fn replace_macro_param(body: string, param: string, arg: string, repeat_para
     let mut out = ""
     let mut i = 0
     let spread_pat = "$(" + param + "),*"
+    let paren_spread_pat = "$((" + param + "),*)"
     let plain_pat = "$" + param
     while (i < body.length)
     {
-        if (repeat_param == 1 and text_at(body, i, spread_pat) == 1)
+        if (repeat_param == 1 and text_at(body, i, paren_spread_pat) == 1)
+        {
+            out = out + arg
+            i += paren_spread_pat.length
+        }
+        elif (repeat_param == 1 and text_at(body, i, spread_pat) == 1)
         {
             out = out + arg
             i += spread_pat.length

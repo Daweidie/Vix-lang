@@ -1,0 +1,25 @@
+#[no_main]
+
+pub type MirAsm = struct {
+    out: string,
+    data: string,
+    string_values: [string],
+    string_labels: [string],
+    string_counter: i32,
+    names: [string],
+    offsets: [i32],
+    is_addr: [i32],
+    slot_tys: [string],
+    stack_next: i32,
+    in_fn: i32,
+    fn_name: string,
+    ret_label: string,
+    param_names: [string],
+    param_tys: [string],
+    param_regs: [string]
+}
+
+pub fn mir2asm_new(): MirAsm
+{
+    return MirAsm{ out: "default rel\nsection .text\n", data: "", string_values: [], string_labels: [], string_counter: 0, names: [], offsets: [], is_addr: [], slot_tys: [], stack_next: 0, in_fn: 0, fn_name: "", ret_label: "", param_names: [], param_tys: [], param_regs: [] }
+}

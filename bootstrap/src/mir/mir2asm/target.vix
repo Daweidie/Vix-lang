@@ -1,0 +1,131 @@
+#[no_main]
+import "types.vix"
+
+pub fn mir2asm_trim(text: string): string
+{
+    let mut start = 0
+    let mut end = text.length
+    while (start < end and (text[start] == ' ' or text[start] == '\t' or text[start] == '\r' or text[start] == '\n')) { start += 1 }
+    while (end > start and (text[end - 1] == ' ' or text[end - 1] == '\t' or text[end - 1] == '\r' or text[end - 1] == '\n')) { end -= 1 }
+    let mut out = ""
+    for (i in start .. end) { out = out + char_string(text[i]) }
+    return out
+}
+
+pub fn mir2asm_starts_with(text: string, prefix: string): i32
+{
+    if (text.length < prefix.length) { return 0 }
+    for (i in 0 .. prefix.length)
+    {
+        if (text[i] != prefix[i]) { return 0 }
+    }
+    return 1
+}
+
+pub fn mir2asm_find(text: string, needle: i8, start: i32): i32
+{
+    for (i in start .. text.length)
+    {
+        if (text[i] == needle) { return i }
+    }
+    return -1
+}
+
+pub fn mir2asm_slice(text: string, start: i32, end: i32): string
+{
+    let mut out = ""
+    for (i in start .. end) { out = out + char_string(text[i]) }
+    return out
+}
+
+pub fn mir2asm_after(text: string, start: i32): string
+{
+    return mir2asm_slice(text, start, text.length)
+}
+
+pub fn mir2asm_clean_name(name: string): string
+{
+    let mut start = 0
+    if (name.length > 0 and (name[0] == '%' or name[0] == '@')) { start = 1 }
+    let mut out = ""
+    for (i in start .. name.length)
+    {
+        let c = name[i]
+        if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_')
+        {
+            out = out + char_string(c)
+        }
+        else
+        {
+            out = out + "_"
+        }
+    }
+    return out
+}
+
+pub fn mir2asm_dest(line: string): string
+{
+    let eq = mir2asm_find(line, '=', 0)
+    if (eq < 0) { return "" }
+    return mir2asm_trim(mir2asm_slice(line, 0, eq))
+}
+
+pub fn mir2asm_rhs(line: string): string
+{
+    let eq = mir2asm_find(line, '=', 0)
+    if (eq < 0) { return line }
+    return mir2asm_trim(mir2asm_after(line, eq + 1))
+}
+
+pub fn mir2asm_line(b: &MirAsm, text: string)
+{
+    b.out = b.out + text + "\n"
+}
+
+pub fn mir2asm_data_line(b: &MirAsm, text: string)
+{
+    b.data = b.data + text + "\n"
+}
+
+pub fn mir2asm_type_is_64(ty: string): i32
+{
+    if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string") { return 1 }
+    if (mir2asm_starts_with(ty, "ptr:") == 1) { return 1 }
+    return 0
+}
+
+pub fn mir2asm_mem_word(ty: string): string
+{
+    if (mir2asm_type_is_64(ty) == 1) { return "qword" }
+    if (ty == "i8" or ty == "u8") { return "byte" }
+    return "dword"
+}
+
+pub fn mir2asm_type_size(ty: string): i32
+{
+    if (ty == "i8" or ty == "u8") { return 1 }
+    if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string") { return 8 }
+    if (mir2asm_starts_with(ty, "ptr:") == 1) { return 8 }
+    return 4
+}
+
+pub fn mir2asm_string_label(b: &MirAsm, text: string): string
+{
+    for (i in 0 .. b.string_values.length)
+    {
+        if (b.string_values[i] == text) { return b.string_labels[i] }
+    }
+    let label = "Lstr" + i32_to_str(b.string_counter)
+    b.string_counter += 1
+    b.string_values.push(text)
+    b.string_labels.push(label)
+    let mut bytes = ""
+    for (i in 0 .. text.length)
+    {
+        if (i > 0) { bytes = bytes + ", " }
+        bytes = bytes + i32_to_str(text[i])
+    }
+    if (bytes != "") { bytes = bytes + ", " }
+    mir2asm_data_line(b, label + ": db " + bytes + "0")
+    return label
+}
