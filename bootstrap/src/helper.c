@@ -149,7 +149,24 @@ static char *vix_compiler_object_path(const char *argv0,
 }
 
 char *vix_compiler_runtime_object_path(const char *argv0) {
-  return vix_compiler_object_path(argv0, "runtime.o");
+  char *adjacent = vix_compiler_object_path(argv0, "runtime.o");
+  if (adjacent && access(adjacent, R_OK) == 0)
+    return adjacent;
+  free(adjacent);
+
+  char *compiler_path = vix_compiler_object_path(argv0, ".");
+  if (!compiler_path)
+    return vix_join_object("runtime", "runtime.o");
+
+  size_t len = strlen(compiler_path) + strlen("/../runtime/runtime.o") + 1;
+  char *out = (char *)malloc(len);
+  if (!out) {
+    free(compiler_path);
+    return vix_join_object("runtime", "runtime.o");
+  }
+  snprintf(out, len, "%s/../runtime/runtime.o", compiler_path);
+  free(compiler_path);
+  return out;
 }
 
 void vix_reset_vars(void) { var_count = 0; }

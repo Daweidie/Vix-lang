@@ -17,6 +17,7 @@ extern "C"
     fn fseek(file: ptr, offset: i64, whence: i32): i32
     fn ftell(file: ptr): i64
     fn system(command: ptr): i32
+    fn remove(filename: ptr): i32
     fn vix_print_stderr(s: string)
     fn malloc(size: usize): string
     fn LLVMGetDefaultTargetTriple(): string
@@ -96,6 +97,11 @@ fn runtime_object_path(compiler_path: string): string
 fn shell_command(command: string): i32
 {
     return system(command)
+}
+
+fn delete_file(path: string): i32
+{
+    return remove(path)
 }
 
 fn diag_print(text: string)
@@ -313,7 +319,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     else
     {
         artifact_path = artifact_output_path(filename, output, emit)
-        ir_path = artifact_path + ".ll"
+        ir_path = artifact_path + ".tmp.ll"
     }
     write_text_file(ir_path, ir)
     if (emit == "ir")
@@ -336,7 +342,12 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     {
         command = "clang" + target_arg + " " + ir_path + " " + runtime_object + " -o " + artifact_path + " " + link_args
     }
-    if (shell_command(command) != 0)
+    let build_result = shell_command(command)
+    if (emit != "ir")
+    {
+        delete_file(ir_path)
+    }
+    if (build_result != 0)
     {
         diag_print("vixc: error: failed to build '" + artifact_path + "'")
         return mode_failure()

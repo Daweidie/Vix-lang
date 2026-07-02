@@ -27,7 +27,7 @@ $(BOOTSTRAP_TARGET): helper.o runtime.o vixc.o
 	../build/vixc $^ -o $@ -L $(LLVM_LIBDIR) $(LLVM_LIBS)
 
 clean:
-	rm -f helper.o runtime.o vixc.o vixc1.o $(TARGET) $(BOOTSTRAP_TARGET) vixc1 test test.ll 
+	rm -f helper.o runtime/runtime.o vixc.o vixc1.o  $(BOOTSTRAP_TARGET) vixc1 test test.ll 
 
 test: bootstrap
 	./$(BOOTSTRAP_TARGET) ../tests/vixc0/let_and_print.vix -o test
