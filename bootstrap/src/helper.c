@@ -148,25 +148,50 @@ static char *vix_compiler_object_path(const char *argv0,
   return vix_join_object(".", object_name);
 }
 
-char *vix_compiler_runtime_object_path(const char *argv0) {
-  char *adjacent = vix_compiler_object_path(argv0, "runtime.o");
-  if (adjacent && access(adjacent, R_OK) == 0)
-    return adjacent;
-  free(adjacent);
+static char *vix_readable_compiler_object_path(const char *argv0,
+                                               const char *object_name) {
+  char *candidate = vix_compiler_object_path(argv0, object_name);
+  if (candidate && access(candidate, R_OK) == 0)
+    return candidate;
+  free(candidate);
+  return NULL;
+}
 
+static char *vix_parent_runtime_object_path(const char *argv0) {
   char *compiler_path = vix_compiler_object_path(argv0, ".");
   if (!compiler_path)
-    return vix_join_object("runtime", "runtime.o");
+    return NULL;
 
   size_t len = strlen(compiler_path) + strlen("/../runtime/runtime.o") + 1;
   char *out = (char *)malloc(len);
   if (!out) {
     free(compiler_path);
-    return vix_join_object("runtime", "runtime.o");
+    return NULL;
   }
   snprintf(out, len, "%s/../runtime/runtime.o", compiler_path);
   free(compiler_path);
   return out;
+}
+
+char *vix_compiler_runtime_object_path(const char *argv0) {
+  char *runtime_object = vix_readable_compiler_object_path(argv0, "runtime.o");
+  if (runtime_object)
+    return runtime_object;
+
+  runtime_object = vix_readable_compiler_object_path(argv0, "runtime/runtime.o");
+  if (runtime_object)
+    return runtime_object;
+
+  runtime_object = vix_parent_runtime_object_path(argv0);
+  if (runtime_object && access(runtime_object, R_OK) == 0)
+    return runtime_object;
+  free(runtime_object);
+
+  runtime_object = vix_compiler_object_path(argv0, "runtime/runtime.o");
+  if (runtime_object)
+    return runtime_object;
+
+  return vix_join_object("runtime", "runtime.o");
 }
 
 void vix_reset_vars(void) { var_count = 0; }
