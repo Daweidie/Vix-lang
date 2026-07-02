@@ -2,7 +2,7 @@
 
 import "ast.vix"
 import "error.vix"
-import "typeck.vix"
+import "type/typeck.vix"
 
 pub type SemanticResult = struct {
     ok: i32,

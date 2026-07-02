@@ -1,11 +1,11 @@
 import "lexer.vix"
 import "parser.vix"
 import "ast.vix"
-import "typeck.vix"
+import "type/typeck.vix"
 import "semantic.vix"
 import "desugar.vix"
 import "codegen.vix"
-import "mir.vix"
+import "mir/mir.vix"
 import "error.vix"
 
 extern "C"
