@@ -125,7 +125,7 @@ fn print_help(): i32
 {
     print("OVERVIEW: Vix Compiler LLVM Bootstrap")
     print("")
-    print("USAGE: vixc0 [options] <input.vix>")
+    print("USAGE: vixc [options] <input.vix>")
     print("")
     print("OPTIONS:")
     print("  -o <file>              Write output to <file>")
@@ -149,7 +149,7 @@ fn print_help(): i32
 
 fn print_version(): i32
 {
-    print("vixc0 0.4.2 (bootstrap)")
+    print("vixc 0.4.4 (bootstrap)")
     return 0
 }
 

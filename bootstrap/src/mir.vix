@@ -361,12 +361,24 @@ pub fn mir_binop_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: 
     let out = mir_temp(b)
     if (expr.text == "+" or expr.text == "-" or expr.text == "*" or expr.text == "/" or expr.text == "%")
     {
-        let op = if (expr.text == "+") { if (result_ty == "f32" or result_ty == "f64") { "fadd" } else { "add" } } elif (expr.text == "-") { if (result_ty == "f32" or result_ty == "f64") { "fsub" } else { "sub" } } elif (expr.text == "*") { if (result_ty == "f32" or result_ty == "f64") { "fmul" } else { "mul" } } elif (expr.text == "/") { if (result_ty == "f32" or result_ty == "f64") { "fdiv" } else { "sdiv" } } else { if (result_ty == "f32" or result_ty == "f64") { "frem" } else { "srem" } }
+        let mut op = ""
+        if (expr.text == "+") { if (result_ty == "f32" or result_ty == "f64") { op = "fadd" } else { op = "add" } }
+        elif (expr.text == "-") { if (result_ty == "f32" or result_ty == "f64") { op = "fsub" } else { op = "sub" } }
+        elif (expr.text == "*") { if (result_ty == "f32" or result_ty == "f64") { op = "fmul" } else { op = "mul" } }
+        elif (expr.text == "/") { if (result_ty == "f32" or result_ty == "f64") { op = "fdiv" } else { op = "sdiv" } }
+        else { if (result_ty == "f32" or result_ty == "f64") { op = "frem" } else { op = "srem" } }
         mir_inst(b, out + " = " + op + " " + mir_type(result_ty) + " " + left.name + ", " + right.name)
         return MirValue{ name: out, ty: result_ty }
     }
-    let cmp = if (expr.text == "==") { "eq" } elif (expr.text == "!=") { "ne" } elif (expr.text == "<") { if (result_ty == "f32" or result_ty == "f64") { "olt" } else { "slt" } } elif (expr.text == "<=") { if (result_ty == "f32" or result_ty == "f64") { "ole" } else { "sle" } } elif (expr.text == ">") { if (result_ty == "f32" or result_ty == "f64") { "ogt" } else { "sgt" } } else { if (result_ty == "f32" or result_ty == "f64") { "oge" } else { "sge" } }
-    let cmp_op = if (result_ty == "f32" or result_ty == "f64") { "fcmp" } else { "icmp" }
+    let mut cmp = ""
+    if (expr.text == "==") { cmp = "eq" }
+    elif (expr.text == "!=") { cmp = "ne" }
+    elif (expr.text == "<") { if (result_ty == "f32" or result_ty == "f64") { cmp = "olt" } else { cmp = "slt" } }
+    elif (expr.text == "<=") { if (result_ty == "f32" or result_ty == "f64") { cmp = "ole" } else { cmp = "sle" } }
+    elif (expr.text == ">") { if (result_ty == "f32" or result_ty == "f64") { cmp = "ogt" } else { cmp = "sgt" } }
+    else { if (result_ty == "f32" or result_ty == "f64") { cmp = "oge" } else { cmp = "sge" } }
+    let mut cmp_op = "icmp"
+    if (result_ty == "f32" or result_ty == "f64") { cmp_op = "fcmp" }
     mir_inst(b, out + " = " + cmp_op + " " + cmp + " " + mir_type(result_ty) + " " + left.name + ", " + right.name)
     return MirValue{ name: out, ty: "bool" }
 }
@@ -617,7 +629,7 @@ pub fn mir_function_header(func: AstFunction): string
 
 pub fn mir_emit_function(program: AstProgram, func: AstFunction): string
 {
-    let b = mir_builder_new()
+    let mut b = mir_builder_new()
     b.ret_ty = func.ret_ty
     reset_local_vars()
     mir_line(&b, mir_function_header(func))

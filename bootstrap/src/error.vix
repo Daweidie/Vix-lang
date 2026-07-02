@@ -212,9 +212,9 @@ pub fn source_get_line(src: string, target_line: i32): string
     if (len > 0 and src[end - 1] == 13) { len = len - 1 }
 
     let buf: string = malloc(len + 1)
-    for (i in 0 .. len)
+    for (line_i in 0 .. len)
     {
-        buf[i] = src[line_start + i]
+        buf[line_i] = src[line_start + line_i]
     }
     buf[len] = '\0'
     return buf
