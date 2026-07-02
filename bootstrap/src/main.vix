@@ -19,6 +19,7 @@ extern "C"
     fn system(command: ptr): i32
     fn vix_print_stderr(s: string)
     fn malloc(size: usize): string
+    fn LLVMGetDefaultTargetTriple(): string
     fn vix_diag_red(): string
     fn vix_diag_yellow(): string
     fn vix_diag_reset(): string
@@ -40,7 +41,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
-    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--mir" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-exe") { return Some(arg) }
+    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--mir" or arg == "--check" or arg == "-ll" or arg == "-obj") { return Some(arg) }
     return None
 }
 
@@ -117,7 +118,7 @@ fn artifact_output_path(filename: string, output: string, emit: string): string
 {
     if (output != "") { return output }
     let base = strip_vix_ext(filename)
-    if (emit == "exe" or emit == "-exe") { return base }
+    if (emit == "exe") { return base }
     return base + ".o"
 }
 
@@ -131,7 +132,7 @@ fn print_help(): i32
     print("  -o <file>              Write output to <file>")
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
     print("  -obj                   Emit object file (default: <input>.o)")
-    print("  -exe                   Emit executable (default: <input>)")
+    print("  --target <triple>      Generate code for target triple (default: host)")
     print("  -l<lib>, -l <lib>      Link executable with a system library")
     print("  -L<dir>, -L <dir>      Add a system library search path")
     print("  --check                Syntax & type check only")
@@ -165,7 +166,20 @@ fn mode_success(): ?i32 { return Some(0) }
 fn mode_failure(): ?i32 { return Some(1) }
 fn mode_continue(): ?i32 { return None }
 
-fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, runtime_object: string, link_args: string): ?i32
+fn host_target_triple(): string
+{
+    let triple = LLVMGetDefaultTargetTriple()
+    if (triple == nil or triple == "") { return "" }
+    return triple
+}
+
+fn clang_target_arg(target_triple: string): string
+{
+    if (target_triple == "") { return "" }
+    return " --target=" + target_triple
+}
+
+fn run_mode(mode: string, src: string, filename: string, emit: string, output: string, runtime_object: string, link_args: string, target_triple: string): ?i32
 {
     match mode
     {
@@ -280,12 +294,13 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         _ -> {}
     }
 
-    let ir = codegen_program(lowered_program)
+    let ir = codegen_program_target(lowered_program, target_triple)
     if (emit == "stdout")
     {
         print(ir)
         return mode_continue()
     }
+    let mut artifact_path = ""
     let mut ir_path = ""
     if (emit == "ir")
     {
@@ -293,7 +308,8 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     }
     else
     {
-        ir_path = strip_vix_ext(filename) + ".ll"
+        artifact_path = artifact_output_path(filename, output, emit)
+        ir_path = artifact_path + ".ll"
     }
     write_text_file(ir_path, ir)
     if (emit == "ir")
@@ -302,15 +318,19 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         return mode_success()
     }
 
-    let artifact_path = artifact_output_path(filename, output, emit)
+    if (artifact_path == "")
+    {
+        artifact_path = artifact_output_path(filename, output, emit)
+    }
+    let target_arg = clang_target_arg(target_triple)
     let mut command = ""
     if (emit == "-obj")
     {
-        command = "clang -c " + ir_path + " -o " + artifact_path
+        command = "clang" + target_arg + " -c " + ir_path + " -o " + artifact_path
     }
     else
     {
-        command = "clang " + ir_path + " " + runtime_object + " -o " + artifact_path + " " + link_args
+        command = "clang" + target_arg + " " + ir_path + " " + runtime_object + " -o " + artifact_path + " " + link_args
     }
     if (shell_command(command) != 0)
     {
@@ -358,10 +378,11 @@ fn main(argc: i32, argv: ptr): i32
     let mut filename = ""
     let mut want_help = 0
     let mut want_version = 0
-    let mut emit = "stdout"
+    let mut emit = "exe"
     let mut output = ""
     let mut has_input = 0
     let mut link_args = ""
+    let mut target_triple = host_target_triple()
 
     let mut i = 1
     while (i < argc)
@@ -405,9 +426,18 @@ fn main(argc: i32, argv: ptr): i32
         {
             emit = "-obj"
         }
-        elif (arg == "-exe")
+        elif (arg == "--target")
         {
-            emit = "-exe"
+            if (i + 1 < argc)
+            {
+                i += 1
+                target_triple = argv[i]
+            }
+            else
+            {
+                diag_print("vixc: error: '--target' requires an argument")
+                return 1
+            }
         }
         elif (arg == "-l" or arg == "-L")
         {
@@ -435,7 +465,6 @@ fn main(argc: i32, argv: ptr): i32
                     elif (next_mode == "--version") { want_version = 1 }
                     elif (next_mode == "-ll") { emit = "ir" }
                     elif (next_mode == "-obj") { emit = "-obj" }
-                    elif (next_mode == "-exe") { emit = "-exe" }
                     else { mode = next_mode }
                 }
                 None -> match source_file_arg(arg)
@@ -476,7 +505,7 @@ fn main(argc: i32, argv: ptr): i32
         return 1
     }
 
-    match run_mode(mode, src, filename, emit, output, runtime_object_path(argv[0]), link_args)
+    match run_mode(mode, src, filename, emit, output, runtime_object_path(argv[0]), link_args, target_triple)
     {
         Some(code) -> return code
         None -> return 0

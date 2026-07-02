@@ -99,6 +99,7 @@ pub fn mir_expr_type(es: &ExprStore, expr: AstExpr): string
     {
         let base_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
         if (base_ty == "string") { return "i8" }
+        if (is_ptr_to_struct(base_ty) == 1) { return strip_ptr_prefix(base_ty) }
         if (type_text_is_array(base_ty) == 1) { return type_array_element(base_ty) }
         return "i32"
     }
@@ -359,14 +360,18 @@ pub fn mir_binop_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: 
     let left = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), result_ty)
     let right = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), result_ty)
     let out = mir_temp(b)
-    if (expr.text == "+" or expr.text == "-" or expr.text == "*" or expr.text == "/" or expr.text == "%")
+    if (expr.text == "+" or expr.text == "-" or expr.text == "*" or expr.text == "/" or expr.text == "%" or expr.text == "&" or expr.text == "|" or expr.text == "<<" or expr.text == ">>")
     {
         let mut op = ""
         if (expr.text == "+") { if (result_ty == "f32" or result_ty == "f64") { op = "fadd" } else { op = "add" } }
         elif (expr.text == "-") { if (result_ty == "f32" or result_ty == "f64") { op = "fsub" } else { op = "sub" } }
         elif (expr.text == "*") { if (result_ty == "f32" or result_ty == "f64") { op = "fmul" } else { op = "mul" } }
         elif (expr.text == "/") { if (result_ty == "f32" or result_ty == "f64") { op = "fdiv" } else { op = "sdiv" } }
-        else { if (result_ty == "f32" or result_ty == "f64") { op = "frem" } else { op = "srem" } }
+        elif (expr.text == "%") { if (result_ty == "f32" or result_ty == "f64") { op = "frem" } else { op = "srem" } }
+        elif (expr.text == "&") { op = "and" }
+        elif (expr.text == "|") { op = "or" }
+        elif (expr.text == "<<") { op = "shl" }
+        else { op = "ashr" }
         mir_inst(b, out + " = " + op + " " + mir_type(result_ty) + " " + left.name + ", " + right.name)
         return MirValue{ name: out, ty: result_ty }
     }

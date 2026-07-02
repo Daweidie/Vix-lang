@@ -10,6 +10,7 @@ extern "C"
     fn LLVMDisposeModule(module: ptr)
     fn LLVMDisposeBuilder(builder: ptr)
     fn LLVMPrintModuleToString(module: ptr): string
+    fn LLVMSetTarget(module: ptr, triple: string)
     fn vix_LLVMVerifyModule(module: ptr): i32
     fn LLVMVoidType(): ptr
     fn LLVMInt1Type(): ptr
@@ -43,6 +44,10 @@ extern "C"
     fn vix_LLVMBuildMul(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildSDiv(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildSRem(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildAnd(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildOr(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildShl(builder: ptr, left: ptr, right: ptr, name: string): ptr
+    fn vix_LLVMBuildAShr(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildFAdd(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildFSub(builder: ptr, left: ptr, right: ptr, name: string): ptr
     fn vix_LLVMBuildFMul(builder: ptr, left: ptr, right: ptr, name: string): ptr
@@ -368,8 +373,17 @@ pub fn get_c_string_global(b: &LlvmBuilder, name: string, text: string): ptr
 
 pub fn llvm_new(): LlvmBuilder
 {
+    return llvm_new_for_target("")
+}
+
+pub fn llvm_new_for_target(target_triple: string): LlvmBuilder
+{
     vix_reset_vars()
     let module = LLVMModuleCreateWithName("vixc0")
+    if (target_triple != "")
+    {
+        LLVMSetTarget(module, target_triple)
+    }
     let builder = LLVMCreateBuilder()
     let printf_ty = vix_LLVMFunctionType1(LLVMInt32Type(), LLVMPointerType(LLVMInt8Type(), 0), 1)
     let printf_fn = vix_LLVMAddFunction(module, "printf", printf_ty)
@@ -590,6 +604,15 @@ pub fn llvm_load_ptr_index_as_string(b: &LlvmBuilder, base: ptr, index: ptr): pt
     return vix_LLVMBuildLoad2(b.builder, element_ty, slot, llvm_temp(b, "loadidx"))
 }
 
+pub fn llvm_load_typed_index(b: &LlvmBuilder, base: ptr, index: ptr, element_ty_text: string, expected_ty: string): ptr
+{
+    let element_ty = llvm_type_for(element_ty_text)
+    let indices = [index]
+    let slot = vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "idx"))
+    let value = vix_LLVMBuildLoad2(b.builder, element_ty, slot, llvm_temp(b, "loadidx"))
+    return llvm_cast_value(b, value, element_ty_text, expected_ty)
+}
+
 pub fn llvm_load_string_char(b: &LlvmBuilder, base: ptr, index: ptr): ptr
 {
     let element_ty = LLVMInt8Type()
@@ -644,6 +667,26 @@ pub fn llvm_build_div_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
 pub fn llvm_build_mod_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
 {
     return vix_LLVMBuildSRem(b.builder, left, right, llvm_temp(b, "mod"))
+}
+
+pub fn llvm_build_and_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildAnd(b.builder, left, right, llvm_temp(b, "and"))
+}
+
+pub fn llvm_build_or_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildOr(b.builder, left, right, llvm_temp(b, "or"))
+}
+
+pub fn llvm_build_shl_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildShl(b.builder, left, right, llvm_temp(b, "shl"))
+}
+
+pub fn llvm_build_ashr_value(b: &LlvmBuilder, left: ptr, right: ptr): ptr
+{
+    return vix_LLVMBuildAShr(b.builder, left, right, llvm_temp(b, "ashr"))
 }
 
 pub fn llvm_build_neg_value(b: &LlvmBuilder, value: ptr): ptr

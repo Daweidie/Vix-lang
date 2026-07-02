@@ -526,6 +526,10 @@ pub fn infer_index_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs
     {
         out_ty = type_array_element_typeinfer(base_ty)
     }
+    elif (is_ptr_to_struct_typeinfer(base_ty) == 1)
+    {
+        out_ty = strip_ptr_prefix_typeinfer(base_ty)
+    }
     elif (base_ty == "ptr")
     {
         out_ty = "ptr"
@@ -613,6 +617,14 @@ pub fn infer_binop_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs
             }
             out_ty = type_numeric_result(left_ty, right_ty)
         }
+    }
+    elif (expr.text == "&" or expr.text == "|" or expr.text == "<<" or expr.text == ">>")
+    {
+        if (type_is_integer(left_ty) == 0 or type_is_integer(right_ty) == 0)
+        {
+            symtable_fail_expr(env, "bitwise operator expects integer operands", expr)
+        }
+        out_ty = type_numeric_result(left_ty, right_ty)
     }
     else
     {
@@ -1049,12 +1061,12 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                 symtable_fail_expr(env, "index expression expects integer index, got '" + index_ty + "'", index_expr)
                 return
             }
-            if (type_text_is_array_typeinfer(base_ty) == 0 and base_ty != "ptr" and base_ty != "string")
+            if (type_text_is_array_typeinfer(base_ty) == 0 and base_ty != "ptr" and base_ty != "string" and is_ptr_to_struct_typeinfer(base_ty) == 0)
             {
                 symtable_fail_stmt(env, "cannot index value of type '" + base_ty + "'", stmt)
                 return
             }
-            let element_ty = if (type_text_is_array_typeinfer(base_ty) == 1) { type_array_element_typeinfer(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
+            let element_ty = if (type_text_is_array_typeinfer(base_ty) == 1) { type_array_element_typeinfer(base_ty) } elif (base_ty == "string") { "i8" } elif (is_ptr_to_struct_typeinfer(base_ty) == 1) { strip_ptr_prefix_typeinfer(base_ty) } else { "i32" }
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.assign_idx)
             if (env.ok == 0) { return }
             if (type_can_assign(element_ty, value_ty) == 0)

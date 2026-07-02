@@ -10,7 +10,7 @@ all: $(TARGET)
 bootstrap: $(BOOTSTRAP_TARGET)
 
 helper.o: $(SRC_DIR)/helper.c
-	gcc -c $< -o $@ $(LLVM_CFLAGS)
+	gcc -c $< -o $@ $(LLVM_CFLAGS) -Wno-deprecated-declarations
 
 runtime.o: $(SRC_DIR)/runtime.c
 	gcc -c $< -o $@
@@ -30,7 +30,7 @@ clean:
 	rm -f helper.o runtime.o vixc.o vixc1.o $(TARGET) $(BOOTSTRAP_TARGET) vixc1 test test.ll 
 
 test: bootstrap
-	./$(BOOTSTRAP_TARGET) -exe ../tests/vixc0/let_and_print.vix -o test
+	./$(BOOTSTRAP_TARGET) ../tests/vixc0/let_and_print.vix -o test
 	./test >/dev/null
 
 pytest: bootstrap

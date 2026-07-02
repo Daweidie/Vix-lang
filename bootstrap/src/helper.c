@@ -551,6 +551,26 @@ LLVMValueRef vix_LLVMBuildSRem(LLVMBuilderRef builder, LLVMValueRef l,
   return LLVMBuildSRem(builder, l, r, name);
 }
 
+LLVMValueRef vix_LLVMBuildAnd(LLVMBuilderRef builder, LLVMValueRef l,
+                              LLVMValueRef r, const char *name) {
+  return LLVMBuildAnd(builder, l, r, name);
+}
+
+LLVMValueRef vix_LLVMBuildOr(LLVMBuilderRef builder, LLVMValueRef l,
+                             LLVMValueRef r, const char *name) {
+  return LLVMBuildOr(builder, l, r, name);
+}
+
+LLVMValueRef vix_LLVMBuildShl(LLVMBuilderRef builder, LLVMValueRef l,
+                              LLVMValueRef r, const char *name) {
+  return LLVMBuildShl(builder, l, r, name);
+}
+
+LLVMValueRef vix_LLVMBuildAShr(LLVMBuilderRef builder, LLVMValueRef l,
+                               LLVMValueRef r, const char *name) {
+  return LLVMBuildAShr(builder, l, r, name);
+}
+
 LLVMValueRef vix_LLVMBuildFAdd(LLVMBuilderRef builder, LLVMValueRef l,
                                LLVMValueRef r, const char *name) {
   return LLVMBuildFAdd(builder, l, r, name);

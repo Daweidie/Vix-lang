@@ -91,7 +91,7 @@ pub fn parser_fail(parser: &Parser, message: string)
         let mut col = parser_col(parser)
         let text = parser_text(parser)
         let mut length = 1
-        if (text != "" and text != ";" and text != "," and text != "{" and text != "}" and text != "(" and text != ")" and text != "[" and text != "]" and text != "=>" and text != "->" and text != ".." and text != "..." and text != "==" and text != "!=" and text != "<=" and text != ">=" and text != "+=" and text != "-=")
+        if (text != "" and text != ";" and text != "," and text != "{" and text != "}" and text != "(" and text != ")" and text != "[" and text != "]" and text != "=>" and text != "->" and text != ".." and text != "..." and text != "==" and text != "!=" and text != "<=" and text != ">=" and text != "+=" and text != "-=" and text != "<<" and text != ">>")
         {
             length = diag_strlen(text)
         }
@@ -161,23 +161,55 @@ pub fn parse_logical_or(parser: &Parser): i32
 
 pub fn parse_logical_and(parser: &Parser): i32
 {
-    let mut left = parse_comparison(parser)
+    let mut left = parse_bitwise_or(parser)
     if (parser.ok == 0) { return -1 }
     while (parser_kind(parser) == tk_keyword() and parser_text(parser) == "and")
     {
         let line = parser_line(parser)
         let col = parser_col(parser)
         parser_advance(parser)
-        let right = parse_comparison(parser)
+        let right = parse_bitwise_or(parser)
         if (parser.ok == 0) { return -1 }
         left = parser_expr_at(parser, ast_expr_binop(parser.expr_store, "and", left, right), line, col)
     }
     return left
 }
 
+pub fn parse_bitwise_or(parser: &Parser): i32
+{
+    let mut left = parse_bitwise_and(parser)
+    if (parser.ok == 0) { return -1 }
+    while (parser_kind(parser) == tk_symbol() and parser_text(parser) == "|")
+    {
+        let line = parser_line(parser)
+        let col = parser_col(parser)
+        parser_advance(parser)
+        let right = parse_bitwise_and(parser)
+        if (parser.ok == 0) { return -1 }
+        left = parser_expr_at(parser, ast_expr_binop(parser.expr_store, "|", left, right), line, col)
+    }
+    return left
+}
+
+pub fn parse_bitwise_and(parser: &Parser): i32
+{
+    let mut left = parse_comparison(parser)
+    if (parser.ok == 0) { return -1 }
+    while (parser_kind(parser) == tk_symbol() and parser_text(parser) == "&")
+    {
+        let line = parser_line(parser)
+        let col = parser_col(parser)
+        parser_advance(parser)
+        let right = parse_comparison(parser)
+        if (parser.ok == 0) { return -1 }
+        left = parser_expr_at(parser, ast_expr_binop(parser.expr_store, "&", left, right), line, col)
+    }
+    return left
+}
+
 pub fn parse_comparison(parser: &Parser): i32
 {
-    let left = parse_additive(parser)
+    let left = parse_shift(parser)
     if (parser.ok == 0) { return -1 }
     if (parser_kind(parser) == tk_symbol() and (parser_text(parser) == "==" or parser_text(parser) == "!=" or parser_text(parser) == "<" or parser_text(parser) == "<=" or parser_text(parser) == ">" or parser_text(parser) == ">="))
     {
@@ -185,9 +217,26 @@ pub fn parse_comparison(parser: &Parser): i32
         let line = parser_line(parser)
         let col = parser_col(parser)
         parser_advance(parser)
-        let right = parse_additive(parser)
+        let right = parse_shift(parser)
         if (parser.ok == 0) { return -1 }
         return parser_expr_at(parser, ast_expr_binop(parser.expr_store, op, left, right), line, col)
+    }
+    return left
+}
+
+pub fn parse_shift(parser: &Parser): i32
+{
+    let mut left = parse_additive(parser)
+    if (parser.ok == 0) { return -1 }
+    while (parser_kind(parser) == tk_symbol() and (parser_text(parser) == "<<" or parser_text(parser) == ">>"))
+    {
+        let op = parser_text(parser)
+        let line = parser_line(parser)
+        let col = parser_col(parser)
+        parser_advance(parser)
+        let right = parse_additive(parser)
+        if (parser.ok == 0) { return -1 }
+        left = parser_expr_at(parser, ast_expr_binop(parser.expr_store, op, left, right), line, col)
     }
     return left
 }

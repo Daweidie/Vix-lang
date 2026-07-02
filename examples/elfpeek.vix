@@ -36,22 +36,17 @@ fn read_file(path: ptr): string
 
 fn u8(buf: string, off: i32): i32
 {
-    let b: i32 = buf[off]
-    if (b < 0)
-    {
-        return b + 256
-    }
-    return b
+    return buf[off] & 255
 }
 
 fn u16le(buf: string, off: i32): i32
 {
-    return u8(buf, off) + (u8(buf, off + 1) * 256)
+    return u8(buf, off) | (u8(buf, off + 1) << 8)
 }
 
 fn u32le(buf: string, off: i32): i32
 {
-    return u8(buf, off) + (u8(buf, off + 1) * 256) + (u8(buf, off + 2) * 65536) + (u8(buf, off + 3) * 16777216)
+    return u8(buf, off) | (u8(buf, off + 1) << 8) | (u8(buf, off + 2) << 16) | (u8(buf, off + 3) << 24)
 }
 
 fn print_u64le_hex(buf: string, off: i32)
