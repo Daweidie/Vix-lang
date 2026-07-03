@@ -1,27 +1,34 @@
 extern "C"
 {
-    fn printf(fmt:string, ...):i32
+    fn printf(fmt:string , ...): i32
+}
+fn matmul(): i32
+{
+    let a = [1, 2, 3, 4, 5, 6]
+    let b = [7, 8, 9, 10, 11, 12]
+    let c = [0, 0, 0, 0]
 
-}
-macro $make_add(x: ident)
-{
-    fn $x(a: i32, b: i32): i32 {
-        return a + b
+    for (row in 0 .. 2)
+    {
+        for (col in 0 .. 2)
+        {
+            let mut acc = 0
+            for (k in 0 .. 3)
+            {
+                acc = acc + a[row * 3 + k] * b[k * 2 + col]
+            }
+            c[row * 2 + col] = acc
+        }
     }
+
+    return c[0] + c[1] + c[2] + c[3]
 }
-macro $vec[elems: expr*]
-{
-    [$(elems),*]
-}
+
 fn main(): i32
 {
-    $make_add(my_add)
-    let result = my_add(10, 20)
-    printf("%d\n", result)
-    let arr = $vec[1, 2, 3, 4]
-    for(i in 0 .. arr.length)
-    {
-        printf("%d ",arr[i])
-    }
+    let a = matmul()
+    printf("%d\n",a)
     return 0
+
 }
+
