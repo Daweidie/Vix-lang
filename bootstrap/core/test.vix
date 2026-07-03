@@ -24,6 +24,10 @@ fn main(): i32
 	syscall(1, 1, msg, 16)
 	puts("Hello world\n")
 	let a = 10
+	for(i in 1 .. 10)
+	{
+		$println("%d\n",a)
+	}
 	$println("Hello %d",a)
 	return 0
 }
