@@ -1093,6 +1093,19 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
             if (!inferredLLVM && node->data.assign.right && node->data.assign.right->inferred_type) {
                 inferredLLVM = getLLVMTypeFromTypeInfo(node->data.assign.right->inferred_type);
             }
+            // Check declared type against active generic type bindings:
+            // when a generic type param T resolves to a concrete type (e.g. i32),
+            // the inferred_type may still be TYPEINFO_VAR which maps to ptr.
+            // Use the concrete binding type instead.
+            if (node->data.assign.declared_type &&
+                node->data.assign.declared_type->type == AST_IDENTIFIER &&
+                node->data.assign.declared_type->data.identifier.name) {
+                std::string typeName(node->data.assign.declared_type->data.identifier.name);
+                auto gbt = activeGenericTypeBindings.find(typeName);
+                if (gbt != activeGenericTypeBindings.end() && gbt->second) {
+                    inferredLLVM = gbt->second;
+                }
+            }
             if (inferredLLVM && inferredLLVM != rightVal.value->getType()) {
                 // Convert the value to the inferred type (e.g., ptr -> i32 for ADT payloads)
                 if (inferredLLVM->isIntegerTy() && rightVal.value->getType()->isPointerTy()) {
