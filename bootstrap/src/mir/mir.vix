@@ -16,7 +16,7 @@ pub fn mir_type(ty: string): string
     if (ty == "char") { return "i8" }
     if (ty == "string") { return "ptr" }
     if (is_ptr_to_struct(ty) == 1) { return "ptr:" + mir_type(strip_ptr_prefix(ty)) }
-    if (type_text_is_array(ty) == 1) { return "[" + mir_type(type_array_element(ty)) + "]" }
+    if (type_text_is_array(ty) == 1) { return "ptr" }
     if (type_text_is_option(ty) == 1) { return "ptr" }
     if (type_is_struct(type_text_base_name_builder(ty)) == 1) { return "@" + type_text_base_name_builder(ty) }
     return ty
@@ -38,6 +38,11 @@ pub fn mir_var_addr(name: string): string
 
 pub fn mir_define_local(name: string, ty: string)
 {
+    if (type_text_is_array(ty) == 1)
+    {
+        set_local_var_type(name, "ptr")
+        return
+    }
     set_local_var_type(name, ty)
 }
 
@@ -183,6 +188,49 @@ pub fn mir_truthy(b: &MirBuilder, value: MirValue): MirValue
     return MirValue{ name: out, ty: "bool" }
 }
 
+pub fn mir_type_is_pointer_like(ty: string): i32
+{
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return 1 }
+    return 0
+}
+
+pub fn mir_array_element_type(es: &ExprStore, expr: AstExpr, expected_ty: string): string
+{
+    if (type_text_is_array(expected_ty) == 1) { return type_array_element(expected_ty) }
+    if (expr.args.length > 0) { return mir_expr_type(es, expr_store_get(es, expr.args[0])) }
+    return "i32"
+}
+
+pub fn mir_array_push_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, arr: MirValue, val_expr: AstExpr, elem_ty: string): MirValue
+{
+    let out = mir_temp(b)
+    if (mir_type_is_pointer_like(elem_ty) == 1)
+    {
+        let val = mir_expr_value_typed(b, es, store, val_expr, "ptr")
+        mir_inst(b, out + " = call @vix_array_push_ptr(ptr " + arr.name + ", ptr " + val.name + "): ptr")
+        return MirValue{ name: out, ty: "ptr" }
+    }
+    if (elem_ty == "i32" or elem_ty == "bool" or elem_ty == "i8" or elem_ty == "u8" or elem_ty == "char")
+    {
+        let val = mir_expr_value_typed(b, es, store, val_expr, "i32")
+        mir_inst(b, out + " = call @vix_array_push_i32(ptr " + arr.name + ", i32 " + val.name + "): ptr")
+        return MirValue{ name: out, ty: "ptr" }
+    }
+    let val = mir_expr_value_typed(b, es, store, val_expr, elem_ty)
+    let slot = mir_temp(b)
+    mir_inst(b, slot + " = alloca " + mir_type(elem_ty))
+    mir_inst(b, "store " + mir_type(elem_ty) + " " + val.name + ", " + slot)
+    mir_inst(b, out + " = call @vix_array_push_bytes(ptr " + arr.name + ", ptr " + slot + ", usize " + mir_i32(mir_type_size_hint(elem_ty)) + "): ptr")
+    return MirValue{ name: out, ty: "ptr" }
+}
+
+pub fn mir_type_size_hint(ty: string): i32
+{
+    if (ty == "i8" or ty == "u8" or ty == "char" or ty == "bool") { return 1 }
+    if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return 8 }
+    return 4
+}
+
 pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr, expected_ty: string): MirValue
 {
     if (expr.tag == "int")
@@ -206,9 +254,10 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     if (expr.tag == "ident")
     {
         let ty = mir_get_local_ty(expr.text)
+        let load_ty = if (expected_ty == "ptr" or type_text_is_array(expected_ty) == 1) { "ptr" } else { ty }
         let out = mir_temp(b)
-        mir_inst(b, out + " = load " + mir_type(ty) + ", " + mir_var_addr(expr.text))
-        return mir_cast_if_needed(b, MirValue{ name: out, ty: ty }, expected_ty)
+        mir_inst(b, out + " = load " + mir_type(load_ty) + ", " + mir_var_addr(expr.text))
+        return mir_cast_if_needed(b, MirValue{ name: out, ty: load_ty }, expected_ty)
     }
     if (expr.tag == "addr")
     {
@@ -331,10 +380,28 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     }
     if (expr.tag == "array_literal")
     {
-        return MirValue{ name: "null", ty: "[i32]" }
+        let elem_ty = mir_array_element_type(es, expr, expected_ty)
+        let mut arr = MirValue{ name: "null", ty: "ptr" }
+        for (i in 0 .. expr.args.length)
+        {
+            arr = mir_array_push_value(b, es, store, arr, expr_store_get(es, expr.args[i]), elem_ty)
+        }
+        return MirValue{ name: arr.name, ty: "[" + elem_ty + "]" }
     }
     if (expr.tag == "method_call")
     {
+        if (expr.text == "push")
+        {
+            let base_expr = expr_store_get(es, expr.left_idx)
+            let base_ty = mir_expr_type(es, base_expr)
+            let elem_ty = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+            let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
+            let pushed = mir_array_push_value(b, es, store, base, expr_store_get(es, expr.args[0]), elem_ty)
+            let base_addr = mir_field_address(b, es, store, base_expr)
+            mir_inst(b, "store ptr " + pushed.name + ", " + base_addr.name)
+            if (expected_ty == "ptr") { return pushed }
+            return MirValue{ name: "0", ty: "i32" }
+        }
         let out = mir_temp(b)
         mir_inst(b, out + " = const i32 0")
         return MirValue{ name: out, ty: "i32" }
@@ -681,6 +748,10 @@ pub fn mir_program(program: AstProgram): string
         }
         out = out + "): " + mir_type(ext.ret_ty) + "\n"
     }
+    out = out + "    extern fn @vix_array_len(ptr): i32\n"
+    out = out + "    extern fn @vix_array_push_i32(ptr, i32): ptr\n"
+    out = out + "    extern fn @vix_array_push_ptr(ptr, ptr): ptr\n"
+    out = out + "    extern fn @vix_array_push_bytes(ptr, ptr, usize): ptr\n"
     for (i in 0 .. program.functions.length)
     {
         out = out + "\n" + mir_emit_function(program, program.functions[i])

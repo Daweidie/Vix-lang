@@ -1,3 +1,8 @@
+extern "C"
+{
+	fn printf(fmt:string, ...): i32
+}
+
 fn ack(m: i32, n: i32): i32 {
     if (m == 0) {
         return n + 1
@@ -8,7 +13,8 @@ fn ack(m: i32, n: i32): i32 {
     return ack(m - 1, ack(m, n - 1))
 }
 
-fn main(): i32 {
-    let result = ack(3, 4) 
-    return result
+fn main(): i32 {	
+    let result = ack(3,4) 
+    printf("%d\n",result)
+    return 0 
 }

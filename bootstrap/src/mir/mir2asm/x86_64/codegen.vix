@@ -55,6 +55,12 @@ pub fn mir2asm_end_function(b: &MirAsm)
     b.in_fn = 0
 }
 
+pub fn mir2asm_emit_unsupported(b: &MirAsm, line: string)
+{
+    mir2asm_line(b, "    ; unsupported MIR: " + line)
+    mir2asm_line(b, "    %error \"unsupported MIR instruction in self backend\"")
+}
+
 pub fn mir2asm_emit_binop(b: &MirAsm, dest: string, rhs: string, op: string, asm_op: string)
 {
     let start = op.length + 1
@@ -142,7 +148,7 @@ pub fn mir2asm_emit_gep(b: &MirAsm, dest: string, rhs: string)
     let elem_size = mir2asm_type_size(elem_ty)
     mir2asm_alloc_slot_typed(b, dest, 0, "ptr:" + elem_ty)
     mir2asm_line(b, "    mov rax, " + mir2asm_operand_typed(b, base, "ptr"))
-    mir2asm_line(b, "    mov rcx, " + mir2asm_operand_typed(b, idx_val, "i32"))
+    mir2asm_line(b, "    mov ecx, " + mir2asm_operand_typed(b, idx_val, "i32"))
     if (elem_size != 1) { mir2asm_line(b, "    imul rcx, " + i32_to_str(elem_size)) }
     mir2asm_line(b, "    add rax, rcx")
     mir2asm_line(b, "    mov " + mir2asm_mem(b.offsets[mir2asm_find_name(b, dest)]) + ", rax")
@@ -238,6 +244,7 @@ pub fn mir2asm_emit_call(b: &MirAsm, dest: string, rhs: string)
 pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
 {
     if (line == "" or mir2asm_starts_with(line, "mir_module") == 1 or line == "{") { return }
+    if (mir2asm_starts_with(line, "type @") == 1) { return }
     if (mir2asm_starts_with(line, "extern") == 1)
     {
         let at = mir2asm_find(line, '@', 0)
@@ -329,7 +336,11 @@ pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
     }
     let dest = mir2asm_dest(line)
     let rhs = mir2asm_rhs(line)
-    if (dest == "") { return }
+    if (dest == "")
+    {
+        mir2asm_emit_unsupported(b, line)
+        return
+    }
     if (mir2asm_starts_with(rhs, "alloca ") == 1)
     {
         mir2asm_alloc_slot_typed(b, dest, 1, mir2asm_trim(mir2asm_after(rhs, 7)))
@@ -400,5 +411,5 @@ pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
         mir2asm_line(b, "    mov " + mir2asm_mem(mir2asm_alloc_slot_typed(b, dest, 0, ty)) + ", " + mir2asm_acc(ty))
         return
     }
-    mir2asm_line(b, "    mov dword " + mir2asm_mem(mir2asm_alloc_slot(b, dest, 0)) + ", 0")
+    mir2asm_emit_unsupported(b, line)
 }
