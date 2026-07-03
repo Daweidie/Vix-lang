@@ -66,7 +66,7 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
         let base_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
         if (base_ty == "string") { return "i32" }
         if (is_ptr_to_struct(base_ty) == 1) { return strip_ptr_prefix(base_ty) }
-        if (base_ty == "ptr") { return "string" }
+        if (base_ty == "ptr") { return "i8" }
         if (type_text_is_array(base_ty) == 1) { return type_array_element(base_ty) }
         return "i32"
     }
@@ -83,6 +83,8 @@ pub fn codegen_expr_type(b: &LlvmBuilder, es: &ExprStore, expr: AstExpr): string
         }
         let left_ty = codegen_expr_type(b, es, expr_store_get(es, expr.left_idx))
         let right_ty = codegen_expr_type(b, es, expr_store_get(es, expr.right_idx))
+        if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and type_is_integer(right_ty) == 1) { return left_ty }
+        if (expr.text == "+" and type_is_integer(left_ty) == 1 and (right_ty == "string" or right_ty == "ptr")) { return right_ty }
         if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr")) { return "string" }
         return type_numeric_result(left_ty, right_ty)
     }
@@ -217,6 +219,18 @@ pub fn codegen_binop_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &S
         return result
     }
 
+    if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and type_is_integer(right_ty) == 1)
+    {
+        let base = codegen_expr_value_typed(b, es, store, left_expr, "ptr")
+        let index = codegen_expr_value_typed(b, es, store, right_expr, "i32")
+        return llvm_ptr_offset_i8(b, base, index)
+    }
+    if (expr.text == "+" and type_is_integer(left_ty) == 1 and (right_ty == "string" or right_ty == "ptr"))
+    {
+        let index = codegen_expr_value_typed(b, es, store, left_expr, "i32")
+        let base = codegen_expr_value_typed(b, es, store, right_expr, "ptr")
+        return llvm_ptr_offset_i8(b, base, index)
+    }
     let result_ty = if ((expr.text == "==" or expr.text == "!=") and left_ty == "string" and right_ty == "string") { "string" } elif ((expr.text == "==" or expr.text == "!=") and (codegen_type_is_pointer_like(left_ty) == 1 or codegen_type_is_pointer_like(right_ty) == 1)) { "ptr" } elif (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr")) { "string" } elif (expected_ty != "" and codegen_type_is_numeric(expected_ty) == 1 and expr.text != "==" and expr.text != "!=" and expr.text != "<" and expr.text != "<=" and expr.text != ">" and expr.text != ">=") { expected_ty } else { type_numeric_result(left_ty, right_ty) }
     let left = if (result_ty == "ptr" and left_expr.tag == "int" and left_expr.int_value == 0) { llvm_const_null_ptr() } else { codegen_expr_value_typed(b, es, store, left_expr, result_ty) }
     let right = if (result_ty == "ptr" and right_expr.tag == "int" and right_expr.int_value == 0) { llvm_const_null_ptr() } else { codegen_expr_value_typed(b, es, store, right_expr, result_ty) }
@@ -381,7 +395,7 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
         let index = codegen_expr_value_typed(b, es, store, index_expr, "i32")
         if (base_ty == "string") { return llvm_load_string_char(b, base, index) }
         if (is_ptr_to_struct(base_ty) == 1) { return llvm_load_typed_index(b, base, index, strip_ptr_prefix(base_ty), expected_ty) }
-        if (base_ty == "ptr") { return llvm_load_ptr_index_as_string(b, base, index) }
+        if (base_ty == "ptr") { return llvm_load_typed_index(b, base, index, "i8", expected_ty) }
         let element_ty_text = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
         let element_ty = llvm_type_for(element_ty_text)
         let indices = [index]
@@ -633,7 +647,7 @@ pub fn codegen_field_address(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore,
         let base_expr = expr_store_get(es, expr.left_idx)
         let index_expr = expr_store_get(es, expr.right_idx)
         let base_ty = codegen_expr_type(b, es, base_expr)
-        let element_ty_text = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+        let element_ty_text = if (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
         let base = codegen_expr_value_typed(b, es, store, base_expr, "ptr")
         let index = codegen_expr_value_typed(b, es, store, index_expr, "i32")
         let indices = [index]
@@ -703,7 +717,7 @@ pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, 
         "store_index" -> {
             let base_expr = expr_store_get(es, stmt.value_idx)
             let base_ty = codegen_expr_type(b, es, base_expr)
-            let element_ty_text = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+            let element_ty_text = if (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
             let base = codegen_expr_value_typed(b, es, store, base_expr, "ptr")
             let index = codegen_expr_value_typed(b, es, store, expr_store_get(es, stmt.direct_ret), "i32")
             let value_expr = expr_store_get(es, stmt.assign_idx)

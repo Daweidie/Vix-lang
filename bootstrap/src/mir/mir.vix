@@ -68,11 +68,6 @@ pub fn mir_var_addr(name: string): string
 
 pub fn mir_define_local(name: string, ty: string)
 {
-    if (type_text_is_array(ty) == 1)
-    {
-        set_local_var_type(name, "ptr")
-        return
-    }
     set_local_var_type(name, ty)
 }
 
@@ -146,6 +141,7 @@ pub fn mir_expr_type(es: &ExprStore, expr: AstExpr): string
     {
         let base_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
         if (base_ty == "string") { return "i8" }
+        if (base_ty == "ptr") { return "i8" }
         if (is_ptr_to_struct(base_ty) == 1) { return strip_ptr_prefix(base_ty) }
         if (type_text_is_array(base_ty) == 1) { return type_array_element(base_ty) }
         return "i32"
@@ -160,6 +156,8 @@ pub fn mir_expr_type(es: &ExprStore, expr: AstExpr): string
         if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=" or expr.text == "and" or expr.text == "or") { return "bool" }
         let left_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
         let right_ty = mir_expr_type(es, expr_store_get(es, expr.right_idx))
+        if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and type_is_integer(right_ty) == 1) { return left_ty }
+        if (expr.text == "+" and type_is_integer(left_ty) == 1 and (right_ty == "string" or right_ty == "ptr")) { return right_ty }
         if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr")) { return "string" }
         return type_numeric_result(left_ty, right_ty)
     }
@@ -358,7 +356,7 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     {
         let base_expr = expr_store_get(es, expr.left_idx)
         let base_ty = mir_expr_type(es, base_expr)
-        let elem_ty = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+        let elem_ty = if (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
         let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
         let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
         let slot = mir_temp(b)
@@ -567,6 +565,22 @@ pub fn mir_binop_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: 
     }
     let left_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
     let right_ty = mir_expr_type(es, expr_store_get(es, expr.right_idx))
+    if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and type_is_integer(right_ty) == 1)
+    {
+        let base = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "ptr")
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
+        let out_ptr = mir_temp(b)
+        mir_inst(b, out_ptr + " = gep i8, " + base.name + ", [" + index.name + "]")
+        return MirValue{ name: out_ptr, ty: left_ty }
+    }
+    if (expr.text == "+" and type_is_integer(left_ty) == 1 and (right_ty == "string" or right_ty == "ptr"))
+    {
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "i32")
+        let base = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "ptr")
+        let out_ptr = mir_temp(b)
+        mir_inst(b, out_ptr + " = gep i8, " + base.name + ", [" + index.name + "]")
+        return MirValue{ name: out_ptr, ty: right_ty }
+    }
     if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr"))
     {
         let left_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "string")
@@ -765,7 +779,7 @@ pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32
         "store_index" -> {
             let base_expr = expr_store_get(es, stmt.value_idx)
             let base_ty = mir_expr_type(es, base_expr)
-            let elem_ty = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+            let elem_ty = if (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
             let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
             let index = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.direct_ret), "i32")
             let slot = mir_temp(b)
@@ -801,7 +815,7 @@ pub fn mir_field_address(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr
     {
         let base_expr = expr_store_get(es, expr.left_idx)
         let base_ty = mir_expr_type(es, base_expr)
-        let elem_ty = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+        let elem_ty = if (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
         let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
         let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
         let slot = mir_temp(b)

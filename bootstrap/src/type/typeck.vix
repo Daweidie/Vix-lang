@@ -532,7 +532,7 @@ pub fn infer_index_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs
     }
     elif (base_ty == "ptr")
     {
-        out_ty = "ptr"
+        out_ty = "i8"
     }
     else
     {
@@ -603,11 +603,25 @@ pub fn infer_binop_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs
         {
             let left_string_like = if (left_ty == "string" or left_ty == "ptr") { 1 } else { 0 }
             let right_string_like = if (right_ty == "string" or right_ty == "ptr") { 1 } else { 0 }
-            if (left_string_like == 0 or right_string_like == 0)
+            let left_int = type_is_integer(left_ty)
+            let right_int = type_is_integer(right_ty)
+            if (left_string_like == 1 and right_int == 1)
+            {
+                out_ty = if (left_ty == "ptr") { "ptr" } else { "string" }
+            }
+            elif (left_int == 1 and right_string_like == 1)
+            {
+                out_ty = if (right_ty == "ptr") { "ptr" } else { "string" }
+            }
+            elif (left_string_like == 0 or right_string_like == 0)
             {
                 symtable_fail_expr(env, "operator '+' cannot mix string with non-string", expr)
+                out_ty = "unknown"
             }
-            out_ty = "string"
+            else
+            {
+                out_ty = "string"
+            }
         }
         else
         {
@@ -1066,7 +1080,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                 symtable_fail_stmt(env, "cannot index value of type '" + base_ty + "'", stmt)
                 return
             }
-            let element_ty = if (type_text_is_array_typeinfer(base_ty) == 1) { type_array_element_typeinfer(base_ty) } elif (base_ty == "string") { "i8" } elif (is_ptr_to_struct_typeinfer(base_ty) == 1) { strip_ptr_prefix_typeinfer(base_ty) } else { "i32" }
+            let element_ty = if (type_text_is_array_typeinfer(base_ty) == 1) { type_array_element_typeinfer(base_ty) } elif (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct_typeinfer(base_ty) == 1) { strip_ptr_prefix_typeinfer(base_ty) } else { "i32" }
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.assign_idx)
             if (env.ok == 0) { return }
             if (type_can_assign(element_ty, value_ty) == 0)

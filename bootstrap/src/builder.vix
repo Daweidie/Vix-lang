@@ -622,6 +622,13 @@ pub fn llvm_load_string_char(b: &LlvmBuilder, base: ptr, index: ptr): ptr
     return vix_LLVMBuildZExt(b.builder, byte, LLVMInt32Type(), llvm_temp(b, "schar"))
 }
 
+pub fn llvm_ptr_offset_i8(b: &LlvmBuilder, base: ptr, index: ptr): ptr
+{
+    let element_ty = LLVMInt8Type()
+    let indices = [index]
+    return vix_LLVMBuildGEP2(b.builder, element_ty, base, indices, 1, llvm_temp(b, "ptroff"))
+}
+
 pub fn llvm_build_strlen(b: &LlvmBuilder, base: ptr): ptr
 {
     let args = [base]
