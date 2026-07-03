@@ -155,6 +155,22 @@ std::string LLVMCodeGenerator::typeNodeToMangleToken(ASTNode* typeNode) const {
     }
 }
 
+std::string LLVMCodeGenerator::llvmTypeToToken(Type* type) {
+    if (!type) return "void";
+    if (type->isIntegerTy(32)) return "i32";
+    if (type->isIntegerTy(64)) return "i64";
+    if (type->isIntegerTy(8)) return "i8";
+    if (type->isIntegerTy(1)) return "bool";
+    if (type->isFloatTy()) return "f32";
+    if (type->isDoubleTy()) return "f64";
+    if (type->isPointerTy()) return "ptr";
+    if (type->isStructTy()) {
+        auto* st = cast<StructType>(type);
+        if (st->hasName()) return LLVMCodeGenerator::sanitizeTypeToken(st->getName().str());
+    }
+    return "unk";
+}
+
 std::string LLVMCodeGenerator::mangleGenericFunctionName(const std::string& baseName, ASTNode* typeArgs) const {
     std::string name = baseName;
     name += "__g";
@@ -173,6 +189,25 @@ bool LLVMCodeGenerator::bindGenericTypeArgs(ASTNode* fnNode, ASTNode* typeArgs, 
     ASTNode* genericParams = fnNode->data.function.generic_params;
     if (!genericParams || genericParams->type != AST_EXPRESSION_LIST) return false;
     if (!typeArgs) {
+        // When called without explicit type args (e.g., from generic context),
+        // inherit bindings from activeGenericTypeBindings.
+        // If a generic param name matches a key in activeGenericTypeBindings, use it.
+        // Otherwise, default to i32.
+        if (!activeGenericTypeBindings.empty()) {
+            int paramCount = genericParams->data.expression_list.expression_count;
+            for (int i = 0; i < paramCount; i++) {
+                ASTNode* p = genericParams->data.expression_list.expressions[i];
+                if (!p || p->type != AST_IDENTIFIER || !p->data.identifier.name) return false;
+                std::string paramName(p->data.identifier.name);
+                auto it = activeGenericTypeBindings.find(paramName);
+                if (it != activeGenericTypeBindings.end() && it->second) {
+                    outBindings[paramName] = it->second;
+                } else {
+                    outBindings[paramName] = Type::getInt32Ty(context);
+                }
+            }
+            return true;
+        }
         int paramCount = genericParams->data.expression_list.expression_count;
         for (int i = 0; i < paramCount; i++) {
             ASTNode* p = genericParams->data.expression_list.expressions[i];
@@ -199,15 +234,62 @@ Function* LLVMCodeGenerator::instantiateGenericFunction(const std::string& baseN
     auto fit = genericFunctionTemplates.find(baseName);
     if (fit == genericFunctionTemplates.end()) return nullptr;
 
-    std::string mangledName = mangleGenericFunctionName(baseName, typeArgs);
-    if (Function* existing = module->getFunction(mangledName)) return existing;
-
+    // Step 1: Compute concrete type bindings first (before mangling).
+    // This ensures that generic param references like `T` are resolved
+    // to concrete types (e.g. i32) so the mangled name uses the concrete
+    // type token, not the generic param name.
     std::map<std::string, Type*> bindings;
-    if (!bindGenericTypeArgs(fit->second, typeArgs, bindings)) {
-        llvm::errs() << "Error: Failed to bind generic type arguments for function '" << baseName << "'\n";
-        return nullptr;
+    if (typeArgs) {
+        // Explicit type args: resolve through genericTypeBindings if needed
+        bindGenericTypeArgs(fit->second, typeArgs, bindings);
+    } else if (!activeGenericTypeBindings.empty()) {
+        // No explicit type args but we're in a generic context.
+        // Inherit bindings from the active context (caller's generic params).
+        ASTNode* genericParams = fit->second->data.function.generic_params;
+        if (genericParams && genericParams->type == AST_EXPRESSION_LIST) {
+            for (int i = 0; i < genericParams->data.expression_list.expression_count; i++) {
+                ASTNode* p = genericParams->data.expression_list.expressions[i];
+                if (p && p->type == AST_IDENTIFIER && p->data.identifier.name) {
+                    std::string paramName(p->data.identifier.name);
+                    auto it = activeGenericTypeBindings.find(paramName);
+                    if (it != activeGenericTypeBindings.end() && it->second) {
+                        bindings[paramName] = it->second;
+                    }
+                }
+            }
+        }
     }
 
+    // Fallback: use bindGenericTypeArgs with nullptr (defaults or inherits)
+    if (bindings.empty()) {
+        if (!bindGenericTypeArgs(fit->second, typeArgs, bindings)) {
+            llvm::errs() << "Error: Failed to bind generic type arguments for function '" << baseName << "'\n";
+            return nullptr;
+        }
+    }
+
+    // Step 2: Compute mangled name from concrete type bindings
+    std::string mangledName = baseName + "__g";
+    ASTNode* genericParams = fit->second->data.function.generic_params;
+    if (genericParams && genericParams->type == AST_EXPRESSION_LIST) {
+        for (int i = 0; i < genericParams->data.expression_list.expression_count; i++) {
+            ASTNode* p = genericParams->data.expression_list.expressions[i];
+            if (p && p->type == AST_IDENTIFIER && p->data.identifier.name) {
+                std::string paramName(p->data.identifier.name);
+                auto it = bindings.find(paramName);
+                mangledName += "_";
+                if (it != bindings.end() && it->second) {
+                    mangledName += llvmTypeToToken(it->second);
+                } else {
+                    mangledName += sanitizeTypeToken(paramName);
+                }
+            }
+        }
+    }
+
+    if (Function* existing = module->getFunction(mangledName)) return existing;
+
+    // Step 3: Generate function body with bindings
     auto oldBindings = activeGenericTypeBindings;
     activeGenericTypeBindings = bindings;
     typeHelper.setGenericTypeBindings(activeGenericTypeBindings);
@@ -327,18 +409,43 @@ Type* LLVMCodeGenerator::getInferredLLVMType(ASTNode* node) {
 Type* LLVMCodeGenerator::getInferredArrayElementType(ASTNode* node) {
     if (!node || !node->inferred_type) return nullptr;
     const TypeInfo* info = node->inferred_type;
-    if (info->kind == TYPEINFO_ARRAY || info->kind == TYPEINFO_FIXED_ARRAY)
-        return getLLVMTypeFromTypeInfo(info->element);
+    if (info->kind == TYPEINFO_ARRAY || info->kind == TYPEINFO_FIXED_ARRAY) {
+        Type* elemType = getLLVMTypeFromTypeInfo(info->element);
+        // When the element type is a generic type param (TYPEINFO_VAR),
+        // getLLVMTypeFromTypeInfo returns ptr. Check activeGenericTypeBindings
+        // for the concrete type.
+        if (elemType && elemType->isPointerTy() && info->element->kind == TYPEINFO_VAR) {
+            std::string typeName(info->element->name ? info->element->name : "");
+            if (!typeName.empty()) {
+                auto gbt = activeGenericTypeBindings.find(typeName);
+                if (gbt != activeGenericTypeBindings.end() && gbt->second) {
+                    elemType = gbt->second;
+                }
+            }
+        }
+        return elemType;
+    }
     return nullptr;
 }
 
 Type* LLVMCodeGenerator::getInferredPointerElementType(ASTNode* node) {
     if (!node || !node->inferred_type) return nullptr;
+    Type* result = nullptr;
     if (node->inferred_type->kind == TYPEINFO_PTR)
-        return getLLVMTypeFromTypeInfo(node->inferred_type->element);
+        result = getLLVMTypeFromTypeInfo(node->inferred_type->element);
     if (node->inferred_type->kind == TYPEINFO_ARRAY || node->inferred_type->kind == TYPEINFO_FIXED_ARRAY)
-        return getLLVMTypeFromTypeInfo(node->inferred_type->element);
-    return nullptr;
+        result = getLLVMTypeFromTypeInfo(node->inferred_type->element);
+    if (result && result->isPointerTy() && node->inferred_type->element &&
+        node->inferred_type->element->kind == TYPEINFO_VAR) {
+        std::string typeName(node->inferred_type->element->name ? node->inferred_type->element->name : "");
+        if (!typeName.empty()) {
+            auto gbt = activeGenericTypeBindings.find(typeName);
+            if (gbt != activeGenericTypeBindings.end() && gbt->second) {
+                result = gbt->second;
+            }
+        }
+    }
+    return result;
 }
 
 AllocaInst* LLVMCodeGenerator::findVariableInMain(const std::string& name) {
