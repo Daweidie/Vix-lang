@@ -483,6 +483,21 @@ pub fn type_array_element_typeinfer(ty: string): string
     return result
 }
 
+pub fn type_text_is_ptr_to_array_typeinfer(ty: string): i32
+{
+    if (is_ptr_to_struct_typeinfer(ty) == 0) { return 0 }
+    return type_text_is_array_typeinfer(strip_ptr_prefix_typeinfer(ty))
+}
+
+pub fn type_index_element_typeinfer(ty: string): string
+{
+    if (type_text_is_array_typeinfer(ty) == 1) { return type_array_element_typeinfer(ty) }
+    if (type_text_is_ptr_to_array_typeinfer(ty) == 1) { return type_array_element_typeinfer(strip_ptr_prefix_typeinfer(ty)) }
+    if (ty == "string" or ty == "ptr") { return "i8" }
+    if (is_ptr_to_struct_typeinfer(ty) == 1) { return strip_ptr_prefix_typeinfer(ty) }
+    return "i32"
+}
+
 pub fn function_symbols_return_type(symbols: &FunctionSymbols, name: string): string
 {
     let idx = function_symbols_find(symbols, name)
@@ -518,21 +533,9 @@ pub fn infer_index_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs
     {
         symtable_fail_expr(env, "index expression expects integer index, got '" + index_ty + "'", expr)
     }
-    elif (base_ty == "string")
+    elif (base_ty == "string" or base_ty == "ptr" or type_text_is_array_typeinfer(base_ty) == 1 or is_ptr_to_struct_typeinfer(base_ty) == 1)
     {
-        out_ty = "i8"
-    }
-    elif (type_text_is_array_typeinfer(base_ty) == 1)
-    {
-        out_ty = type_array_element_typeinfer(base_ty)
-    }
-    elif (is_ptr_to_struct_typeinfer(base_ty) == 1)
-    {
-        out_ty = strip_ptr_prefix_typeinfer(base_ty)
-    }
-    elif (base_ty == "ptr")
-    {
-        out_ty = "i8"
+        out_ty = type_index_element_typeinfer(base_ty)
     }
     else
     {
@@ -1080,7 +1083,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
                 symtable_fail_stmt(env, "cannot index value of type '" + base_ty + "'", stmt)
                 return
             }
-            let element_ty = if (type_text_is_array_typeinfer(base_ty) == 1) { type_array_element_typeinfer(base_ty) } elif (base_ty == "string" or base_ty == "ptr") { "i8" } elif (is_ptr_to_struct_typeinfer(base_ty) == 1) { strip_ptr_prefix_typeinfer(base_ty) } else { "i32" }
+            let element_ty = type_index_element_typeinfer(base_ty)
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.assign_idx)
             if (env.ok == 0) { return }
             if (type_can_assign(element_ty, value_ty) == 0)

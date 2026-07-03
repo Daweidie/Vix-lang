@@ -43,7 +43,7 @@ fn compiler_mode(arg: string): ?string
 {
     if (arg == "-h" or arg == "--help") { return Some("--help") }
     if (arg == "-v" or arg == "--version") { return Some("--version") }
-    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--mir" or arg == "--debug-asm" or arg == "--check" or arg == "-ll" or arg == "-obj") { return Some(arg) }
+    if (arg == "--lex" or arg == "--parse-stats" or arg == "--parser" or arg == "--ast" or arg == "-ast" or arg == "--typeinfer" or arg == "--tyinfer" or arg == "--semantic" or arg == "--check" or arg == "-ll" or arg == "-obj" or arg == "-S") { return Some(arg) }
     return None
 }
 
@@ -126,6 +126,7 @@ fn artifact_output_path(filename: string, output: string, emit: string): string
     if (output != "") { return output }
     let base = strip_vix_ext(filename)
     if (emit == "exe") { return base }
+    if (emit == "asm") { return base + ".s" }
     return base + ".o"
 }
 
@@ -138,6 +139,7 @@ fn print_help(): i32
     print("OPTIONS:")
     print("  -o <file>              Write output to <file>")
     print("  -ll [file]             Emit LLVM IR to <file> (default: <input>.ll)")
+    print("  -S                     Emit assembly to <file> (default: <input>.s)")
     print("  -obj                   Emit object file (default: <input>.o)")
     print("  --target <triple>      Generate code for target triple (default: host)")
     print("  --backend <llvm|self>  Select codegen backend (default: llvm)")
@@ -150,8 +152,7 @@ fn print_help(): i32
     print("  --ast / -ast                 Print AST to stdout")
     print("  --typeinfer            Print type inference result to stdout")
     print("  --semantic             Print semantic analysis to stdout")
-    print("  --mir                  Emit Vix MIR (.vic) to stdout")
-    print("  --debug-asm            Emit Vix MIR and self backend NASM to stdout")
+    print("  --debug=<mir|asm|llvm> Print selected intermediate output to stdout")
     print("  -v, --version          Display compiler version information")
     print("  -h, --help             Display this help message")
     return 0
@@ -288,17 +289,23 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         return mode_failure()
     }
 
+    if (mode == "debug_llvm")
+    {
+        let ir = codegen_program_target(lowered_program, target_triple)
+        info_print(ir)
+        return mode_success()
+    }
+
     match mode
     {
-        "--mir" -> {
+        "debug_mir" -> {
             info_print(mir_program(lowered_program))
             return mode_success()
         }
-        "--debug-asm" -> {
+        "debug_asm" -> {
             let mir = mir_program(lowered_program)
             let asm = mir2asm(mir)
-            let nl = char_string(10)
-            info_print(";; MIR" + nl + mir + nl + ";; ASM" + nl + asm)
+            info_print(asm)
             return mode_success()
         }
         _ -> {}
@@ -315,6 +322,12 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         let mir = mir_program(lowered_program)
         let asm = mir2asm(mir)
         let artifact_path = artifact_output_path(filename, output, emit)
+        if (emit == "asm")
+        {
+            if (write_text_file(artifact_path, asm) != 0) { return mode_failure() }
+            print(artifact_path)
+            return mode_success()
+        }
         let asm_path = artifact_path + ".tmp.asm"
         let obj_path = if (emit == "-obj") { artifact_path } else { artifact_path + ".tmp.o" }
         write_text_file(asm_path, asm)
@@ -371,7 +384,11 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
     }
     let target_arg = clang_target_arg(target_triple)
     let mut command = ""
-    if (emit == "-obj")
+    if (emit == "asm")
+    {
+        command = "clang" + target_arg + " -S " + ir_path + " -o " + artifact_path
+    }
+    elif (emit == "-obj")
     {
         command = "clang" + target_arg + " -c " + ir_path + " -o " + artifact_path
     }
@@ -479,6 +496,22 @@ fn main(argc: i32, argv: &string): i32
         {
             emit = "-obj"
         }
+        elif (arg == "-S")
+        {
+            emit = "asm"
+        }
+        elif (str_starts_with(arg, "--debug=") == 1)
+        {
+            let debug_mode = slice_string(arg, 8, arg.length)
+            if (debug_mode == "mir") { mode = "debug_mir" }
+            elif (debug_mode == "asm") { mode = "debug_asm" }
+            elif (debug_mode == "llvm") { mode = "debug_llvm" }
+            else
+            {
+                diag_print("vixc: error: unknown debug output '" + debug_mode + "'")
+                return 1
+            }
+        }
         elif (arg == "--target")
         {
             if (i + 1 < argc)
@@ -539,6 +572,7 @@ fn main(argc: i32, argv: &string): i32
                     elif (next_mode == "--version") { want_version = 1 }
                     elif (next_mode == "-ll") { emit = "ir" }
                     elif (next_mode == "-obj") { emit = "-obj" }
+                    elif (next_mode == "-S") { emit = "asm" }
                     else { mode = next_mode }
                 }
                 None -> match source_file_arg(arg)

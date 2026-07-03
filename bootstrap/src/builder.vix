@@ -271,6 +271,21 @@ pub fn strip_ptr_prefix(ty: string): string
     return result
 }
 
+pub fn type_text_is_ptr_to_array(ty: string): i32
+{
+    if (is_ptr_to_struct(ty) == 0) { return 0 }
+    return type_text_is_array(strip_ptr_prefix(ty))
+}
+
+pub fn type_text_index_element(ty: string): string
+{
+    if (type_text_is_array(ty) == 1) { return type_array_element(ty) }
+    if (type_text_is_ptr_to_array(ty) == 1) { return type_array_element(strip_ptr_prefix(ty)) }
+    if (ty == "string" or ty == "ptr") { return "i8" }
+    if (is_ptr_to_struct(ty) == 1) { return strip_ptr_prefix(ty) }
+    return "i32"
+}
+
 pub fn type_text_is_option(ty: string): i32
 {
     if (ty.length > 7 and ty[0] == 'O' and ty[1] == 'p' and ty[2] == 't' and ty[3] == 'i' and ty[4] == 'o' and ty[5] == 'n' and ty[6] == '[') { return 1 }

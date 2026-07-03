@@ -12,7 +12,9 @@ cd ..
 cd seed
 rm vixc.ll
 mv main.ll vixc.ll 
+rm vixc
 echo "build OK!"
+
 cd ..
 rm -rf build runtime
 cd ..

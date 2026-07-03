@@ -1,5 +1,3 @@
-#[no_main]
-
 extern "C"
 {
 	fn printf(fmt:string , ...): i32
@@ -20,6 +18,12 @@ pub fn puts(s: string): i32
 
 macro $println(fmt: expr, $(args: expr)*)
 {
-    let _ = printf($fmt, $(args),*)
-    let _ = printf("\n")
+        let _ = printf($fmt, $(args),*)
+	let _ = printf("\n")
+}
+fn main(): i32
+{
+	let a = "vix"
+	$println("Hello world! %s",a)
+	return 0	
 }
