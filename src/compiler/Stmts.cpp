@@ -1106,6 +1106,16 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
                     inferredLLVM = gbt->second;
                 }
             }
+            // When inferredLLVM is ptr (from TYPEINFO_VAR generic param mapping)
+            // but the actual right-hand value is a concrete non-pointer type,
+            // use the actual value type. This handles `let temp = arr[j]` in a
+            // generic context where T=i32: arr[j] returns i32 but inferred_type
+            // is TYPEINFO_VAR → ptr.
+            if (inferredLLVM && inferredLLVM->isPointerTy() &&
+                rightVal.value && rightVal.value->getType() &&
+                !rightVal.value->getType()->isPointerTy()) {
+                inferredLLVM = nullptr;
+            }
             if (inferredLLVM && inferredLLVM != rightVal.value->getType()) {
                 // Convert the value to the inferred type (e.g., ptr -> i32 for ADT payloads)
                 if (inferredLLVM->isIntegerTy() && rightVal.value->getType()->isPointerTy()) {
