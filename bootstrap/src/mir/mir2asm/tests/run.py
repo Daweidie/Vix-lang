@@ -17,6 +17,7 @@ TESTS = {
     "test_block_expr.vix": {"exit": 7},
     "test_struct_fields.vix": {"exit": 13},
     "test_string_escape.vix": {"exit": 9},
+    "test_string_length.vix": {"exit": 9},
     "test_argv_ptr.vix": {"exit": 13, "args": ["ok"]},
     "test_extern_printf.vix": {"exit": 7, "stdout": "7\n"},
     "test_syscall_io.vix": {"exit": 0, "stdout": "Hello syscall\n"},

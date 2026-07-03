@@ -89,6 +89,7 @@ pub fn mir_register_program(program: AstProgram)
     }
     register_function_sig_vararg("printf", "i32", ["ptr"], 1)
     register_function_sig_vararg("strcmp", "i32", ["ptr", "ptr"], 0)
+    register_function_sig_vararg("strlen", "i32", ["ptr"], 0)
     register_function_sig_vararg("vix_array_len", "i32", ["ptr"], 0)
     register_function_sig_vararg("vix_array_push_i32", "ptr", ["ptr", "i32"], 0)
     register_function_sig_vararg("vix_array_push_ptr", "ptr", ["ptr", "ptr"], 0)
@@ -303,9 +304,12 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     {
         if (expr.text == "length")
         {
+            let base_expr = expr_store_get(es, expr.left_idx)
+            let base_ty = mir_expr_type(es, base_expr)
             let base = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "ptr")
             let out = mir_temp(b)
-            mir_inst(b, out + " = call @vix_array_len(ptr " + base.name + "): i32")
+            if (base_ty == "string") { mir_inst(b, out + " = call @strlen(ptr " + base.name + "): i32") }
+            else { mir_inst(b, out + " = call @vix_array_len(ptr " + base.name + "): i32") }
             return MirValue{ name: out, ty: "i32" }
         }
         let base_expr = expr_store_get(es, expr.left_idx)
@@ -826,6 +830,7 @@ pub fn mir_program(program: AstProgram): string
     }
     if (mir_program_has_extern(program, "printf") == 0) { out = out + "    extern_vararg fn @printf(ptr): i32\n" }
     if (mir_program_has_extern(program, "strcmp") == 0) { out = out + "    extern fn @strcmp(ptr, ptr): i32\n" }
+    if (mir_program_has_extern(program, "strlen") == 0) { out = out + "    extern fn @strlen(ptr): i32\n" }
     out = out + "    extern fn @vix_array_len(ptr): i32\n"
     out = out + "    extern fn @vix_array_push_i32(ptr, i32): ptr\n"
     out = out + "    extern fn @vix_array_push_ptr(ptr, ptr): ptr\n"

@@ -1,17 +1,27 @@
 extern "C"
 {
-    fn syscall(num: i64, a: i64, b: ptr, c: i64): i64
+	fn syscall(num: i64, a: i64, b: ptr, c: i64): i64
 }
-fn puts(s:string): i32
+
+pub fn puts(s: string): i32
 {
-	let len = s.length+1 // \n
-	syscall(1,1,s,len)
+	let len = s.length + 1
+	syscall(1, 1, s, len)
+	return 0
+}
+
+pub fn println(s: string): i32
+{
+	puts(s)
+	puts("\n")
+	return 0
 }
 
 fn main(): i32
 {
-    let msg = "hello from self\n"
-    syscall(1, 1, msg, 16)
-    puts("Hello world")
-    return 0
+	let msg = "hello from self\n"
+	syscall(1, 1, msg, 16)
+	puts("Hello world\n")
+	println("Hello IO!")
+	return 0
 }
