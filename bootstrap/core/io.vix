@@ -2,10 +2,33 @@
 
 extern "C"
 {
-    fn syscall(num: i64, a: i64, b: ptr, c: i64): i64
+	fn printf(fmt:string , ...): i32
+        fn syscall(num: i64, a: i64, b: ptr, c: i64): i64
 }
 
 pub fn io_stdout(buf: string, len: i64): i64
 {
-    return syscall(1, 1, buf, len)
+        return syscall(1, 1, buf, len)
+}
+pub fn puts(s: string): i32
+{
+	let len = s.length + 1
+	syscall(1, 1, s, len)
+	return 0
+}
+
+
+macro $println(fmt: expr, $(args: expr)*)
+{
+    let _ = printf($fmt, $(args),*)
+    let _ = printf("\n")
+}
+fn main(): i32
+{
+	let msg = "hello from self\n"
+	syscall(1, 1, msg, 16)
+	puts("Hello world\n")
+	let a = 10
+	$println("Hello %d",a)
+	return 0
 }
