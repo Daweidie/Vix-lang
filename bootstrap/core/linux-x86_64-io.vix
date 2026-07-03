@@ -1,9 +1,17 @@
-/*
-/*
-/**/
-
-
 extern "C"
 {
-    
+    fn syscall(num: i64, a: i64, b: ptr, c: i64): i64
+}
+fn puts(s:string): i32
+{
+	let len = s.length+1 // \n
+	syscall(1,1,s,len)
+}
+
+fn main(): i32
+{
+    let msg = "hello from self\n"
+    syscall(1, 1, msg, 16)
+    puts("Hello world")
+    return 0
 }

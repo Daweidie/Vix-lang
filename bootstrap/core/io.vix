@@ -1,0 +1,11 @@
+#[no_main]
+
+extern "C"
+{
+    fn syscall(num: i64, a: i64, b: ptr, c: i64): i64
+}
+
+pub fn io_stdout(buf: string, len: i64): i64
+{
+    return syscall(1, 1, buf, len)
+}
