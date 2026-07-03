@@ -1,5 +1,9 @@
 fn main(): i32
 {
-	print("a")
+    for(i in 1 .. 10)
+    {
+        print(i)
+    }
 
+    print("a")
 }
