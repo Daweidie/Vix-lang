@@ -27,6 +27,18 @@ pub fn mir2asm_arg_reg(index: i32): string
 
 pub fn mir2asm_arg_reg_typed(index: i32, ty: string): string
 {
+    if (mir2asm_type_is_float(ty) == 1)
+    {
+        if (index == 0) { return "xmm0" }
+        if (index == 1) { return "xmm1" }
+        if (index == 2) { return "xmm2" }
+        if (index == 3) { return "xmm3" }
+        if (index == 4) { return "xmm4" }
+        if (index == 5) { return "xmm5" }
+        if (index == 6) { return "xmm6" }
+        if (index == 7) { return "xmm7" }
+        return "xmm0"
+    }
     if (ty == "i8" or ty == "u8" or ty == "char")
     {
         if (index == 0) { return "dil" }

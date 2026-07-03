@@ -176,6 +176,16 @@ pub fn slice_text(src: string, start: i32, end: i32): string
     return out
 }
 
+pub fn newline_padding(src: string, start: i32, end: i32): string
+{
+    let mut out = ""
+    for (i in start .. end)
+    {
+        if (src[i] == 10) { out = out + char_string(10) }
+    }
+    return out
+}
+
 pub fn trim_text(src: string): string
 {
     let mut start = 0
@@ -522,8 +532,10 @@ pub fn preprocess_source_with_macros(src: string, filename: string, imports: &Im
             {
                 out = out + slice_text(src, segment_start, i)
             }
+            let skipped_start = i
             i = macro_end
             while (i < src.length and (src[i] == 10 or src[i] == 13)) { i += 1 }
+            out = out + newline_padding(src, skipped_start, i)
             segment_start = i
             continue
         }

@@ -33,7 +33,7 @@ pub fn mir_type(ty: string): string
     if (ty == "string") { return "ptr" }
     if (is_ptr_to_struct(ty) == 1) { return "ptr:" + mir_type(strip_ptr_prefix(ty)) }
     if (type_text_is_array(ty) == 1) { return "ptr" }
-    if (type_text_is_option(ty) == 1) { return "ptr" }
+    if (mir_type_is_option_text(ty) == 1) { return "ptr" }
     if (type_is_struct(type_text_base_name_builder(ty)) == 1) { return "@" + type_text_base_name_builder(ty) }
     return ty
 }
@@ -42,9 +42,23 @@ pub fn mir_zero_value(ty: string): string
 {
     if (ty == "void") { return "" }
     if (ty == "f32" or ty == "f64") { return "0.0" }
-    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return "null" }
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or mir_type_is_option_text(ty) == 1) { return "null" }
     if (type_is_struct(type_text_base_name_builder(ty)) == 1) { return "undef" }
     return "0"
+}
+
+pub fn mir_type_is_option_text(ty: string): i32
+{
+    if (type_text_is_option(ty) == 1) { return 1 }
+    if (ty.length > 1 and ty[0] == '?') { return 1 }
+    return 0
+}
+
+pub fn mir_type_option_inner(ty: string): string
+{
+    if (type_text_is_option(ty) == 1) { return type_text_option_inner(ty) }
+    if (ty.length > 1 and ty[0] == '?') { return str_from(ty, 1) }
+    return "unknown"
 }
 
 pub fn mir_var_addr(name: string): string
@@ -94,6 +108,7 @@ pub fn mir_register_program(program: AstProgram)
     register_function_sig_vararg("vix_array_push_i32", "ptr", ["ptr", "i32"], 0)
     register_function_sig_vararg("vix_array_push_ptr", "ptr", ["ptr", "ptr"], 0)
     register_function_sig_vararg("vix_array_push_bytes", "ptr", ["ptr", "ptr", "usize"], 0)
+    register_function_sig_vararg("vix_string_concat", "string", ["string", "string"], 0)
 }
 
 pub fn mir_program_has_extern(program: AstProgram, name: string): i32
@@ -217,7 +232,7 @@ pub fn mir_truthy(b: &MirBuilder, value: MirValue): MirValue
 
 pub fn mir_type_is_pointer_like(ty: string): i32
 {
-    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return 1 }
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or mir_type_is_option_text(ty) == 1) { return 1 }
     return 0
 }
 
@@ -247,14 +262,15 @@ pub fn mir_array_push_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, a
     let slot = mir_temp(b)
     mir_inst(b, slot + " = alloca " + mir_type(elem_ty))
     mir_inst(b, "store " + mir_type(elem_ty) + " " + val.name + ", " + slot)
-    mir_inst(b, out + " = call @vix_array_push_bytes(ptr " + arr.name + ", ptr " + slot + ", usize " + mir_i32(mir_type_size_hint(elem_ty)) + "): ptr")
+    mir_inst(b, out + " = call @vix_array_push_bytes(ptr " + arr.name + ", ptr " + slot + ", usize sizeof(" + mir_type(elem_ty) + ")): ptr")
     return MirValue{ name: out, ty: "ptr" }
 }
 
 pub fn mir_type_size_hint(ty: string): i32
 {
     if (ty == "i8" or ty == "u8" or ty == "char" or ty == "bool") { return 1 }
-    if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or type_text_is_option(ty) == 1) { return 8 }
+    if (ty == "f64") { return 8 }
+    if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or mir_type_is_option_text(ty) == 1) { return 8 }
     return 4
 }
 
@@ -387,7 +403,8 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
         for (i in 0 .. expr.args.length)
         {
             let arg_ty = if (i < get_function_param_count(expr.text)) { get_function_param_type(expr.text, i) } else { mir_expr_type(es, expr_store_get(es, expr.args[i])) }
-            let val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.args[i]), arg_ty)
+            let arg_expr = expr_store_get(es, expr.args[i])
+            let val = if (is_ptr_to_struct(arg_ty) == 1 and arg_expr.tag == "field") { mir_field_address(b, es, store, arg_expr) } else { mir_expr_value_typed(b, es, store, arg_expr, arg_ty) }
             if (i > 0) { args_text = args_text + ", " }
             args_text = args_text + mir_type(arg_ty) + " " + val.name
         }
@@ -457,6 +474,64 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
         mir_inst(b, out + " = load " + mir_type(storage_ty) + ", " + slot)
         return MirValue{ name: out, ty: storage_ty }
     }
+    if (expr.tag == "match_expr")
+    {
+        let result_ty = mir_expr_type(es, expr)
+        let storage_ty = if (expected_ty != "") { expected_ty } else { result_ty }
+        let subject = mir_expr_value(b, es, store, expr_store_get(es, expr.left_idx))
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = alloca " + mir_type(storage_ty))
+        let end_label = mir_label(b, "matchexpr.end")
+        let mut next_label = mir_label(b, "matchexpr.test")
+        let mut default_body = -1
+        let arm_count = expr.args.length / 2
+        mir_emit_term(b, "br label " + next_label)
+        for (i in 0 .. arm_count)
+        {
+            let pattern_idx = expr.args[i * 2]
+            let body_idx = expr.args[i * 2 + 1]
+            if (pattern_idx < 0)
+            {
+                default_body = body_idx
+            }
+            else
+            {
+                mir_block(b, next_label)
+                let body_label = mir_label(b, "matchexpr.body")
+                let after_label = mir_label(b, "matchexpr.test")
+                let cmp = mir_match_compare(b, es, store, subject, pattern_idx)
+                mir_emit_term(b, "br_cond " + cmp.name + ", label " + body_label + ", label " + after_label)
+                mir_block(b, body_label)
+                mir_bind_option_pattern(b, es, subject, pattern_idx)
+                if (body_idx >= 0)
+                {
+                    let body_val = mir_expr_value_typed(b, es, store, expr_store_get(es, body_idx), storage_ty)
+                    mir_inst(b, "store " + mir_type(storage_ty) + " " + body_val.name + ", " + slot)
+                }
+                else
+                {
+                    mir_inst(b, "store " + mir_type(storage_ty) + " " + mir_zero_value(storage_ty) + ", " + slot)
+                }
+                if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+                next_label = after_label
+            }
+        }
+        mir_block(b, next_label)
+        if (default_body >= 0)
+        {
+            let default_val = mir_expr_value_typed(b, es, store, expr_store_get(es, default_body), storage_ty)
+            mir_inst(b, "store " + mir_type(storage_ty) + " " + default_val.name + ", " + slot)
+        }
+        else
+        {
+            mir_inst(b, "store " + mir_type(storage_ty) + " " + mir_zero_value(storage_ty) + ", " + slot)
+        }
+        if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+        mir_block(b, end_label)
+        let out2 = mir_temp(b)
+        mir_inst(b, out2 + " = load " + mir_type(storage_ty) + ", " + slot)
+        return MirValue{ name: out2, ty: storage_ty }
+    }
     if (expr.tag == "method_call")
     {
         if (expr.text == "push")
@@ -492,6 +567,14 @@ pub fn mir_binop_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: 
     }
     let left_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
     let right_ty = mir_expr_type(es, expr_store_get(es, expr.right_idx))
+    if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr"))
+    {
+        let left_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "string")
+        let right_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "string")
+        let out2 = mir_temp(b)
+        mir_inst(b, out2 + " = call @vix_string_concat(ptr " + left_str.name + ", ptr " + right_str.name + "): ptr")
+        return MirValue{ name: out2, ty: "string" }
+    }
     if ((expr.text == "==" or expr.text == "!=") and left_ty == "string" and right_ty == "string")
     {
         let left_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "string")
@@ -714,11 +797,30 @@ pub fn mir_field_address(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr
         mir_inst(b, slot + " = gep " + mir_type(struct_ty) + ", " + base_addr.name + ", [0, " + mir_i32(field_index) + "]")
         return MirValue{ name: slot, ty: "ptr" }
     }
+    if (expr.tag == "index")
+    {
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = mir_expr_type(es, base_expr)
+        let elem_ty = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+        let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = gep " + mir_type(elem_ty) + ", " + base.name + ", [" + index.name + "]")
+        return MirValue{ name: slot, ty: "ptr" }
+    }
     return mir_expr_value_typed(b, es, store, expr, "ptr")
 }
 
 pub fn mir_match_compare(b: &MirBuilder, es: &ExprStore, store: &StmtStore, subject: MirValue, pattern_idx: i32): MirValue
 {
+    let pattern_expr = expr_store_get(es, pattern_idx)
+    if (mir_type_is_option_text(subject.ty) == 1 and pattern_expr.tag == "option")
+    {
+        let out2 = mir_temp(b)
+        let pred = if (pattern_expr.option_has_value == 0) { "eq" } else { "ne" }
+        mir_inst(b, out2 + " = icmp " + pred + " ptr " + subject.name + ", null")
+        return MirValue{ name: out2, ty: "bool" }
+    }
     let pattern = mir_expr_value_typed(b, es, store, expr_store_get(es, pattern_idx), subject.ty)
     let out = mir_temp(b)
     if (subject.ty == "f32" or subject.ty == "f64")
@@ -730,6 +832,19 @@ pub fn mir_match_compare(b: &MirBuilder, es: &ExprStore, store: &StmtStore, subj
         mir_inst(b, out + " = icmp eq " + mir_type(subject.ty) + " " + subject.name + ", " + pattern.name)
     }
     return MirValue{ name: out, ty: "bool" }
+}
+
+pub fn mir_bind_option_pattern(b: &MirBuilder, es: &ExprStore, subject: MirValue, pattern_idx: i32)
+{
+    if (mir_type_is_option_text(subject.ty) == 0 or pattern_idx < 0) { return }
+    let pattern_expr = expr_store_get(es, pattern_idx)
+    if (pattern_expr.tag != "option" or pattern_expr.option_has_value == 0 or pattern_expr.left_idx < 0) { return }
+    let bind_expr = expr_store_get(es, pattern_expr.left_idx)
+    if (bind_expr.tag != "ident" or bind_expr.text == "_") { return }
+    let inner_ty = mir_type_option_inner(subject.ty)
+    mir_define_local(bind_expr.text, inner_ty)
+    mir_inst(b, mir_var_addr(bind_expr.text) + " = alloca " + mir_type(inner_ty))
+    mir_inst(b, "store " + mir_type(inner_ty) + " " + subject.name + ", " + mir_var_addr(bind_expr.text))
 }
 
 pub fn mir_match_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt: AstStmt, break_label: string, continue_label: string)
@@ -753,6 +868,7 @@ pub fn mir_match_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt: A
             let cmp = mir_match_compare(b, es, store, subject, stmt.match_pattern_indices[i])
             mir_emit_term(b, "br_cond " + cmp.name + ", label " + body_label + ", label " + after_label)
             mir_block(b, body_label)
+            mir_bind_option_pattern(b, es, subject, stmt.match_pattern_indices[i])
             mir_stmt(b, es, store, stmt.match_body_indices[i], break_label, continue_label)
             if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
             next_label = after_label
@@ -835,6 +951,7 @@ pub fn mir_program(program: AstProgram): string
     out = out + "    extern fn @vix_array_push_i32(ptr, i32): ptr\n"
     out = out + "    extern fn @vix_array_push_ptr(ptr, ptr): ptr\n"
     out = out + "    extern fn @vix_array_push_bytes(ptr, ptr, usize): ptr\n"
+    out = out + "    extern fn @vix_string_concat(ptr, ptr): ptr\n"
     for (i in 0 .. program.functions.length)
     {
         out = out + "\n" + mir_emit_function(program, program.functions[i])

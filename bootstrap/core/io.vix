@@ -23,12 +23,3 @@ macro $println(fmt: expr, $(args: expr)*)
     let _ = printf($fmt, $(args),*)
     let _ = printf("\n")
 }
-fn main(): i32
-{
-	let msg = "hello from self\n"
-	syscall(1, 1, msg, 16)
-	puts("Hello world\n")
-	let a = 10
-	$println("Hello %d",a)
-	return 0
-}

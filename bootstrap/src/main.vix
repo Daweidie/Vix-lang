@@ -423,7 +423,7 @@ fn read_source_file(path: ptr): string
     return buf
 }
 
-fn main(argc: i32, argv: ptr): i32
+fn main(argc: i32, argv: &string): i32
 {
     let mut src = ""
     let mut mode = "codegen"
