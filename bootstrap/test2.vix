@@ -17,7 +17,7 @@ fn main(): i32
 {
     $make_add(my_add)
     let result = my_add(10, 20)
-    print(result)
+    printf("%d\n", result)
     let arr = $vec[1, 2, 3, 4]
     for(i in 0 .. arr.length)
     {

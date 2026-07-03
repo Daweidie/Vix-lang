@@ -9,6 +9,22 @@ pub type MirValue = struct {
     ty: string
 }
 
+pub fn mir_escape_string(text: string): string
+{
+    let mut out = ""
+    for (i in 0 .. text.length)
+    {
+        let c = text[i]
+        if (c == 92) { out = out + "\\\\" }
+        elif (c == '"') { out = out + "\\\"" }
+        elif (c == 10) { out = out + "\\n" }
+        elif (c == 9) { out = out + "\\t" }
+        elif (c == 13) { out = out + "\\r" }
+        else { out = out + char_string(c) }
+    }
+    return out
+}
+
 pub fn mir_type(ty: string): string
 {
     if (ty == "") { return "i32" }
@@ -72,10 +88,20 @@ pub fn mir_register_program(program: AstProgram)
         register_function_sig(program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_types)
     }
     register_function_sig_vararg("printf", "i32", ["ptr"], 1)
+    register_function_sig_vararg("strcmp", "i32", ["ptr", "ptr"], 0)
     register_function_sig_vararg("vix_array_len", "i32", ["ptr"], 0)
     register_function_sig_vararg("vix_array_push_i32", "ptr", ["ptr", "i32"], 0)
     register_function_sig_vararg("vix_array_push_ptr", "ptr", ["ptr", "ptr"], 0)
     register_function_sig_vararg("vix_array_push_bytes", "ptr", ["ptr", "ptr", "usize"], 0)
+}
+
+pub fn mir_program_has_extern(program: AstProgram, name: string): i32
+{
+    for (i in 0 .. program.extern_functions.length)
+    {
+        if (program.extern_functions[i].name == name) { return 1 }
+    }
+    return 0
 }
 
 pub fn mir_expr_type(es: &ExprStore, expr: AstExpr): string
@@ -248,7 +274,7 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     if (expr.tag == "string")
     {
         let out = mir_temp(b)
-        mir_inst(b, out + " = const ptr \"" + expr.text + "\"")
+        mir_inst(b, out + " = const ptr \"" + mir_escape_string(expr.text) + "\"")
         return MirValue{ name: out, ty: "string" }
     }
     if (expr.tag == "ident")
@@ -312,7 +338,7 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     {
         let base_expr = expr_store_get(es, expr.left_idx)
         let base_ty = mir_expr_type(es, base_expr)
-        let elem_ty = if (base_ty == "string") { "i8" } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+        let elem_ty = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
         let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
         let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
         let slot = mir_temp(b)
@@ -375,7 +401,7 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
         if (expr.option_has_value == 0) { return MirValue{ name: "null", ty: "ptr" } }
         if (expr.left_idx >= 0) { return mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), expected_ty) }
         let out = mir_temp(b)
-        mir_inst(b, out + " = const ptr \"" + expr.option_value + "\"")
+        mir_inst(b, out + " = const ptr \"" + mir_escape_string(expr.option_value) + "\"")
         return MirValue{ name: out, ty: "string" }
     }
     if (expr.tag == "array_literal")
@@ -387,6 +413,45 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
             arr = mir_array_push_value(b, es, store, arr, expr_store_get(es, expr.args[i]), elem_ty)
         }
         return MirValue{ name: arr.name, ty: "[" + elem_ty + "]" }
+    }
+    if (expr.tag == "block_expr")
+    {
+        if (expr.left_idx >= 0)
+        {
+            mir_stmt(b, es, store, expr.left_idx, "", "")
+        }
+        if (expr.right_idx >= 0 and mir_block_is_open(b) == 1)
+        {
+            return mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), expected_ty)
+        }
+        let zero_ty = if (expected_ty != "") { expected_ty } else { "i32" }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = const " + mir_type(zero_ty) + " " + mir_zero_value(zero_ty))
+        return MirValue{ name: out, ty: zero_ty }
+    }
+    if (expr.tag == "if_expr")
+    {
+        let result_ty = mir_expr_type(es, expr)
+        let storage_ty = if (expected_ty != "") { expected_ty } else { result_ty }
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = alloca " + mir_type(storage_ty))
+        let then_label = mir_label(b, "ifexpr.then")
+        let else_label = mir_label(b, "ifexpr.else")
+        let end_label = mir_label(b, "ifexpr.end")
+        let cond = mir_truthy(b, mir_expr_value(b, es, store, expr_store_get(es, expr.left_idx)))
+        mir_emit_term(b, "br_cond " + cond.name + ", label " + then_label + ", label " + else_label)
+        mir_block(b, then_label)
+        let then_val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), storage_ty)
+        mir_inst(b, "store " + mir_type(storage_ty) + " " + then_val.name + ", " + slot)
+        if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+        mir_block(b, else_label)
+        let else_val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.args[0]), storage_ty)
+        mir_inst(b, "store " + mir_type(storage_ty) + " " + else_val.name + ", " + slot)
+        if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+        mir_block(b, end_label)
+        let out = mir_temp(b)
+        mir_inst(b, out + " = load " + mir_type(storage_ty) + ", " + slot)
+        return MirValue{ name: out, ty: storage_ty }
     }
     if (expr.tag == "method_call")
     {
@@ -423,6 +488,17 @@ pub fn mir_binop_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: 
     }
     let left_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
     let right_ty = mir_expr_type(es, expr_store_get(es, expr.right_idx))
+    if ((expr.text == "==" or expr.text == "!=") and left_ty == "string" and right_ty == "string")
+    {
+        let left_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "string")
+        let right_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "string")
+        let cmp_val = mir_temp(b)
+        let out = mir_temp(b)
+        mir_inst(b, cmp_val + " = call @strcmp(ptr " + left_str.name + ", ptr " + right_str.name + "): i32")
+        let cmp = if (expr.text == "==") { "eq" } else { "ne" }
+        mir_inst(b, out + " = icmp " + cmp + " i32 " + cmp_val + ", 0")
+        return MirValue{ name: out, ty: "bool" }
+    }
     let result_ty = if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=") { type_numeric_result(left_ty, right_ty) } elif (expected_ty != "" and type_is_numeric(expected_ty) == 1) { expected_ty } else { type_numeric_result(left_ty, right_ty) }
     let left = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), result_ty)
     let right = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), result_ty)
@@ -602,7 +678,7 @@ pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32
         "store_index" -> {
             let base_expr = expr_store_get(es, stmt.value_idx)
             let base_ty = mir_expr_type(es, base_expr)
-            let elem_ty = if (base_ty == "string") { "i8" } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+            let elem_ty = if (base_ty == "string") { "i8" } elif (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
             let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
             let index = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.direct_ret), "i32")
             let slot = mir_temp(b)
@@ -748,6 +824,8 @@ pub fn mir_program(program: AstProgram): string
         }
         out = out + "): " + mir_type(ext.ret_ty) + "\n"
     }
+    if (mir_program_has_extern(program, "printf") == 0) { out = out + "    extern_vararg fn @printf(ptr): i32\n" }
+    if (mir_program_has_extern(program, "strcmp") == 0) { out = out + "    extern fn @strcmp(ptr, ptr): i32\n" }
     out = out + "    extern fn @vix_array_len(ptr): i32\n"
     out = out + "    extern fn @vix_array_push_i32(ptr, i32): ptr\n"
     out = out + "    extern fn @vix_array_push_ptr(ptr, ptr): ptr\n"

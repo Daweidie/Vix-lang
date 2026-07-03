@@ -15,6 +15,19 @@ pub fn mir2asm_begin_function(b: &MirAsm, line: string)
     b.stack_next = 0
     b.in_fn = 1
     b.fn_name = mir2asm_clean_name(mir2asm_slice(line, at, lp))
+    let rp2 = mir2asm_find(line, ')', lp)
+    let colon2 = mir2asm_find(line, ':', rp2)
+    let brace2 = mir2asm_find(line, '{', rp2)
+    if (colon2 >= 0)
+    {
+        let ret_end = if (brace2 > colon2) { brace2 } else { line.length }
+        b.fn_ret_ty = mir2asm_trim(mir2asm_slice(line, colon2 + 1, ret_end))
+    }
+    else
+    {
+        b.fn_ret_ty = "void"
+    }
+    b.fn_sret = mir2asm_type_is_struct_value(b, b.fn_ret_ty)
     b.ret_label = b.fn_name + "__return"
     mir2asm_line(b, "global " + b.fn_name)
     mir2asm_line(b, b.fn_name + ":")
@@ -23,7 +36,12 @@ pub fn mir2asm_begin_function(b: &MirAsm, line: string)
     mir2asm_line(b, "    sub rsp, 4096")
     let rp = mir2asm_find(line, ')', lp)
     let mut pos = lp + 1
-    let mut arg = 0
+    let mut arg = if (b.fn_sret == 1) { 1 } else { 0 }
+    if (b.fn_sret == 1)
+    {
+        let sret_off = mir2asm_alloc_slot_typed(b, "__sret", 0, "ptr:" + b.fn_ret_ty)
+        mir2asm_line(b, "    mov qword " + mir2asm_mem(sret_off) + ", rdi")
+    }
     while (rp > 0 and pos < rp)
     {
         if (line[pos] == '%')
@@ -59,6 +77,266 @@ pub fn mir2asm_emit_unsupported(b: &MirAsm, line: string)
 {
     mir2asm_line(b, "    ; unsupported MIR: " + line)
     mir2asm_line(b, "    %error \"unsupported MIR instruction in self backend\"")
+}
+
+pub fn mir2asm_parse_type_decl(b: &MirAsm, line: string)
+{
+    let at = mir2asm_find(line, '@', 0)
+    let eq = mir2asm_find(line, '=', at)
+    let lb = mir2asm_find(line, '{', eq)
+    let rb = mir2asm_find(line, '}', lb)
+    if (at < 0 or eq < 0 or lb < 0 or rb < 0) { return }
+    let name = mir2asm_clean_name(mir2asm_trim(mir2asm_slice(line, at, eq)))
+    if (mir2asm_struct_index(b, name) >= 0) { return }
+    let mut pos = lb + 1
+    let mut count = 0
+    let mut offset = 0
+    let mut max_align = 1
+    while (pos < rb)
+    {
+        let comma = mir2asm_find(line, ',', pos)
+        let end = if (comma < 0 or comma > rb) { rb } else { comma }
+        let ty = mir2asm_trim(mir2asm_slice(line, pos, end))
+        if (ty != "")
+        {
+            let mut align = mir2asm_type_size_for(b, ty)
+            if (align > 8) { align = 8 }
+            if (align < 1) { align = 1 }
+            offset = mir2asm_align_to(offset, align)
+            b.struct_field_tys.push(ty)
+            b.struct_field_offsets.push(offset)
+            offset += mir2asm_type_size_for(b, ty)
+            if (align > max_align) { max_align = align }
+            count += 1
+        }
+        pos = end + 1
+    }
+    b.struct_names.push(name)
+    b.struct_field_counts.push(count)
+    b.struct_sizes.push(mir2asm_align_to(offset, max_align))
+}
+
+pub fn mir2asm_emit_zero_bytes(b: &MirAsm, dest_offset: i32, size: i32)
+{
+    let mut copied = 0
+    while (copied < size)
+    {
+        let remain = size - copied
+        if (remain >= 8)
+        {
+            mir2asm_line(b, "    mov qword " + mir2asm_mem_at(dest_offset, copied) + ", 0")
+            copied += 8
+        }
+        elif (remain >= 4)
+        {
+            mir2asm_line(b, "    mov dword " + mir2asm_mem_at(dest_offset, copied) + ", 0")
+            copied += 4
+        }
+        else
+        {
+            mir2asm_line(b, "    mov byte " + mir2asm_mem_at(dest_offset, copied) + ", 0")
+            copied += 1
+        }
+    }
+}
+
+pub fn mir2asm_emit_copy_stack_bytes(b: &MirAsm, dest_offset: i32, src_offset: i32, size: i32)
+{
+    let mut copied = 0
+    while (copied < size)
+    {
+        let remain = size - copied
+        if (remain >= 8)
+        {
+            mir2asm_line(b, "    mov rax, qword " + mir2asm_mem_at(src_offset, copied))
+            mir2asm_line(b, "    mov qword " + mir2asm_mem_at(dest_offset, copied) + ", rax")
+            copied += 8
+        }
+        elif (remain >= 4)
+        {
+            mir2asm_line(b, "    mov eax, dword " + mir2asm_mem_at(src_offset, copied))
+            mir2asm_line(b, "    mov dword " + mir2asm_mem_at(dest_offset, copied) + ", eax")
+            copied += 4
+        }
+        else
+        {
+            mir2asm_line(b, "    mov al, byte " + mir2asm_mem_at(src_offset, copied))
+            mir2asm_line(b, "    mov byte " + mir2asm_mem_at(dest_offset, copied) + ", al")
+            copied += 1
+        }
+    }
+}
+
+pub fn mir2asm_emit_copy_ptr_to_stack(b: &MirAsm, dest_offset: i32, ptr_value: string, size: i32)
+{
+    mir2asm_line(b, "    mov r11, " + mir2asm_operand_typed(b, ptr_value, "ptr"))
+    let mut copied = 0
+    while (copied < size)
+    {
+        let remain = size - copied
+        if (remain >= 8)
+        {
+            mir2asm_line(b, "    mov rax, qword [r11+" + i32_to_str(copied) + "]")
+            mir2asm_line(b, "    mov qword " + mir2asm_mem_at(dest_offset, copied) + ", rax")
+            copied += 8
+        }
+        elif (remain >= 4)
+        {
+            mir2asm_line(b, "    mov eax, dword [r11+" + i32_to_str(copied) + "]")
+            mir2asm_line(b, "    mov dword " + mir2asm_mem_at(dest_offset, copied) + ", eax")
+            copied += 4
+        }
+        else
+        {
+            mir2asm_line(b, "    mov al, byte [r11+" + i32_to_str(copied) + "]")
+            mir2asm_line(b, "    mov byte " + mir2asm_mem_at(dest_offset, copied) + ", al")
+            copied += 1
+        }
+    }
+}
+
+pub fn mir2asm_emit_copy_ptr_field_to_stack(b: &MirAsm, dest_offset: i32, ptr_value: string, field_offset: i32, size: i32)
+{
+    mir2asm_line(b, "    mov r11, " + mir2asm_operand_typed(b, ptr_value, "ptr"))
+    if (field_offset != 0) { mir2asm_line(b, "    add r11, " + i32_to_str(field_offset)) }
+    let mut copied = 0
+    while (copied < size)
+    {
+        let remain = size - copied
+        if (remain >= 8)
+        {
+            mir2asm_line(b, "    mov rax, qword [r11+" + i32_to_str(copied) + "]")
+            mir2asm_line(b, "    mov qword " + mir2asm_mem_at(dest_offset, copied) + ", rax")
+            copied += 8
+        }
+        elif (remain >= 4)
+        {
+            mir2asm_line(b, "    mov eax, dword [r11+" + i32_to_str(copied) + "]")
+            mir2asm_line(b, "    mov dword " + mir2asm_mem_at(dest_offset, copied) + ", eax")
+            copied += 4
+        }
+        else
+        {
+            mir2asm_line(b, "    mov al, byte [r11+" + i32_to_str(copied) + "]")
+            mir2asm_line(b, "    mov byte " + mir2asm_mem_at(dest_offset, copied) + ", al")
+            copied += 1
+        }
+    }
+}
+
+pub fn mir2asm_emit_copy_stack_to_ptr(b: &MirAsm, ptr_value: string, src_offset: i32, size: i32)
+{
+    mir2asm_line(b, "    mov r11, " + mir2asm_operand_typed(b, ptr_value, "ptr"))
+    let mut copied = 0
+    while (copied < size)
+    {
+        let remain = size - copied
+        if (remain >= 8)
+        {
+            mir2asm_line(b, "    mov rax, qword " + mir2asm_mem_at(src_offset, copied))
+            mir2asm_line(b, "    mov qword [r11+" + i32_to_str(copied) + "], rax")
+            copied += 8
+        }
+        elif (remain >= 4)
+        {
+            mir2asm_line(b, "    mov eax, dword " + mir2asm_mem_at(src_offset, copied))
+            mir2asm_line(b, "    mov dword [r11+" + i32_to_str(copied) + "], eax")
+            copied += 4
+        }
+        else
+        {
+            mir2asm_line(b, "    mov al, byte " + mir2asm_mem_at(src_offset, copied))
+            mir2asm_line(b, "    mov byte [r11+" + i32_to_str(copied) + "], al")
+            copied += 1
+        }
+    }
+}
+
+pub fn mir2asm_index_in_brackets(text: string, start: i32): i32
+{
+    let lb = mir2asm_find(text, '[', start)
+    let rb = mir2asm_find(text, ']', lb)
+    if (lb < 0 or rb < 0) { return 0 }
+    let raw = mir2asm_trim(mir2asm_slice(text, lb + 1, rb))
+    let comma = mir2asm_find(raw, ',', 0)
+    let value = if (comma >= 0) { mir2asm_trim(mir2asm_after(raw, comma + 1)) } else { raw }
+    let mut out = 0
+    for (i in 0 .. value.length)
+    {
+        if (value[i] >= '0' and value[i] <= '9')
+        {
+            out = out * 10 + (value[i] - '0')
+        }
+    }
+    return out
+}
+
+pub fn mir2asm_emit_const_struct(b: &MirAsm, dest: string, rhs: string)
+{
+    let sp = mir2asm_find(rhs, ' ', 6)
+    let ty = if (sp >= 0) { mir2asm_trim(mir2asm_slice(rhs, 6, sp)) } else { "i32" }
+    let off = mir2asm_alloc_slot_typed(b, dest, 0, ty)
+    mir2asm_emit_zero_bytes(b, off, mir2asm_type_size_for(b, ty))
+}
+
+pub fn mir2asm_emit_insertvalue(b: &MirAsm, dest: string, rhs: string)
+{
+    let ty_start = 12
+    let ty_end = mir2asm_find(rhs, ' ', ty_start)
+    let comma1 = mir2asm_find(rhs, ',', ty_end)
+    let comma2 = mir2asm_find(rhs, ',', comma1 + 1)
+    if (ty_end < 0 or comma1 < 0 or comma2 < 0) { return }
+    let ty = mir2asm_trim(mir2asm_slice(rhs, ty_start, ty_end))
+    let src = mir2asm_trim(mir2asm_slice(rhs, ty_end + 1, comma1))
+    let val = mir2asm_trim(mir2asm_slice(rhs, comma1 + 1, comma2))
+    let field_index = mir2asm_index_in_brackets(rhs, comma2)
+    let dest_off = mir2asm_alloc_slot_typed(b, dest, 0, ty)
+    let size = mir2asm_type_size_for(b, ty)
+    let src_idx = mir2asm_find_name(b, src)
+    if (src_idx >= 0) { mir2asm_emit_copy_stack_bytes(b, dest_off, b.offsets[src_idx], size) }
+    else { mir2asm_emit_zero_bytes(b, dest_off, size) }
+    let field_ty = mir2asm_struct_field_ty(b, ty, field_index)
+    let field_off = mir2asm_struct_field_offset(b, ty, field_index)
+    mir2asm_line(b, "    mov " + mir2asm_acc(field_ty) + ", " + mir2asm_operand_typed(b, val, field_ty))
+    mir2asm_line(b, "    mov " + mir2asm_mem_word(field_ty) + " " + mir2asm_mem_at(dest_off, field_off) + ", " + mir2asm_acc(field_ty))
+}
+
+pub fn mir2asm_emit_extractvalue(b: &MirAsm, dest: string, rhs: string)
+{
+    let ty_start = 13
+    let ty_end = mir2asm_find(rhs, ' ', ty_start)
+    let comma = mir2asm_find(rhs, ',', ty_end)
+    if (ty_end < 0 or comma < 0) { return }
+    let ty = mir2asm_trim(mir2asm_slice(rhs, ty_start, ty_end))
+    let src = mir2asm_trim(mir2asm_slice(rhs, ty_end + 1, comma))
+    let field_index = mir2asm_index_in_brackets(rhs, comma)
+    let field_ty = mir2asm_struct_field_ty(b, ty, field_index)
+    let field_off = mir2asm_struct_field_offset(b, ty, field_index)
+    let src_idx = mir2asm_find_name(b, src)
+    if (src_idx < 0) { return }
+    if (b.slot_tys[src_idx] == "ptr:" + ty)
+    {
+        let dest_off_ptr = mir2asm_alloc_slot_typed(b, dest, 0, field_ty)
+        if (mir2asm_type_is_struct_value(b, field_ty) == 1)
+        {
+            mir2asm_emit_copy_ptr_field_to_stack(b, dest_off_ptr, src, field_off, mir2asm_type_size_for(b, field_ty))
+            return
+        }
+        mir2asm_line(b, "    mov r11, " + mir2asm_operand_typed(b, src, "ptr"))
+        if (field_off != 0) { mir2asm_line(b, "    add r11, " + i32_to_str(field_off)) }
+        mir2asm_line(b, "    mov " + mir2asm_acc(field_ty) + ", " + mir2asm_mem_word(field_ty) + " [r11]")
+        mir2asm_line(b, "    mov " + mir2asm_mem(dest_off_ptr) + ", " + mir2asm_acc(field_ty))
+        return
+    }
+    if (mir2asm_type_is_struct_value(b, field_ty) == 1)
+    {
+        let dest_off = mir2asm_alloc_slot_typed(b, dest, 0, field_ty)
+        mir2asm_emit_copy_stack_bytes(b, dest_off, b.offsets[src_idx] - field_off, mir2asm_type_size_for(b, field_ty))
+        return
+    }
+    let dest_off2 = mir2asm_alloc_slot_typed(b, dest, 0, field_ty)
+    mir2asm_line(b, "    mov " + mir2asm_acc(field_ty) + ", " + mir2asm_mem_word(field_ty) + " " + mir2asm_mem_at(b.offsets[src_idx], field_off))
+    mir2asm_line(b, "    mov " + mir2asm_mem(dest_off2) + ", " + mir2asm_acc(field_ty))
 }
 
 pub fn mir2asm_emit_binop(b: &MirAsm, dest: string, rhs: string, op: string, asm_op: string)
@@ -122,9 +400,29 @@ pub fn mir2asm_emit_cast(b: &MirAsm, dest: string, rhs: string)
     mir2asm_alloc_slot_typed(b, dest, 0, to_ty)
     if (op == "zext")
     {
-        mir2asm_line(b, "    mov eax, " + mir2asm_operand_typed(b, val, from_ty))
+        if (from_ty == "i8" or from_ty == "u8" or from_ty == "char")
+        {
+            mir2asm_line(b, "    movzx eax, " + mir2asm_operand_typed(b, val, from_ty))
+        }
+        else
+        {
+            mir2asm_line(b, "    mov eax, " + mir2asm_operand_typed(b, val, from_ty))
+        }
         if (mir2asm_type_is_64(to_ty) == 1) { mir2asm_line(b, "    mov " + mir2asm_mem(b.offsets[mir2asm_find_name(b, dest)]) + ", rax") }
         else { mir2asm_line(b, "    mov " + mir2asm_mem(b.offsets[mir2asm_find_name(b, dest)]) + ", eax") }
+        return
+    }
+    if (op == "trunc" and mir2asm_type_is_64(from_ty) == 1 and mir2asm_type_is_64(to_ty) == 0)
+    {
+        mir2asm_line(b, "    mov rax, " + mir2asm_operand_typed(b, val, from_ty))
+        mir2asm_line(b, "    mov " + mir2asm_mem(b.offsets[mir2asm_find_name(b, dest)]) + ", " + mir2asm_acc(to_ty))
+        return
+    }
+    if (op == "sitofp")
+    {
+        mir2asm_line(b, "    mov eax, " + mir2asm_operand_typed(b, val, from_ty))
+        mir2asm_line(b, "    cvtsi2sd xmm0, eax")
+        mir2asm_line(b, "    movq " + mir2asm_mem(b.offsets[mir2asm_find_name(b, dest)]) + ", xmm0")
         return
     }
     mir2asm_line(b, "    mov " + mir2asm_acc(to_ty) + ", " + mir2asm_operand_typed(b, val, from_ty))
@@ -143,6 +441,25 @@ pub fn mir2asm_emit_gep(b: &MirAsm, dest: string, rhs: string)
     let index = mir2asm_trim(mir2asm_slice(rhs, lb + 1, rb))
     let comma_idx = mir2asm_find(index, ',', 0)
     let idx_val = if (comma_idx >= 0) { mir2asm_trim(mir2asm_after(index, comma_idx + 1)) } else { index }
+    if (mir2asm_type_is_struct_value(b, ty) == 1 and comma_idx >= 0)
+    {
+        let field_index = mir2asm_index_in_brackets(rhs, comma2)
+        let field_ty = mir2asm_struct_field_ty(b, ty, field_index)
+        let field_off = mir2asm_struct_field_offset(b, ty, field_index)
+        mir2asm_alloc_slot_typed(b, dest, 0, "ptr:" + field_ty)
+        let base_idx = mir2asm_find_name(b, base)
+        if (base_idx >= 0 and b.is_addr[base_idx] == 1 and b.slot_tys[base_idx] == ty)
+        {
+            mir2asm_line(b, "    lea rax, " + mir2asm_mem(b.offsets[base_idx]))
+        }
+        else
+        {
+            mir2asm_line(b, "    mov rax, " + mir2asm_operand_typed(b, base, "ptr"))
+        }
+        if (field_off != 0) { mir2asm_line(b, "    add rax, " + i32_to_str(field_off)) }
+        mir2asm_line(b, "    mov " + mir2asm_mem(b.offsets[mir2asm_find_name(b, dest)]) + ", rax")
+        return
+    }
     let base_ty = mir2asm_slot_ty(b, base)
     let elem_ty = if (base_ty == "string" and ty == "i32") { "i8" } else { ty }
     let elem_size = mir2asm_type_size(elem_ty)
@@ -215,8 +532,16 @@ pub fn mir2asm_emit_call(b: &MirAsm, dest: string, rhs: string)
         return
     }
     let rp = mir2asm_find(rhs, ')', lp)
+    let colon = mir2asm_find(rhs, ':', rp)
+    let ret_ty = if (colon >= 0) { mir2asm_trim(mir2asm_after(rhs, colon + 1)) } else { "i32" }
+    let sret = mir2asm_type_is_struct_value(b, ret_ty)
+    if (dest != "" and sret == 1)
+    {
+        let dest_off = mir2asm_alloc_slot_typed(b, dest, 0, ret_ty)
+        mir2asm_line(b, "    lea rdi, " + mir2asm_mem(dest_off))
+    }
     let mut pos = lp + 1
-    let mut arg = 0
+    let mut arg = if (sret == 1) { 1 } else { 0 }
     while (rp > 0 and pos < rp and arg < 6)
     {
         let comma = mir2asm_find(rhs, ',', pos)
@@ -227,16 +552,22 @@ pub fn mir2asm_emit_call(b: &MirAsm, dest: string, rhs: string)
         {
             let arg_ty = mir2asm_trim(mir2asm_slice(part, 0, sp))
             let val = mir2asm_trim(mir2asm_after(part, sp + 1))
-            mir2asm_line(b, "    mov " + mir2asm_arg_reg_typed(arg, arg_ty) + ", " + mir2asm_operand_typed(b, val, arg_ty))
+            let val_idx = mir2asm_find_name(b, val)
+            if (val_idx >= 0 and b.is_addr[val_idx] == 1 and mir2asm_starts_with(arg_ty, "ptr:") == 1)
+            {
+                mir2asm_line(b, "    lea " + mir2asm_arg_reg_typed(arg, arg_ty) + ", " + mir2asm_mem(b.offsets[val_idx]))
+            }
+            else
+            {
+                mir2asm_line(b, "    mov " + mir2asm_arg_reg_typed(arg, arg_ty) + ", " + mir2asm_operand_typed(b, val, arg_ty))
+            }
             arg += 1
         }
         pos = end + 1
     }
     mir2asm_line(b, "    call " + func)
-    if (dest != "")
+    if (dest != "" and sret == 0)
     {
-        let colon = mir2asm_find(rhs, ':', rp)
-        let ret_ty = if (colon >= 0) { mir2asm_trim(mir2asm_after(rhs, colon + 1)) } else { "i32" }
         mir2asm_line(b, "    mov " + mir2asm_mem(mir2asm_alloc_slot_typed(b, dest, 0, ret_ty)) + ", " + mir2asm_acc(ret_ty))
     }
 }
@@ -244,7 +575,11 @@ pub fn mir2asm_emit_call(b: &MirAsm, dest: string, rhs: string)
 pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
 {
     if (line == "" or mir2asm_starts_with(line, "mir_module") == 1 or line == "{") { return }
-    if (mir2asm_starts_with(line, "type @") == 1) { return }
+    if (mir2asm_starts_with(line, "type @") == 1)
+    {
+        mir2asm_parse_type_decl(b, line)
+        return
+    }
     if (mir2asm_starts_with(line, "extern") == 1)
     {
         let at = mir2asm_find(line, '@', 0)
@@ -281,6 +616,18 @@ pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
         let sp = mir2asm_find(rest, ' ', 0)
         let ty = if (sp >= 0) { mir2asm_trim(mir2asm_slice(rest, 0, sp)) } else { "i32" }
         let val = if (sp >= 0) { mir2asm_trim(mir2asm_after(rest, sp + 1)) } else { "0" }
+        if (mir2asm_type_is_struct_value(b, ty) == 1)
+        {
+            let val_idx = mir2asm_find_name(b, val)
+            let sret_idx = mir2asm_find_name(b, "__sret")
+            if (val_idx >= 0 and sret_idx >= 0)
+            {
+                mir2asm_emit_copy_stack_to_ptr(b, "__sret", b.offsets[val_idx], mir2asm_type_size_for(b, ty))
+                mir2asm_line(b, "    mov rax, qword " + mir2asm_mem(b.offsets[sret_idx]))
+            }
+            mir2asm_line(b, "    jmp " + b.ret_label)
+            return
+        }
         mir2asm_line(b, "    mov " + mir2asm_acc(ty) + ", " + mir2asm_operand_typed(b, val, ty))
         mir2asm_line(b, "    jmp " + b.ret_label)
         return
@@ -314,7 +661,28 @@ pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
             let ty = mir2asm_trim(mir2asm_slice(line, 6, sp))
             let val = mir2asm_trim(mir2asm_slice(line, sp + 1, comma))
             let addr = mir2asm_trim(mir2asm_after(line, comma + 1))
-            mir2asm_line(b, "    mov " + mir2asm_acc(ty) + ", " + mir2asm_operand_typed(b, val, ty))
+            if (mir2asm_type_is_struct_value(b, ty) == 1)
+            {
+                let val_idx = mir2asm_find_name(b, val)
+                let addr_idx2 = mir2asm_find_name(b, addr)
+                if (val_idx >= 0 and addr_idx2 >= 0 and b.is_addr[addr_idx2] == 1)
+                {
+                    mir2asm_emit_copy_stack_bytes(b, b.offsets[addr_idx2], b.offsets[val_idx], mir2asm_type_size_for(b, ty))
+                }
+                elif (val_idx >= 0)
+                {
+                    mir2asm_emit_copy_stack_to_ptr(b, addr, b.offsets[val_idx], mir2asm_type_size_for(b, ty))
+                }
+                return
+            }
+            if (ty == "i8" or ty == "u8" or ty == "char")
+            {
+                mir2asm_line(b, "    mov al, " + mir2asm_operand_typed(b, val, ty))
+            }
+            else
+            {
+                mir2asm_line(b, "    mov " + mir2asm_acc(ty) + ", " + mir2asm_operand_typed(b, val, ty))
+            }
             let addr_idx = mir2asm_find_name(b, addr)
             if (addr_idx >= 0 and b.is_addr[addr_idx] == 1)
             {
@@ -353,18 +721,39 @@ pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
         {
             let ty = mir2asm_trim(mir2asm_slice(rhs, 5, comma))
             let addr = mir2asm_trim(mir2asm_after(rhs, comma + 1))
+            if (mir2asm_type_is_struct_value(b, ty) == 1)
+            {
+                let dest_off = mir2asm_alloc_slot_typed(b, dest, 0, ty)
+                let addr_idx2 = mir2asm_find_name(b, addr)
+                if (addr_idx2 >= 0 and b.is_addr[addr_idx2] == 1)
+                {
+                    mir2asm_emit_copy_stack_bytes(b, dest_off, b.offsets[addr_idx2], mir2asm_type_size_for(b, ty))
+                }
+                else
+                {
+                    mir2asm_emit_copy_ptr_to_stack(b, dest_off, addr, mir2asm_type_size_for(b, ty))
+                }
+                return
+            }
             let addr_idx = mir2asm_find_name(b, addr)
             let addr_ty = if (addr_idx >= 0) { b.slot_tys[addr_idx] } else { "" }
             let src_ty = if (addr_ty == "ptr:i8" and ty == "i32") { "i8" } elif (addr_idx >= 0 and b.is_addr[addr_idx] == 1 and (addr_ty == "ptr" or addr_ty == "string") and ty == "i32") { addr_ty } else { ty }
             let dest_ty = if (src_ty == "i8" and ty == "i32") { "i32" } else { src_ty }
             if (addr_idx >= 0 and b.is_addr[addr_idx] == 1)
             {
-                mir2asm_line(b, "    mov " + mir2asm_acc(src_ty) + ", " + mir2asm_mem_word(src_ty) + " " + mir2asm_mem(b.offsets[addr_idx]))
+                if (src_ty == "i8" or src_ty == "u8" or src_ty == "char")
+                {
+                    mir2asm_line(b, "    movzx eax, byte " + mir2asm_mem(b.offsets[addr_idx]))
+                }
+                else
+                {
+                    mir2asm_line(b, "    mov " + mir2asm_acc(src_ty) + ", " + mir2asm_mem_word(src_ty) + " " + mir2asm_mem(b.offsets[addr_idx]))
+                }
             }
             else
             {
                 mir2asm_line(b, "    mov rax, " + mir2asm_operand_typed(b, addr, "ptr"))
-                if (src_ty == "i8")
+                if (src_ty == "i8" or src_ty == "u8" or src_ty == "char")
                 {
                     mir2asm_line(b, "    movzx eax, byte [rax]")
                 }
@@ -389,17 +778,24 @@ pub fn mir2asm_emit_instruction(b: &MirAsm, line: string)
     if (mir2asm_starts_with(rhs, "ashr ") == 1) { mir2asm_emit_binop(b, dest, rhs, "ashr", "sar"); return }
     if (mir2asm_starts_with(rhs, "neg ") == 1) { mir2asm_emit_unary(b, dest, rhs, "neg", "neg"); return }
     if (mir2asm_starts_with(rhs, "icmp ") == 1) { mir2asm_emit_icmp(b, dest, rhs); return }
-    if (mir2asm_starts_with(rhs, "zext ") == 1 or mir2asm_starts_with(rhs, "trunc ") == 1) { mir2asm_emit_cast(b, dest, rhs); return }
+    if (mir2asm_starts_with(rhs, "zext ") == 1 or mir2asm_starts_with(rhs, "trunc ") == 1 or mir2asm_starts_with(rhs, "sitofp ") == 1) { mir2asm_emit_cast(b, dest, rhs); return }
     if (mir2asm_starts_with(rhs, "gep ") == 1) { mir2asm_emit_gep(b, dest, rhs); return }
     if (mir2asm_starts_with(rhs, "call ") == 1) { mir2asm_emit_call(b, dest, rhs); return }
+    if (mir2asm_starts_with(rhs, "insertvalue ") == 1) { mir2asm_emit_insertvalue(b, dest, rhs); return }
+    if (mir2asm_starts_with(rhs, "extractvalue ") == 1) { mir2asm_emit_extractvalue(b, dest, rhs); return }
     if (mir2asm_starts_with(rhs, "const ptr \"") == 1)
     {
-        let q1 = mir2asm_find(rhs, '"', 0)
-        let q2 = mir2asm_find(rhs, '"', q1 + 1)
-        let text = if (q1 >= 0 and q2 > q1) { mir2asm_slice(rhs, q1 + 1, q2) } else { "" }
+        let q1 = mir2asm_find_unescaped(rhs, '"', 0)
+        let q2 = mir2asm_find_unescaped(rhs, '"', q1 + 1)
+        let text = if (q1 >= 0 and q2 > q1) { mir2asm_unescape_string(mir2asm_slice(rhs, q1 + 1, q2)) } else { "" }
         let label = mir2asm_string_label(b, text)
         mir2asm_line(b, "    lea rax, [" + label + "]")
         mir2asm_line(b, "    mov " + mir2asm_mem(mir2asm_alloc_slot_typed(b, dest, 0, "string")) + ", rax")
+        return
+    }
+    if (mir2asm_starts_with(rhs, "const @") == 1)
+    {
+        mir2asm_emit_const_struct(b, dest, rhs)
         return
     }
     if (mir2asm_starts_with(rhs, "const ") == 1)

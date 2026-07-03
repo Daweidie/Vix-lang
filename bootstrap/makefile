@@ -3,7 +3,7 @@ LLVM_LDFLAGS := $(shell llvm-config --ldflags --libs)
 
 GCC ?= gcc
 CLANG ?= clang
-VIXC ?= ./vixc
+VIXC ?= ./seed/vixc
 
 SRC_DIR := src
 BUILD_DIR := build
@@ -17,6 +17,8 @@ VIXC_OBJ := $(BUILD_DIR)/vixc.o
 VIX_SOURCES := $(shell find $(SRC_DIR) -type f -name '*.vix')
 
 all: $(TARGET)
+	rm -f vixc
+
 
 $(BUILD_DIR) $(RUNTIME_DIR):
 	mkdir -p $@

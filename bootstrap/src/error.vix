@@ -18,13 +18,6 @@ pub fn diag_bold(): string { return "\033[1m" }
 pub fn diag_dim(): string { return "\033[2m" }
 pub fn diag_reset(): string { return "\033[0m" }
 
-pub fn i32_to_str(n: i32): string
-{
-    let buf: string = malloc(64)
-    snprintf(buf, 64, "%d", n)
-    return buf
-}
-
 pub fn diag_strlen(text: string): i32
 {
     return vix_diag_strlen(text)

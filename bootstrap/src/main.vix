@@ -297,7 +297,8 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         "--debug-asm" -> {
             let mir = mir_program(lowered_program)
             let asm = mir2asm(mir)
-            info_print(";; MIR\n" + mir + "\n;; ASM\n" + asm)
+            let nl = char_string(10)
+            info_print(";; MIR" + nl + mir + nl + ";; ASM" + nl + asm)
             return mode_success()
         }
         _ -> {}

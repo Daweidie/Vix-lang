@@ -28,7 +28,7 @@ pub fn mir2asm_alloc_slot_typed(b: &MirAsm, name: string, addr: i32, ty: string)
     let clean = mir2asm_clean_name(name)
     let existing = mir2asm_find_name(b, clean)
     if (existing >= 0) { return b.offsets[existing] }
-    b.stack_next += 8
+    b.stack_next += mir2asm_slot_size_for(b, ty)
     b.names.push(clean)
     b.offsets.push(b.stack_next)
     b.is_addr.push(addr)

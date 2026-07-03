@@ -1,8 +1,8 @@
 #[no_main]
 
 pub type MirAsm = struct {
-    out: string,
-    data: string,
+    out: [string],
+    data: [string],
     string_values: [string],
     string_labels: [string],
     string_counter: i32,
@@ -13,13 +13,20 @@ pub type MirAsm = struct {
     stack_next: i32,
     in_fn: i32,
     fn_name: string,
+    fn_ret_ty: string,
+    fn_sret: i32,
     ret_label: string,
     param_names: [string],
     param_tys: [string],
-    param_regs: [string]
+    param_regs: [string],
+    struct_names: [string],
+    struct_field_counts: [i32],
+    struct_sizes: [i32],
+    struct_field_tys: [string],
+    struct_field_offsets: [i32]
 }
 
 pub fn mir2asm_new(): MirAsm
 {
-    return MirAsm{ out: "default rel\nsection .text\n", data: "", string_values: [], string_labels: [], string_counter: 0, names: [], offsets: [], is_addr: [], slot_tys: [], stack_next: 0, in_fn: 0, fn_name: "", ret_label: "", param_names: [], param_tys: [], param_regs: [] }
+    return MirAsm{ out: ["default rel", "section .text"], data: [], string_values: [], string_labels: [], string_counter: 0, names: [], offsets: [], is_addr: [], slot_tys: [], stack_next: 0, in_fn: 0, fn_name: "", fn_ret_ty: "", fn_sret: 0, ret_label: "", param_names: [], param_tys: [], param_regs: [], struct_names: [], struct_field_counts: [], struct_sizes: [], struct_field_tys: [], struct_field_offsets: [] }
 }

@@ -102,7 +102,7 @@ extern "C"
     fn vix_get_struct_field_type(struct_name: string, field_name: string): string
 }
 
-pub fn i32_to_str(n: i32): string
+pub fn builder_i32_to_str(n: i32): string
 {
     let buf: string = malloc(64)
     snprintf(buf, 64, "%d", n)
@@ -405,14 +405,14 @@ pub fn llvm_temp(b: &LlvmBuilder, prefix: string): string
 {
     let val = b.temp_counter
     b.temp_counter = val + 1
-    return prefix + i32_to_str(val)
+    return prefix + builder_i32_to_str(val)
 }
 
 pub fn llvm_label_name(b: &LlvmBuilder, prefix: string): string
 {
     let val = b.label_counter
     b.label_counter = val + 1
-    return prefix + i32_to_str(val)
+    return prefix + builder_i32_to_str(val)
 }
 
 pub fn llvm_emit_function_header(b: &LlvmBuilder, name: string, ret_ty: string)

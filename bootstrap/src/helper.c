@@ -62,6 +62,108 @@ void vix_print_stderr(const char *s) {
   fputs(s, stderr);
 }
 
+char *vix_join_lines(char **lines) {
+  if (lines == NULL) {
+    char *empty = (char *)malloc(1);
+    if (empty)
+      empty[0] = '\0';
+    return empty;
+  }
+  int count = *(int *)((char *)lines - 8);
+  size_t total = 1;
+  for (int i = 0; i < count; i++) {
+    if (lines[i])
+      total += strlen(lines[i]);
+    total += 1;
+  }
+  char *out = (char *)malloc(total);
+  if (!out)
+    return NULL;
+  size_t pos = 0;
+  for (int i = 0; i < count; i++) {
+    if (lines[i]) {
+      size_t len = strlen(lines[i]);
+      memcpy(out + pos, lines[i], len);
+      pos += len;
+    }
+    out[pos++] = '\n';
+  }
+  out[pos] = '\0';
+  return out;
+}
+
+char *vix_substr(const char *text, int start, int end) {
+  if (!text) {
+    char *empty = (char *)malloc(1);
+    if (empty)
+      empty[0] = '\0';
+    return empty;
+  }
+
+  int len = (int)strlen(text);
+  if (start < 0)
+    start = 0;
+  if (end < start)
+    end = start;
+  if (start > len)
+    start = len;
+  if (end > len)
+    end = len;
+
+  int out_len = end - start;
+  char *out = (char *)malloc((size_t)out_len + 1);
+  if (!out)
+    return NULL;
+  memcpy(out, text + start, (size_t)out_len);
+  out[out_len] = '\0';
+  return out;
+}
+
+char *vix_trim_ascii(const char *text) {
+  if (!text)
+    return vix_substr("", 0, 0);
+
+  int start = 0;
+  int end = (int)strlen(text);
+  while (start < end &&
+         (text[start] == ' ' || text[start] == '\t' || text[start] == '\r' ||
+          text[start] == '\n')) {
+    start++;
+  }
+  while (end > start &&
+         (text[end - 1] == ' ' || text[end - 1] == '\t' ||
+          text[end - 1] == '\r' || text[end - 1] == '\n')) {
+    end--;
+  }
+  return vix_substr(text, start, end);
+}
+
+char *vix_clean_symbol_name(const char *name) {
+  if (!name)
+    return vix_substr("", 0, 0);
+
+  int len = (int)strlen(name);
+  int start = 0;
+  if (len > 0 && (name[0] == '%' || name[0] == '@'))
+    start = 1;
+
+  char *out = (char *)malloc((size_t)(len - start) + 1);
+  if (!out)
+    return NULL;
+  int pos = 0;
+  for (int i = start; i < len; i++) {
+    char c = name[i];
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') || c == '_') {
+      out[pos++] = c;
+    } else {
+      out[pos++] = '_';
+    }
+  }
+  out[pos] = '\0';
+  return out;
+}
+
 static char *vix_join_object(const char *dir, const char *object_name) {
   size_t len = strlen(dir) + 1 + strlen(object_name) + 1;
   char *out = (char *)malloc(len);
@@ -197,6 +299,12 @@ char *vix_compiler_runtime_object_path(const char *argv0) {
 void vix_reset_vars(void) { var_count = 0; }
 
 void vix_set_var(const char *name, LLVMValueRef value) {
+  for (int i = var_count - 1; i >= 0; i--) {
+    if (strcmp(vars[i].name, name) == 0 && vars[i].value == NULL) {
+      vars[i].value = value;
+      return;
+    }
+  }
   if (var_count < MAX_VARS) {
     strncpy(vars[var_count].name, name, NAME_SIZE - 1);
     vars[var_count].name[NAME_SIZE - 1] = '\0';
@@ -213,6 +321,14 @@ void vix_set_var_type(const char *name, const char *type) {
       vars[i].type[TYPE_SIZE - 1] = '\0';
       return;
     }
+  }
+  if (var_count < MAX_VARS) {
+    strncpy(vars[var_count].name, name, NAME_SIZE - 1);
+    vars[var_count].name[NAME_SIZE - 1] = '\0';
+    vars[var_count].value = NULL;
+    strncpy(vars[var_count].type, type, TYPE_SIZE - 1);
+    vars[var_count].type[TYPE_SIZE - 1] = '\0';
+    var_count++;
   }
 }
 
