@@ -128,6 +128,7 @@ pub fn symtable_declare(table: &SymbolTable, name: string, ty: string)
 
 pub fn symtable_declare_mut(table: &SymbolTable, name: string, ty: string, is_mut: i32)
 {
+    if (name == "_") { return }
     if (symtable_find_current(table, name) >= 0)
     {
         symtable_fail(table, "duplicate symbol '" + name + "'")

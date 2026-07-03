@@ -3,13 +3,13 @@ extern "C"
     fn printf(fmt:string, ...):i32
 
 }
-macro make_add(x: ident)
+macro $make_add(x: ident)
 {
     fn $x(a: i32, b: i32): i32 {
         return a + b
     }
 }
-macro vec![elems: expr*]
+macro $vec[elems: expr*]
 {
     [$(elems),*]
 }

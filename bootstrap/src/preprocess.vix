@@ -9,6 +9,7 @@ pub type MacroSet = struct {
     names: [string],
     params: [string],
     repeat_params: [i32],
+    repeat_param_names: [string],
     bracket_calls: [i32],
     bodies: [string]
 }
@@ -20,14 +21,15 @@ pub fn import_set_new(): ImportSet
 
 pub fn macro_set_new(): MacroSet
 {
-    return MacroSet{ names: [], params: [], repeat_params: [], bracket_calls: [], bodies: [] }
+    return MacroSet{ names: [], params: [], repeat_params: [], repeat_param_names: [], bracket_calls: [], bodies: [] }
 }
 
-pub fn macro_set_add(macros: &MacroSet, name: string, param: string, repeat_param: i32, bracket_call: i32, body: string)
+pub fn macro_set_add(macros: &MacroSet, name: string, param: string, repeat_param: i32, repeat_param_name: string, bracket_call: i32, body: string)
 {
     macros.names.push(name)
     macros.params.push(param)
     macros.repeat_params.push(repeat_param)
+    macros.repeat_param_names.push(repeat_param_name)
     macros.bracket_calls.push(bracket_call)
     macros.bodies.push(body)
 }
@@ -174,6 +176,15 @@ pub fn slice_text(src: string, start: i32, end: i32): string
     return out
 }
 
+pub fn trim_text(src: string): string
+{
+    let mut start = 0
+    while (start < src.length and is_space_or_newline(src[start]) == 1) { start += 1 }
+    let mut end = src.length
+    while (end > start and is_space_or_newline(src[end - 1]) == 1) { end -= 1 }
+    return slice_text(src, start, end)
+}
+
 pub fn is_space_or_newline(c: i8): i32
 {
     if (c == 32 or c == 9 or c == 10 or c == 13) { return 1 }
@@ -233,6 +244,76 @@ pub fn scan_balanced(src: string, start: i32, open_ch: i8, close_ch: i8): i32
     return -1
 }
 
+pub fn top_level_comma(src: string): i32
+{
+    let mut paren_depth = 0
+    let mut bracket_depth = 0
+    let mut brace_depth = 0
+    let mut i = 0
+    while (i < src.length)
+    {
+        if (src[i] == '"')
+        {
+            i += 1
+            while (i < src.length and src[i] != '"')
+            {
+                if (src[i] == 92 and i + 1 < src.length) { i += 2 }
+                else { i += 1 }
+            }
+        }
+        elif (src[i] == '(') { paren_depth += 1 }
+        elif (src[i] == ')') { paren_depth -= 1 }
+        elif (src[i] == '[') { bracket_depth += 1 }
+        elif (src[i] == ']') { bracket_depth -= 1 }
+        elif (src[i] == '{') { brace_depth += 1 }
+        elif (src[i] == '}') { brace_depth -= 1 }
+        elif (src[i] == ',' and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0)
+        {
+            return i
+        }
+        i += 1
+    }
+    return -1
+}
+
+pub fn first_macro_arg(arg_text: string): string
+{
+    let comma = top_level_comma(arg_text)
+    if (comma < 0) { return trim_text(arg_text) }
+    return trim_text(slice_text(arg_text, 0, comma))
+}
+
+pub fn rest_macro_args(arg_text: string): string
+{
+    let comma = top_level_comma(arg_text)
+    if (comma < 0) { return "" }
+    return trim_text(slice_text(arg_text, comma + 1, arg_text.length))
+}
+
+pub fn macro_repeat_param_name(params_text: string, fallback: string): string
+{
+    let mut p = 0
+    while (p + 1 < params_text.length)
+    {
+        if (params_text[p] == '$' and params_text[p + 1] == '(')
+        {
+            p += 2
+            while (p < params_text.length and is_space_or_newline(params_text[p]) == 1) { p += 1 }
+            let start = p
+            while (p < params_text.length and is_macro_ident_char(params_text[p]) == 1) { p += 1 }
+            if (p > start) { return slice_text(params_text, start, p) }
+        }
+        p += 1
+    }
+    p = 0
+    while (p < params_text.length)
+    {
+        if (params_text[p] == '*') { return fallback }
+        p += 1
+    }
+    return ""
+}
+
 pub fn skip_macro_definition(src: string, start: i32, macros: &MacroSet): i32
 {
     if (text_at(src, start, "macro") == 0) { return -1 }
@@ -270,35 +351,37 @@ pub fn skip_macro_definition(src: string, start: i32, macros: &MacroSet): i32
         if (params_text[p] == '*') { repeat_param = 1 }
         p += 1
     }
+    let repeat_param_name = macro_repeat_param_name(params_text, param)
+    if (repeat_param == 1 and repeat_param_name == param) { param = "" }
 
     i = skip_spaces(src, params_end)
     let body_end = scan_balanced(src, i, '{', '}')
     if (body_end < 0) { return -1 }
     let body = slice_text(src, i + 1, body_end - 1)
-    macro_set_add(macros, name, param, repeat_param, bracket_call, body)
+    macro_set_add(macros, name, param, repeat_param, repeat_param_name, bracket_call, body)
     return body_end
 }
 
-pub fn replace_macro_param(body: string, param: string, arg: string, repeat_param: i32): string
+pub fn replace_macro_param(body: string, param: string, arg: string, repeat_param: i32, repeat_param_name: string, repeat_arg: string): string
 {
     let mut out = ""
     let mut i = 0
-    let spread_pat = "$(" + param + "),*"
-    let paren_spread_pat = "$((" + param + "),*)"
+    let spread_pat = "$(" + repeat_param_name + "),*"
+    let paren_spread_pat = "$((" + repeat_param_name + "),*)"
     let plain_pat = "$" + param
     while (i < body.length)
     {
         if (repeat_param == 1 and text_at(body, i, paren_spread_pat) == 1)
         {
-            out = out + arg
+            out = out + repeat_arg
             i += paren_spread_pat.length
         }
         elif (repeat_param == 1 and text_at(body, i, spread_pat) == 1)
         {
-            out = out + arg
+            out = out + repeat_arg
             i += spread_pat.length
         }
-        elif (text_at(body, i, plain_pat) == 1)
+        elif (param != "" and text_at(body, i, plain_pat) == 1)
         {
             out = out + arg
             i += plain_pat.length
@@ -361,7 +444,14 @@ pub fn expand_macros_once(src: string, macros: &MacroSet): string
                     if (call_end > call_pos)
                     {
                         let arg_text = slice_text(src, call_pos + 1, call_end - 1)
-                        let replacement = replace_macro_param(macros.bodies[macro_idx], macros.params[macro_idx], arg_text, macros.repeat_params[macro_idx])
+                        let mut normal_arg = trim_text(arg_text)
+                        let mut repeat_arg = trim_text(arg_text)
+                        if (macros.repeat_params[macro_idx] == 1 and macros.params[macro_idx] != "")
+                        {
+                            normal_arg = first_macro_arg(arg_text)
+                            repeat_arg = rest_macro_args(arg_text)
+                        }
+                        let replacement = replace_macro_param(macros.bodies[macro_idx], macros.params[macro_idx], normal_arg, macros.repeat_params[macro_idx], macros.repeat_param_names[macro_idx], repeat_arg)
                         if (segment_start < i)
                         {
                             out = out + slice_text(src, segment_start, i)

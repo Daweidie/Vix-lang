@@ -194,6 +194,7 @@ pub fn semantic_scope_lookup(scope: &SemanticScope, name: string): i32
 
 pub fn semantic_scope_declare(scope: &SemanticScope, result: &SemanticResult, source: string, filename: string, func_name: string, name: string, line: i32, col: i32): i32
 {
+    if (name == "_") { return 1 }
     if (semantic_scope_find_current(scope, name) >= 0)
     {
         semantic_add_error_loc(result, source, filename, "NameError", "duplicate symbol '" + name + "'", func_name, line, col, diag_strlen(name))
