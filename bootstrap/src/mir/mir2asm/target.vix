@@ -110,6 +110,25 @@ pub fn mir2asm_data_line(b: &MirAsm, text: string)
     b.data.push(text)
 }
 
+pub fn mir2asm_comment_text(text: string): string
+{
+    let mut out = ""
+    for (i in 0 .. text.length)
+    {
+        if (text[i] == 10 or text[i] == 13) { out = out + " " }
+        else { out = out + char_string(text[i]) }
+    }
+    return out
+}
+
+pub fn mir2asm_mir_comment(b: &MirAsm, line: string, line_no: i32)
+{
+    if (b.debug_mir_comments == 1 and line != "")
+    {
+        mir2asm_line(b, "    ; MIR: " + mir2asm_comment_text(line) + " (line " + i32_to_str(line_no) + ")")
+    }
+}
+
 pub fn mir2asm_type_is_64(ty: string): i32
 {
     if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string") { return 1 }

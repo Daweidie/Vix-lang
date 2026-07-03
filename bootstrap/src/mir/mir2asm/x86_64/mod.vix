@@ -5,10 +5,17 @@ import "codegen.vix"
 
 pub fn mir2asm_x86_64(mir: string): string
 {
+    return mir2asm_x86_64_debug(mir, 0)
+}
+
+pub fn mir2asm_x86_64_debug(mir: string, debug_mir_comments: i32): string
+{
     let mut b = mir2asm_new()
+    b.debug_mir_comments = debug_mir_comments
     let mut start = 0
     let mut in_string = 0
     let mut escaped = 0
+    let mut line_no = 1
     for (i in 0 .. mir.length)
     {
         if (escaped == 1)
@@ -25,11 +32,19 @@ pub fn mir2asm_x86_64(mir: string): string
         }
         if (mir[i] == '\n' and in_string == 0)
         {
-            mir2asm_emit_instruction(&b, mir2asm_trim(mir2asm_slice(mir, start, i)))
+            let line = mir2asm_trim(mir2asm_slice(mir, start, i))
+            mir2asm_mir_comment(&b, line, line_no)
+            mir2asm_emit_instruction(&b, line)
             start = i + 1
+            line_no += 1
         }
     }
-    if (start < mir.length) { mir2asm_emit_instruction(&b, mir2asm_trim(mir2asm_after(mir, start))) }
+    if (start < mir.length)
+    {
+        let line = mir2asm_trim(mir2asm_after(mir, start))
+        mir2asm_mir_comment(&b, line, line_no)
+        mir2asm_emit_instruction(&b, line)
+    }
     if (b.in_fn == 1) { mir2asm_end_function(&b) }
     let text = vix_join_lines(b.out)
     if (b.data.length > 0) { return text + "section .data\n" + vix_join_lines(b.data) }

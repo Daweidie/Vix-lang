@@ -14,16 +14,12 @@ pub fn puts(s: string): i32
 	syscall(1, 1, s, len)
 	return 0
 }
-
+/*
+io lib
+*/
 
 macro $println(fmt: expr, $(args: expr)*)
 {
         let _ = printf($fmt, $(args),*)
 	let _ = printf("\n")
-}
-fn main(): i32
-{
-	let a = "vix"
-	$println("Hello world! %s",a)
-	return 0	
 }

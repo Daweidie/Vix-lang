@@ -304,7 +304,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         }
         "debug_asm" -> {
             let mir = mir_program(lowered_program)
-            let asm = mir2asm(mir)
+            let asm = mir2asm_debug(mir)
             info_print(asm)
             return mode_success()
         }

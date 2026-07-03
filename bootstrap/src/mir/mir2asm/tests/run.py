@@ -28,6 +28,14 @@ TESTS = {
     "test_unsupported_float.vix": {"compile_fails": True},
 }
 
+for i in range(100):
+    a = (i * 13 + 5) % 97
+    b = (i * 17 + 9) % 89
+    c = (i * 19 + 3) % 83
+    left = (i + 7 + a) * 3
+    right = (i % 23 + 4 + b) * 2
+    TESTS[f"test_regress_{i:03}.vix"] = {"exit": (left - right + c) % 251}
+
 
 def repo_root() -> Path:
     path = Path(__file__).resolve()
