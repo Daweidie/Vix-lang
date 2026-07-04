@@ -328,6 +328,7 @@ pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtSto
 {
     if (expr.tag == "int")
     {
+        if (codegen_expected_type_accepts_null(expected_ty) == 1 and expr.int_value == 0) { return llvm_const_null_ptr() }
         if (expected_ty == "i64" or expected_ty == "u64" or expected_ty == "usize") { return llvm_const_i64(expr.int_value) }
         if (expected_ty == "i8" or expected_ty == "u8" or expected_ty == "char") { return vix_LLVMConstInt(LLVMInt8Type(), i32_to_i64(expr.int_value), 0) }
         if (expected_ty == "f32" or expected_ty == "f64") { return llvm_const_float(i32_to_f64(expr.int_value), expected_ty) }

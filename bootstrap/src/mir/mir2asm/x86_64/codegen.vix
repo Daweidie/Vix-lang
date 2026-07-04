@@ -705,6 +705,7 @@ pub fn mir2asm_emit_call(b: &MirAsm, dest: string, rhs: string)
         }
         pos = end + 1
     }
+    mir2asm_line(b, "    mov al, " + i32_to_str(float_arg))
     mir2asm_line(b, "    call " + func)
     if (dest != "" and sret == 0)
     {

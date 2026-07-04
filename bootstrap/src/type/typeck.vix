@@ -121,7 +121,21 @@ pub fn type_can_assign(target_ty: string, value_ty: string): i32
     if (target_ty == "ptr" and value_ty == "string") { return 1 }
     if (target_ty == "string" and value_ty == "ptr") { return 1 }
     if (target_ty == "ptr" and type_is_array_text_semantic(value_ty) == 1) { return 1 }
-    if (target_ty == "ptr" and type_is_integer(value_ty) == 1) { return 1 }
+    return 0
+}
+
+pub fn type_accepts_null_literal(target_ty: string): i32
+{
+    if (target_ty == "ptr" or target_ty == "string") { return 1 }
+    if (type_is_array_text_semantic(target_ty) == 1) { return 1 }
+    if (is_ptr_to_struct_semantic(target_ty) == 1) { return 1 }
+    return 0
+}
+
+pub fn type_can_assign_expr(target_ty: string, value_ty: string, expr: AstExpr): i32
+{
+    if (type_can_assign(target_ty, value_ty) == 1) { return 1 }
+    if (type_accepts_null_literal(target_ty) == 1 and expr.tag == "int" and expr.int_value == 0) { return 1 }
     return 0
 }
 
@@ -758,7 +772,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                 if (env.ok == 0) { return "unknown" }
                 let actual_expr = expr_store_get(es, expr.args[i])
                 let empty_array_ok = if (actual_expr.tag == "array_literal" and actual_expr.args.length == 0 and type_text_is_array_typeinfer(expected_ty) == 1) { 1 } else { 0 }
-                if (empty_array_ok == 0 and type_can_assign(expected_ty, actual_ty) == 0)
+                if (empty_array_ok == 0 and type_can_assign_expr(expected_ty, actual_ty, actual_expr) == 0)
                 {
                     symtable_fail_expr(env, "cannot initialize field '" + field_name + "' of struct '" + expr.text + "' with '" + actual_ty + "'", expr)
                     return "unknown"
@@ -806,7 +820,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                     let expected_ty = funcs.param_types[funcs.param_offsets[func_idx] + i]
                     let arg_expr = expr_store_get(es, expr.args[i])
                     let empty_array_arg_ok = if (arg_expr.tag == "array_literal" and arg_expr.args.length == 0 and type_text_is_array_typeinfer(expected_ty) == 1) { 1 } else { 0 }
-                    if (empty_array_arg_ok == 0 and type_can_assign(expected_ty, actual_ty) == 0)
+                    if (empty_array_arg_ok == 0 and type_can_assign_expr(expected_ty, actual_ty, arg_expr) == 0)
                     {
                         symtable_fail_expr(env, "function '" + expr.text + "' argument " + ast_i32(i + 1) + " expects '" + expected_ty + "', got '" + actual_ty + "'", arg_expr)
                         return "unknown"
@@ -1010,7 +1024,7 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             {
                 let init_expr = expr_store_get(es, stmt.assign_idx)
                 let empty_array_init_ok = if (init_expr.tag == "array_literal" and init_expr.args.length == 0 and type_text_is_array_typeinfer(stmt.type_text) == 1) { 1 } else { 0 }
-                if (empty_array_init_ok == 0 and type_can_assign(stmt.type_text, ty) == 0)
+                if (empty_array_init_ok == 0 and type_can_assign_expr(stmt.type_text, ty, init_expr) == 0)
                 {
                     symtable_fail_at(env, "cannot initialize '" + stmt.assign_name + "' of type '" + stmt.type_text + "' with '" + ty + "'", stmt.line, stmt.col)
                     return
@@ -1037,7 +1051,8 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             if (env.ok == 0) { symtable_set_error_loc(env, stmt.line, stmt.col) }
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.assign_idx)
             if (env.ok == 0) { return }
-            if (type_can_assign(current_ty, value_ty) == 0)
+            let value_expr = expr_store_get(es, stmt.assign_idx)
+            if (type_can_assign_expr(current_ty, value_ty, value_expr) == 0)
             {
                 symtable_fail_stmt(env, "cannot assign '" + value_ty + "' to '" + stmt.assign_name + "' of type '" + current_ty + "'", stmt)
             }
@@ -1077,7 +1092,8 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             let element_ty = type_index_element_typeinfer(base_ty)
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.assign_idx)
             if (env.ok == 0) { return }
-            if (type_can_assign(element_ty, value_ty) == 0)
+            let indexed_value_expr = expr_store_get(es, stmt.assign_idx)
+            if (type_can_assign_expr(element_ty, value_ty, indexed_value_expr) == 0)
             {
                 symtable_fail_stmt(env, "cannot store '" + value_ty + "' into index of element type '" + element_ty + "'", stmt)
             }
@@ -1109,7 +1125,8 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
             }
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.assign_idx)
             if (env.ok == 0) { return }
-            if (type_can_assign(field_ty, value_ty) == 0)
+            let field_value_expr = expr_store_get(es, stmt.assign_idx)
+            if (type_can_assign_expr(field_ty, value_ty, field_value_expr) == 0)
             {
                 symtable_fail_stmt(env, "cannot assign '" + value_ty + "' to field '" + stmt.assign_name + "' of type '" + field_ty + "'", stmt)
             }
@@ -1127,7 +1144,8 @@ pub fn infer_stmt_type_in_loop(env: &SymbolTable, funcs: &FunctionSymbols, struc
         "return_expr" -> {
             let value_ty = infer_expr_type(env, funcs, structs, es, store, stmt.value_idx)
             if (env.ok == 0) { return }
-            if (ret_ty != "void" and ret_ty != "unknown" and value_ty != "unknown" and type_can_assign(ret_ty, value_ty) == 0)
+            let ret_expr = expr_store_get(es, stmt.value_idx)
+            if (ret_ty != "void" and ret_ty != "unknown" and value_ty != "unknown" and type_can_assign_expr(ret_ty, value_ty, ret_expr) == 0)
             {
                 symtable_fail_at_len(env, "return value type '" + value_ty + "' does not match function return type '" + ret_ty + "'", stmt.line, stmt.col, 6)
             }

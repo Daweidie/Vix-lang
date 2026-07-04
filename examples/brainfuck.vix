@@ -60,27 +60,13 @@ fn move_left(state: &BrainfuckState): ?i32
 fn inc_cell(state: &BrainfuckState)
 {
     let v = state.tape[state.data_ptr]
-    if (v == 255)
-    {
-        state.tape[state.data_ptr] = 0
-    }
-    else
-    {
-        state.tape[state.data_ptr] = v + 1
-    }
+    state.tape[state.data_ptr] = (v + 1) & 255
 }
 
 fn dec_cell(state: &BrainfuckState)
 {
     let v = state.tape[state.data_ptr]
-    if (v == 0)
-    {
-        state.tape[state.data_ptr] = 255
-    }
-    else
-    {
-        state.tape[state.data_ptr] = v - 1
-    }
+    state.tape[state.data_ptr] = (v - 1) & 255
 }
 
 fn read_cell(state: &BrainfuckState)
@@ -92,7 +78,7 @@ fn read_cell(state: &BrainfuckState)
     }
     else
     {
-        state.tape[state.data_ptr] = c % 256
+        state.tape[state.data_ptr] = c & 255
     }
 }
 
