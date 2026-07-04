@@ -237,7 +237,7 @@ fn run_brainfuck(program: ptr): i32
     return 0
 }
 
-fn main(argc: i32, argv: ptr): i32
+fn main(argc: i32, argv: &string): i32
 {
     if (argc < 2)
     {

@@ -320,7 +320,8 @@ pub fn codegen_option_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &
     {
         return value
     }
-    return llvm_int_to_ptr(b, value)
+    let encoded = if (value_ty == "i64" or value_ty == "u64" or value_ty == "usize") { llvm_build_add_value(b, value, llvm_const_i64(1)) } else { llvm_build_add_value(b, value, llvm_const_i32(1)) }
+    return llvm_int_to_ptr(b, encoded)
 }
 
 pub fn codegen_expr_value_typed(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr, expected_ty: string): ptr
@@ -615,6 +616,7 @@ pub fn codegen_bind_option_pattern(b: &LlvmBuilder, es: &ExprStore, pattern_idx:
     if (inner_ty != "ptr" and inner_ty != "string" and type_text_is_array(inner_ty) == 0 and is_ptr_to_struct(inner_ty) == 0)
     {
         bind_val = llvm_ptr_to_i64(b, subject_val)
+        bind_val = llvm_build_sub_value(b, bind_val, llvm_const_i64(1))
         if (inner_ty != "i64" and inner_ty != "u64" and inner_ty != "usize")
         {
             bind_val = llvm_cast_value(b, bind_val, "i64", inner_ty)
@@ -654,18 +656,7 @@ pub fn codegen_field_address(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore,
 
 pub fn codegen_match_statement_body(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, body_idx: i32, break_block: ptr, continue_block: ptr, return_is_void: i32)
 {
-    let body_stmt = stmt_store_get(store, body_idx)
-    let ret_ty = if (return_is_void == 1) { "void" } else { get_var_type(b, "__return") }
-    if (body_stmt.tag == "expr" and ret_ty != "void")
-    {
-        let expr = expr_store_get(es, body_stmt.value_idx)
-        let val = codegen_expr_value_typed(b, es, store, expr, ret_ty)
-        llvm_emit_ret_value(b, val)
-    }
-    else
-    {
-        codegen_stmt_in_loop(b, es, store, body_idx, break_block, continue_block, return_is_void)
-    }
+    codegen_stmt_in_loop(b, es, store, body_idx, break_block, continue_block, return_is_void)
 }
 
 pub fn codegen_stmt_in_loop(b: &LlvmBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32, break_block: ptr, continue_block: ptr, return_is_void: i32)

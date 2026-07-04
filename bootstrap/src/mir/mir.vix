@@ -422,7 +422,19 @@ pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, e
     if (expr.tag == "option")
     {
         if (expr.option_has_value == 0) { return MirValue{ name: "null", ty: "ptr" } }
-        if (expr.left_idx >= 0) { return mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), expected_ty) }
+        if (expr.left_idx >= 0)
+        {
+            let value_expr = expr_store_get(es, expr.left_idx)
+            let value_ty = mir_expr_type(es, value_expr)
+            let value = mir_expr_value_typed(b, es, store, value_expr, value_ty)
+            if (value_ty == "ptr" or value_ty == "string" or type_text_is_array(value_ty) == 1 or is_ptr_to_struct(value_ty) == 1)
+            {
+                return MirValue{ name: value.name, ty: "ptr" }
+            }
+            let out = mir_temp(b)
+            mir_inst(b, out + " = add " + mir_type(value_ty) + " " + value.name + ", 1")
+            return MirValue{ name: out, ty: "ptr" }
+        }
         let out = mir_temp(b)
         mir_inst(b, out + " = const ptr \"" + mir_escape_string(expr.option_value) + "\"")
         return MirValue{ name: out, ty: "string" }
@@ -871,7 +883,13 @@ pub fn mir_bind_option_pattern(b: &MirBuilder, es: &ExprStore, subject: MirValue
     let inner_ty = mir_type_option_inner(subject.ty)
     mir_define_local(bind_expr.text, inner_ty)
     mir_inst(b, mir_var_addr(bind_expr.text) + " = alloca " + mir_type(inner_ty))
-    mir_inst(b, "store " + mir_type(inner_ty) + " " + subject.name + ", " + mir_var_addr(bind_expr.text))
+    let mut bind_val = subject.name
+    if (inner_ty != "ptr" and inner_ty != "string" and type_text_is_array(inner_ty) == 0 and is_ptr_to_struct(inner_ty) == 0)
+    {
+        bind_val = mir_temp(b)
+        mir_inst(b, bind_val + " = sub " + mir_type(inner_ty) + " " + subject.name + ", 1")
+    }
+    mir_inst(b, "store " + mir_type(inner_ty) + " " + bind_val + ", " + mir_var_addr(bind_expr.text))
 }
 
 pub fn mir_match_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt: AstStmt, break_label: string, continue_label: string)
