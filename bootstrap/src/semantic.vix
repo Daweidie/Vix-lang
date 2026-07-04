@@ -9,12 +9,13 @@ pub type SemanticResult = struct {
     error_count: i32,
     type_error_count: i32,
     warning_count: i32,
-    diagnostics: [string]
+    diagnostics: [string],
+    type_result: TypeInferResult
 }
 
 pub fn semantic_result_new(): SemanticResult
 {
-    return SemanticResult{ ok: 1, error_count: 0, type_error_count: 0, warning_count: 0, diagnostics: [] }
+    return SemanticResult{ ok: 1, error_count: 0, type_error_count: 0, warning_count: 0, diagnostics: [], type_result: typeinfer_ok("unknown") }
 }
 
 pub fn semantic_add_error(result: &SemanticResult, source: string, filename: string, error_type: string, message: string, func_name: string)
@@ -699,7 +700,7 @@ pub fn semantic_check_main(funcs: [AstFunction], result: &SemanticResult, filena
 
 pub fn semantic_check_program(program: AstProgram, source: string, filename: string): SemanticResult
 {
-    let result = semantic_result_new()
+    let mut result = semantic_result_new()
     if (program.ok == 0)
     {
         return result
@@ -721,6 +722,7 @@ pub fn semantic_check_program(program: AstProgram, source: string, filename: str
     if (result.error_count == 0)
     {
         let type_result = typeck_check_program(program)
+        result.type_result = type_result
         semantic_add_typeck_error(&result, source, filename, type_result)
     }
     semantic_check_main(program.functions, &result, filename)

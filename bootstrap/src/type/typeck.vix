@@ -161,6 +161,7 @@ pub type FunctionSymbols = struct {
     names: [string],
     return_types: [string],
     arg_counts: [i32],
+    param_offsets: [i32],
     param_types: [string],
     is_var_args: [i32],
     lines: [i32],
@@ -289,7 +290,7 @@ pub fn infer_declare_option_match_binding(env: &SymbolTable, es: &ExprStore, pat
 
 pub fn function_symbols_new(): FunctionSymbols
 {
-    return FunctionSymbols{ names: [], return_types: [], arg_counts: [], param_types: [], is_var_args: [], lines: [], cols: [], ok: 1, error: "", error_line: 0, error_col: 0 }
+    return FunctionSymbols{ names: [], return_types: [], arg_counts: [], param_offsets: [], param_types: [], is_var_args: [], lines: [], cols: [], ok: 1, error: "", error_line: 0, error_col: 0 }
 }
 
 pub fn struct_symbols_new(): StructSymbols
@@ -389,11 +390,7 @@ pub fn function_symbols_signature_equal(symbols: &FunctionSymbols, idx: i32, ret
     if (symbols.return_types[idx] != ret_ty) { return 0 }
     if (symbols.arg_counts[idx] != arg_count) { return 0 }
     if (symbols.is_var_args[idx] != is_var_arg) { return 0 }
-    let mut offset = 0
-    for (i in 0 .. idx)
-    {
-        offset += symbols.arg_counts[i]
-    }
+    let offset = symbols.param_offsets[idx]
     for (i in 0 .. arg_count)
     {
         let expected = if (i < param_types.length) { param_types[i] } else { "unknown" }
@@ -437,6 +434,7 @@ pub fn function_symbols_declare_full_loc(symbols: &FunctionSymbols, name: string
     symbols.names.push(name)
     symbols.return_types.push(ret_ty)
     symbols.arg_counts.push(arg_count)
+    symbols.param_offsets.push(symbols.param_types.length)
     for (i in 0 .. arg_count)
     {
         if (i < param_types.length) { symbols.param_types.push(param_types[i]) } else { symbols.param_types.push("unknown") }
@@ -454,11 +452,7 @@ pub fn function_symbols_param_type(symbols: &FunctionSymbols, name: string, arg_
         function_symbols_fail(symbols, "undefined function '" + name + "'")
         return "unknown"
     }
-    let mut offset = 0
-    for (i in 0 .. idx)
-    {
-        offset += symbols.arg_counts[i]
-    }
+    let offset = symbols.param_offsets[idx]
     if (arg_index < 0 or arg_index >= symbols.arg_counts[idx]) { return "unknown" }
     return symbols.param_types[offset + arg_index]
 }
@@ -789,13 +783,15 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
             expr.text
         }
         "call" -> {
-            let expected_args = function_symbols_arg_count(funcs, expr.text)
-            let is_var_arg = function_symbols_is_var_arg(funcs, expr.text)
-            if (funcs.ok == 0)
+            let func_idx = function_symbols_find(funcs, expr.text)
+            if (func_idx < 0)
             {
+                function_symbols_fail(funcs, "undefined function '" + expr.text + "'")
                 symtable_fail_expr(env, funcs.error, expr)
                 return "unknown"
             }
+            let expected_args = funcs.arg_counts[func_idx]
+            let is_var_arg = funcs.is_var_args[func_idx]
             if ((is_var_arg == 0 and expected_args != expr.args.length) or (is_var_arg == 1 and expr.args.length < expected_args))
             {
                 symtable_fail_expr(env, "function '" + expr.text + "' expects " + ast_i32(expected_args) + " arguments, got " + ast_i32(expr.args.length), expr)
@@ -807,12 +803,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                 if (env.ok == 0) { return "unknown" }
                 if (i < expected_args)
                 {
-                    let expected_ty = function_symbols_param_type(funcs, expr.text, i)
-                    if (funcs.ok == 0)
-                    {
-                        symtable_fail_expr(env, funcs.error, expr)
-                        return "unknown"
-                    }
+                    let expected_ty = funcs.param_types[funcs.param_offsets[func_idx] + i]
                     let arg_expr = expr_store_get(es, expr.args[i])
                     let empty_array_arg_ok = if (arg_expr.tag == "array_literal" and arg_expr.args.length == 0 and type_text_is_array_typeinfer(expected_ty) == 1) { 1 } else { 0 }
                     if (empty_array_arg_ok == 0 and type_can_assign(expected_ty, actual_ty) == 0)
@@ -822,7 +813,7 @@ pub fn infer_expr_type(env: &SymbolTable, funcs: &FunctionSymbols, structs: &Str
                     }
                 }
             }
-            function_symbols_return_type(funcs, expr.text)
+            funcs.return_types[func_idx]
         }
         "index" -> {
             infer_index_expr_type(env, funcs, structs, es, store, expr)

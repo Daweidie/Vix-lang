@@ -273,7 +273,7 @@ fn run_mode(mode: string, src: string, filename: string, emit: string, output: s
         diag_print(semantic_result_debug(semantic_result))
     }
 
-    let infer_result = typeck_check_program(lowered_program)
+    let infer_result = semantic_result.type_result
     match mode
     {
         "--typeinfer" | "--tyinfer" -> {
