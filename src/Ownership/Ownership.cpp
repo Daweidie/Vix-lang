@@ -277,7 +277,21 @@ private:
                         }
                     }
                     check_block(stmt->data.if_stmt.then_body, true);
-                    if (stmt->data.if_stmt.else_body) check_block(stmt->data.if_stmt.else_body, true);
+                    if (stmt->data.if_stmt.else_body) {
+                        // Restore moved state before checking else branch so it
+                        // doesn't see side-effects from the then branch.
+                        for (auto& scope : scopes) {
+                            for (auto& entry : scope.vars) {
+                                auto it = saved_moved.find(entry.first);
+                                if (it != saved_moved.end()) {
+                                    entry.second.moved = it->second;
+                                }
+                            }
+                        }
+                        check_block(stmt->data.if_stmt.else_body, true);
+                    }
+                    // Final restoration: after both branches, reset moved state
+                    // so subsequent code sees the pre-if state.
                     for (auto& scope : scopes) {
                         for (auto& entry : scope.vars) {
                             auto it = saved_moved.find(entry.first);
@@ -508,7 +522,7 @@ private:
         bool returns_ref = node->inferred_type && node->inferred_type->kind == TYPEINFO_PTR;
         if (args && args->type == AST_EXPRESSION_LIST) {
             for (int i = 0; i < args->data.expression_list.expression_count; i++) {
-                ExprInfo arg_info = check_expr(args->data.expression_list.expressions[i], ExprUse::Read);
+                ExprInfo arg_info = check_expr(args->data.expression_list.expressions[i], ExprUse::Move);
                 // Propagate borrow_source from reference arguments only when function returns a pointer
                 if (returns_ref && info.borrow_source.empty() && !arg_info.borrow_source.empty()) {
                     info.borrow_source = arg_info.borrow_source;
