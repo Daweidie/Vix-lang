@@ -1,3 +1,17 @@
+/**
+ * @file ownership.cpp
+ * @brief Ownership and borrow checker implementation
+ *
+ * This module traverses the abstract syntax tree (AST) and enforces Rust-like
+ * ownership and borrowing rules. Core features include:
+ *   - Tracking the move state of each variable
+ *   - Checking the legality of mutable/immutable borrows (only one mutable
+ * borrow or any number of immutable borrows at a time)
+ *   - Handling control-flow branch (if/else) state merging
+ *   - Supporting transaction rollback for branch preview
+ *   - Checking whether a returned borrow refers to a local variable
+ */
+
 #include "../../include/ownership.h"
 #include "../../include/compiler.h"
 
@@ -12,37 +26,85 @@ extern "C" const char *current_input_filename;
 
 namespace {
 
+/**
+ * @brief Expression usage type, used to distinguish read, move, take address,
+ * and assignment target
+ */
 enum class ExprUse { Read, Move, Address, AssignTarget };
 
+/**
+ * @brief Full state of a variable, used to track ownership, borrowing, and
+ * moves
+ */
 struct VarState {
-  const TypeInfo *type = nullptr;
-  bool is_mutable = false;
-  bool moved = false;
-  bool is_global = false;
-  bool borrowed_shared = false;
-  bool borrowed_mut = false;
-  // Set of variables this variable borrows (e.g., struct containing multiple
-  // references)
-  std::unordered_set<std::string> borrow_sources;
+  std::string name;               ///< Variable name
+  int scope_level = -1;           ///< Scope depth (0 is global)
+  const TypeInfo *type = nullptr; ///< Type information
+  bool is_mutable = false;        ///< Whether mutable
+  bool moved = false;             ///< Whether moved (ownership transferred)
+  bool is_global = false;         ///< Whether a global variable
+  bool borrowed_shared =
+      false;                 ///< Whether there is a shared (immutable) borrow
+  bool borrowed_mut = false; ///< Whether there is an exclusive (mutable) borrow
+  std::unordered_set<std::string>
+      borrow_sources; ///< Source variable names of current borrows (for chain
+                      ///< tracking)
 };
 
+/**
+ * @brief A scope containing all variables within that scope
+ */
 struct Scope {
   std::unordered_map<std::string, VarState> vars;
 };
 
+/**
+ * @brief Information after evaluating an expression
+ */
 struct ExprInfo {
-  const TypeInfo *type = nullptr;
-  bool copy = true;
-  bool is_ref = false;
-  // Propagated set of borrow sources
+  const TypeInfo *type = nullptr; ///< Expression type
+  bool copy = true;               ///< Whether copyable (Copy trait)
+  bool is_ref = false;            ///< Whether a reference type
+  std::unordered_set<std::string>
+      borrow_sources; ///< Source variables that this expression refers to
+};
+
+/**
+ * @brief Transaction log entry, recording the state of a variable before the
+ * transaction began
+ */
+struct LogEntry {
+  int scope_level;
+  std::string name;
+  VarState old_state;
+};
+
+/**
+ * @brief Branch state snapshot, used for if/else merging
+ */
+struct BranchState {
+  bool moved = false;
+  bool borrowed_shared = false;
+  bool borrowed_mut = false;
   std::unordered_set<std::string> borrow_sources;
 };
 
-// A snapshot of moved states across all scopes, indexed by scope depth.
-using ScopeSnapshot = std::vector<std::unordered_map<std::string, bool>>;
-
+/**
+ * @brief Main ownership checker class
+ *
+ * Traverses the AST, maintains a scope stack and variable states, and detects
+ * errors such as use-after-move and illegal borrows. Supports a transaction
+ * mechanism to handle branch merging: record state before entering a branch,
+ * roll back after branch checking, then merge the side effects of each branch.
+ */
 class OwnershipChecker {
 public:
+  /**
+   * @brief Public entry point: perform ownership checking on the entire program
+   * AST
+   * @param root AST root node
+   * @return 0 indicates check passed, 1 indicates errors exist
+   */
   int check(ASTNode *root) {
     push_scope();
     check_node(root);
@@ -51,8 +113,15 @@ public:
   }
 
 private:
-  std::vector<Scope> scopes;
-  int errors = 0;
+  std::vector<Scope> scopes; ///< Scope stack
+  int errors = 0;            ///< Accumulated error count
+
+  // Transaction related
+  std::vector<std::vector<LogEntry>>
+      transaction_logs; ///< Transaction log stack (one log list per
+                        ///< transaction)
+  size_t transaction_baseline_depth =
+      0; ///< Scope depth at transaction start, used to limit logging range
 
   static const char *node_file(const ASTNode *node) {
     if (node && node->source_file)
@@ -70,6 +139,15 @@ private:
                                                    : 1;
   }
 
+  /**
+   * @brief Determine whether a type satisfies Copy semantics (can be implicitly
+   * copied)
+   * @details Primitives, pointers, function pointers are always Copy;
+   *          structs are Copy if all fields are Copy;
+   *          strings, dynamic arrays, generic applications are non-Copy by
+   * default; fixed-size arrays are considered Copy if size ≤ 16 and element
+   * type is Copy (optimization for small arrays)
+   */
   static bool is_copy_type(const TypeInfo *t) {
     if (!t)
       return true;
@@ -105,18 +183,24 @@ private:
   }
 
   void push_scope() { scopes.emplace_back(); }
-
   void pop_scope() {
     if (!scopes.empty())
       scopes.pop_back();
   }
 
+  /**
+   * @brief Report a semantic error, set location and call the frontend error
+   * interface
+   */
   void report(ASTNode *node, const std::string &message) {
     set_location_with_column(node_file(node), node_line(node), node_col(node));
     report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, message.c_str());
     errors++;
   }
 
+  /**
+   * @brief Look up a variable starting from the current scope upwards
+   */
   VarState *lookup(const std::string &name) {
     for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
       auto found = it->vars.find(name);
@@ -126,6 +210,9 @@ private:
     return nullptr;
   }
 
+  /**
+   * @brief Check whether a name is a local variable (non-global)
+   */
   bool is_local_name(const std::string &name) const {
     if (name.empty())
       return false;
@@ -137,33 +224,124 @@ private:
     return false;
   }
 
-  static int count_derefs(ASTNode *node) {
-    int count = 0;
-    while (node && node->type == AST_UNARYOP &&
-           node->data.unaryop.op == OP_DEREF) {
-      ++count;
-      node = node->data.unaryop.expr;
-    }
-    return count;
+  /**
+   * @brief Begin a new transaction for branch preview
+   * @details Record the current scope depth; subsequent modifications to
+   * variables will be logged, so they can be restored on rollback.
+   */
+  void begin_transaction() {
+    transaction_logs.emplace_back();
+    transaction_baseline_depth = scopes.size();
   }
 
-  std::string trace_borrow_levels(const std::string &base, int levels) {
-    if (levels <= 0 || base.empty())
-      return base;
-    std::string current = base;
-    for (int i = 0; i < levels; ++i) {
-      VarState *state = lookup(current);
-      if (!state || state->borrow_sources.empty())
-        break;
-      if (state->type && state->type->kind == TYPEINFO_PTR) {
-        // follow the first borrow source (they are all equivalent for a single
-        // reference)
-        current = *state->borrow_sources.begin();
-      } else {
-        break;
+  /**
+   * @brief Commit the current transaction, merging the log into the parent
+   * transaction (if any)
+   * @details If a parent transaction exists, merge current log entries into the
+   * parent log (deduplicating), indicating that these modifications should be
+   * preserved after branch merging.
+   */
+  void commit_transaction() {
+    if (transaction_logs.empty())
+      return;
+    auto committed = std::move(transaction_logs.back());
+    transaction_logs.pop_back();
+    if (!transaction_logs.empty()) {
+      auto &parent = transaction_logs.back();
+      for (auto &entry : committed) {
+        bool present = false;
+        for (auto &p : parent) {
+          if (p.scope_level == entry.scope_level && p.name == entry.name) {
+            present = true;
+            break;
+          }
+        }
+        if (!present)
+          parent.push_back(std::move(entry));
       }
     }
-    return current;
+  }
+
+  /**
+   * @brief Rollback the current transaction, restoring all modified variables
+   * to their state before the transaction began
+   */
+  void rollback_transaction() {
+    if (transaction_logs.empty())
+      return;
+    auto &log = transaction_logs.back();
+    for (auto it = log.rbegin(); it != log.rend(); ++it) {
+      if (it->scope_level >= 0 && it->scope_level < (int)scopes.size()) {
+        auto &scope = scopes[it->scope_level];
+        auto var = scope.vars.find(it->name);
+        if (var != scope.vars.end()) {
+          var->second = it->old_state;
+        }
+      }
+    }
+    transaction_logs.pop_back();
+  }
+
+  /**
+   * @brief Log a variable modification for the transaction log
+   * @details Only when currently in a transaction, the variable is in an outer
+   * scope (not newly created within the transaction), and not yet recorded,
+   * save the current state as the old state.
+   */
+  void log_var_modification(VarState *state) {
+    if (transaction_logs.empty())
+      return;
+    if (state->scope_level < 0)
+      return;
+    if ((size_t)state->scope_level >= transaction_baseline_depth)
+      return;
+    auto &current_log = transaction_logs.back();
+    for (auto &entry : current_log) {
+      if (entry.scope_level == state->scope_level && entry.name == state->name)
+        return;
+    }
+    current_log.push_back({state->scope_level, state->name, *state});
+  }
+
+  /**
+   * @brief Capture the state of all currently visible variables (for if
+   * baseline)
+   */
+  void
+  capture_all_variables(std::unordered_map<std::string, BranchState> &out) {
+    for (auto &scope : scopes) {
+      for (auto &entry : scope.vars) {
+        auto &var = entry.second;
+        BranchState bs;
+        bs.moved = var.moved;
+        bs.borrowed_shared = var.borrowed_shared;
+        bs.borrowed_mut = var.borrowed_mut;
+        bs.borrow_sources = var.borrow_sources;
+        out[var.name] = std::move(bs);
+      }
+    }
+  }
+
+  /**
+   * @brief Capture variable states in outer scopes (outside the transaction
+   * baseline), used for post-branch snapshots
+   */
+  void capture_outer_branch_state(
+      std::unordered_map<std::string, BranchState> &out) {
+    for (auto &scope : scopes) {
+      for (auto &entry : scope.vars) {
+        auto &var = entry.second;
+        if (var.scope_level < 0 ||
+            (size_t)var.scope_level >= transaction_baseline_depth)
+          continue;
+        BranchState bs;
+        bs.moved = var.moved;
+        bs.borrowed_shared = var.borrowed_shared;
+        bs.borrowed_mut = var.borrowed_mut;
+        bs.borrow_sources = var.borrow_sources;
+        out[var.name] = std::move(bs);
+      }
+    }
   }
 
   void declare_var(const std::string &name, const TypeInfo *type,
@@ -172,6 +350,8 @@ private:
     if (scopes.empty())
       push_scope();
     VarState state;
+    state.name = name;
+    state.scope_level = (int)scopes.size() - 1;
     state.type = type;
     state.is_mutable = is_mutable;
     state.is_global = is_global;
@@ -179,8 +359,16 @@ private:
     scopes.back().vars[name] = std::move(state);
   }
 
+  /**
+   * @brief Cleanup work at the end of a statement
+   * @details Clear borrow flags of variables that are no longer referenced by
+   * any borrow. For example, if a borrow source variable is no longer in any
+   * borrow_sources, then that variable's borrowed_shared/borrowed_mut should be
+   * reset.
+   */
   void end_statement() {
-    // Collect all borrow source names that are still alive across all scopes.
+    // Collect all currently active borrow sources (i.e., names appearing in any
+    // variable's borrow_sources)
     std::unordered_set<std::string> active_borrow_sources;
     for (auto &scope : scopes) {
       for (auto &entry : scope.vars) {
@@ -189,12 +377,13 @@ private:
         }
       }
     }
-    // Clear borrow flags for variables that are no longer referenced by any
-    // alive variable.
+    // Iterate all variables; if a variable itself is not in the active borrow
+    // sources, clear its borrow flags
     for (auto &scope : scopes) {
       for (auto &entry : scope.vars) {
         if (active_borrow_sources.find(entry.first) ==
             active_borrow_sources.end()) {
+          log_var_modification(&entry.second);
           entry.second.borrowed_shared = false;
           entry.second.borrowed_mut = false;
         }
@@ -202,560 +391,692 @@ private:
     }
   }
 
-  ScopeSnapshot capture_moved_snapshot() {
-    ScopeSnapshot snap;
-    snap.reserve(scopes.size());
-    for (const auto &scope : scopes) {
-      std::unordered_map<std::string, bool> m;
-      for (const auto &entry : scope.vars) {
-        m[entry.first] = entry.second.moved;
-      }
-      snap.push_back(std::move(m));
-    }
-    return snap;
-  }
+  void check_stmt(ASTNode *stmt);
 
-  void apply_moved_snapshot(const ScopeSnapshot &snap) {
-    size_t n = std::min(scopes.size(), snap.size());
-    for (size_t i = 0; i < n; ++i) {
-      for (const auto &p : snap[i]) {
-        auto it = scopes[i].vars.find(p.first);
-        if (it != scopes[i].vars.end()) {
-          it->second.moved = p.second;
-        }
-      }
-    }
-  }
+  void check_block(ASTNode *block, bool new_scope);
 
-  ScopeSnapshot merge_moved_snapshots(const ScopeSnapshot &then_snap,
-                                      const ScopeSnapshot &else_snap,
-                                      bool has_else) {
-    size_t depth = then_snap.size();
+  void check_function(ASTNode *fn);
+
+  void check_global(ASTNode *node);
+
+  void check_return(ASTNode *node);
+
+  void check_assign(ASTNode *node);
+
+  ExprInfo check_expr(ASTNode *node, ExprUse use);
+
+  ExprInfo check_identifier(ASTNode *node, ExprUse use);
+
+  ExprInfo check_unary(ASTNode *node);
+
+  ExprInfo check_call(ASTNode *node);
+
+  ExprInfo check_expression_list(ASTNode *node, ExprUse use = ExprUse::Move);
+
+  ExprInfo check_struct_literal(ASTNode *node);
+
+  /**
+   * @brief Count the number of dereference levels of an expression
+   */
+  static int count_derefs(ASTNode *node);
+
+  /**
+   * @brief Trace the borrow source through multiple pointer levels
+   * @param base base variable name
+   * @param levels dereference count
+   * @return the variable name finally pointed to after levels dereferences
+   */
+  std::string trace_borrow_levels(const std::string &base, int levels);
+
+  /**
+   * @brief Get the underlying variable name of an expression (stripping member
+   * access, subscript, dereference etc.)
+   * @return the bottommost identifier name, or empty if cannot be extracted
+   */
+  std::string lvalue_base(ASTNode *node);
+
+  void check_node(ASTNode *node);
+};
+
+/**
+ * @brief Check a single statement
+ */
+void OwnershipChecker::check_stmt(ASTNode *stmt) {
+  if (!stmt)
+    return;
+  switch (stmt->type) {
+  case AST_PROGRAM:
+    check_block(stmt, true);
+    return;
+  case AST_FUNCTION:
+    check_function(stmt);
+    return;
+  case AST_ASSIGN:
+  case AST_CONST:
+    check_assign(stmt);
+    end_statement();
+    return;
+  case AST_PRINT:
+    check_expr(stmt->data.print.expr, ExprUse::Read);
+    end_statement();
+    return;
+  case AST_RETURN:
+    check_return(stmt);
+    end_statement();
+    return;
+  case AST_IF: {
+    // Check condition expression (read-only)
+    check_expr(stmt->data.if_stmt.condition, ExprUse::Read);
+    end_statement();
+
+    bool has_else = (stmt->data.if_stmt.else_body != nullptr);
+
+    // Save state before entering the branch as baseline
+    std::unordered_map<std::string, BranchState> baseline;
+    capture_all_variables(baseline);
+
+    // Check then branch, use transaction for rollback
+    begin_transaction();
+    check_block(stmt->data.if_stmt.then_body, true);
+    std::unordered_map<std::string, BranchState> then_state;
+    capture_outer_branch_state(then_state);
+    rollback_transaction();
+
+    // Check else branch (if any), also use transaction
+    std::unordered_map<std::string, BranchState> else_state;
     if (has_else) {
-      depth = std::max(depth, else_snap.size());
+      begin_transaction();
+      check_block(stmt->data.if_stmt.else_body, true);
+      capture_outer_branch_state(else_state);
+      rollback_transaction();
     }
-    ScopeSnapshot result(depth);
-    for (size_t i = 0; i < depth; ++i) {
-      std::unordered_set<std::string> keys;
-      if (i < then_snap.size()) {
-        for (const auto &p : then_snap[i])
-          keys.insert(p.first);
+
+    // Collect all variables that appear in then/else
+    std::unordered_set<std::string> all_keys;
+    for (auto &p : then_state)
+      all_keys.insert(p.first);
+    if (has_else)
+      for (auto &p : else_state)
+        all_keys.insert(p.first);
+
+    // Merge branch states: use "or" logic (if moved or borrowed in any branch,
+    // keep after merge)
+    for (const auto &var_name : all_keys) {
+      auto base_it = baseline.find(var_name);
+      BranchState base_bs;
+      if (base_it != baseline.end())
+        base_bs = base_it->second;
+
+      BranchState then_bs = base_bs;
+      auto then_it = then_state.find(var_name);
+      if (then_it != then_state.end())
+        then_bs = then_it->second;
+
+      BranchState else_bs = base_bs;
+      if (has_else) {
+        auto else_it = else_state.find(var_name);
+        if (else_it != else_state.end())
+          else_bs = else_it->second;
       }
-      if (has_else && i < else_snap.size()) {
-        for (const auto &p : else_snap[i])
-          keys.insert(p.first);
-      }
-      for (const auto &k : keys) {
-        bool in_then = false;
-        if (i < then_snap.size()) {
-          auto it = then_snap[i].find(k);
-          if (it != then_snap[i].end())
-            in_then = it->second;
+
+      bool merged_moved =
+          has_else ? (then_bs.moved || else_bs.moved) : then_bs.moved;
+      bool merged_shared =
+          has_else ? (then_bs.borrowed_shared || else_bs.borrowed_shared)
+                   : then_bs.borrowed_shared;
+      bool merged_mut = has_else
+                            ? (then_bs.borrowed_mut || else_bs.borrowed_mut)
+                            : then_bs.borrowed_mut;
+
+      auto merged_sources = then_bs.borrow_sources;
+      if (has_else)
+        merged_sources.insert(else_bs.borrow_sources.begin(),
+                              else_bs.borrow_sources.end());
+
+      VarState *state = lookup(var_name);
+      if (state) {
+        state->moved = merged_moved;
+        state->borrowed_shared = merged_shared;
+        state->borrowed_mut = merged_mut;
+        state->borrow_sources = std::move(merged_sources);
+        // If variable was moved and is non-Copy, clear borrow sources (can no
+        // longer be borrowed)
+        if (state->moved && !is_copy_type(state->type)) {
+          state->borrow_sources.clear();
         }
-        bool in_else = false;
-        if (has_else && i < else_snap.size()) {
-          auto it = else_snap[i].find(k);
-          if (it != else_snap[i].end())
-            in_else = it->second;
-        }
-        result[i][k] = has_else ? (in_then || in_else) : in_then;
       }
     }
-    return result;
+    return;
   }
-
-  std::string lvalue_base(ASTNode *node) {
-    if (!node)
-      return {};
-    switch (node->type) {
-    case AST_IDENTIFIER:
-      return node->data.identifier.name ? node->data.identifier.name : "";
-    case AST_MEMBER_ACCESS:
-      return lvalue_base(node->data.member_access.object);
-    case AST_INDEX:
-      return lvalue_base(node->data.index.target);
-    case AST_UNARYOP:
-      if (node->data.unaryop.op == OP_DEREF)
-        return lvalue_base(node->data.unaryop.expr);
-      return {};
-    default:
-      return {};
-    }
-  }
-
-  void check_node(ASTNode *node) {
-    if (!node)
-      return;
-    switch (node->type) {
-    case AST_PROGRAM:
-      check_block(node, false);
-      end_statement();
-      break;
-    case AST_FUNCTION:
-      check_function(node);
-      break;
-    case AST_STRUCT_DEF:
-    case AST_IMPORT:
-      break;
-    case AST_GLOBAL:
-      check_global(node);
-      end_statement();
-      break;
-    default:
-      check_stmt(node);
-      break;
-    }
-  }
-
-  void check_block(ASTNode *block, bool new_scope) {
-    if (!block)
-      return;
-    if (new_scope)
+  case AST_WHILE:
+    check_expr(stmt->data.while_stmt.condition, ExprUse::Read);
+    end_statement();
+    check_block(stmt->data.while_stmt.body, true);
+    return;
+  case AST_FOR:
+    check_expr(stmt->data.for_stmt.start, ExprUse::Read);
+    check_expr(stmt->data.for_stmt.end, ExprUse::Read);
+    end_statement();
+    {
       push_scope();
-
-    if (block->type == AST_PROGRAM) {
-      for (int i = 0; i < block->data.program.statement_count; i++) {
-        check_stmt(block->data.program.statements[i]);
+      if (stmt->data.for_stmt.var &&
+          stmt->data.for_stmt.var->type == AST_IDENTIFIER &&
+          stmt->data.for_stmt.var->data.identifier.name) {
+        declare_var(stmt->data.for_stmt.var->data.identifier.name,
+                    stmt->data.for_stmt.var->inferred_type, false, false);
       }
-    } else {
-      check_stmt(block);
-    }
-
-    if (new_scope) {
+      check_block(stmt->data.for_stmt.body, false);
       pop_scope();
-      end_statement(); // Release borrows held by variables destroyed on scope
-                       // exit
+      end_statement();
     }
+    return;
+  case AST_BREAK:
+  case AST_CONTINUE:
+    end_statement();
+    return;
+  default:
+    check_expr(stmt, ExprUse::Read);
+    end_statement();
+    return;
+  }
+}
+
+/**
+ * @brief Check a code block
+ * @param block code block node (could be AST_PROGRAM or a single statement)
+ * @param new_scope whether it is a new scope
+ */
+void OwnershipChecker::check_block(ASTNode *block, bool new_scope) {
+  if (!block)
+    return;
+  if (new_scope)
+    push_scope();
+
+  if (block->type == AST_PROGRAM) {
+    for (int i = 0; i < block->data.program.statement_count; i++) {
+      check_stmt(block->data.program.statements[i]);
+    }
+  } else {
+    check_stmt(block);
   }
 
-  void check_function(ASTNode *fn) {
-    if (!fn || fn->data.function.is_extern)
-      return;
-    push_scope();
-    ASTNode *params = fn->data.function.params;
-    if (params && params->type == AST_EXPRESSION_LIST) {
-      for (int i = 0; i < params->data.expression_list.expression_count; i++) {
-        ASTNode *param = params->data.expression_list.expressions[i];
-        if (!param)
-          continue;
-        ASTNode *id = param;
-        const TypeInfo *type = param->inferred_type;
-        bool mut = param->mutability == MUTABILITY_MUTABLE;
-        if (param->type == AST_ASSIGN) {
-          id = param->data.assign.left;
-          type = param->inferred_type
-                     ? param->inferred_type
-                     : (param->data.assign.right
-                            ? param->data.assign.right->inferred_type
-                            : nullptr);
-          mut = param->data.assign.mutability == MUTABILITY_MUTABLE ||
-                (id && id->mutability == MUTABILITY_MUTABLE);
-          // Evaluate default value in a temporary scope using Read to avoid
-          // false moves.
-          if (param->data.assign.right) {
-            push_scope();
-            check_expr(param->data.assign.right, ExprUse::Read);
-            pop_scope();
-            end_statement();
-          }
-        }
-        if (id && id->type == AST_IDENTIFIER && id->data.identifier.name) {
-          declare_var(id->data.identifier.name, type, mut, false);
-        }
-      }
-    }
-    check_block(fn->data.function.body, false);
+  if (new_scope) {
     pop_scope();
     end_statement();
   }
+}
 
-  void check_global(ASTNode *node) {
-    if (!node || !node->data.global_decl.identifier ||
-        node->data.global_decl.identifier->type != AST_IDENTIFIER) {
-      return;
-    }
-    ExprInfo init =
-        check_expr(node->data.global_decl.initializer, ExprUse::Read);
-    const char *name = node->data.global_decl.identifier->data.identifier.name;
-    if (name)
-      declare_var(name, node->inferred_type ? node->inferred_type : init.type,
-                  true, true, init.borrow_sources);
-  }
-
-  void check_stmt(ASTNode *stmt) {
-    if (!stmt)
-      return;
-    switch (stmt->type) {
-    case AST_PROGRAM:
-      check_block(stmt, true);
-      return;
-    case AST_FUNCTION:
-      check_function(stmt);
-      return;
-    case AST_ASSIGN:
-    case AST_CONST:
-      check_assign(stmt);
-      end_statement();
-      return;
-    case AST_PRINT:
-      check_expr(stmt->data.print.expr, ExprUse::Read);
-      end_statement();
-      return;
-    case AST_RETURN:
-      check_return(stmt);
-      end_statement();
-      return;
-    case AST_IF: {
-      check_expr(stmt->data.if_stmt.condition, ExprUse::Read);
-      end_statement();
-      ScopeSnapshot saved_moved = capture_moved_snapshot();
-      check_block(stmt->data.if_stmt.then_body, true);
-      ScopeSnapshot then_moved = capture_moved_snapshot();
-      ScopeSnapshot else_moved;
-      bool has_else = (stmt->data.if_stmt.else_body != nullptr);
-      if (has_else) {
-        apply_moved_snapshot(saved_moved);
-        check_block(stmt->data.if_stmt.else_body, true);
-        else_moved = capture_moved_snapshot();
-      }
-      ScopeSnapshot merged =
-          merge_moved_snapshots(then_moved, else_moved, has_else);
-      apply_moved_snapshot(merged);
-      return;
-    }
-    case AST_WHILE:
-      check_expr(stmt->data.while_stmt.condition, ExprUse::Read);
-      end_statement();
-      check_block(stmt->data.while_stmt.body, true);
-      // Moves inside the loop body persist after the loop (conservative).
-      // TODO: continue statements may cause false positives because moved
-      // states from code after continue are accumulated. A more precise
-      // analysis would merge the moved state at every branch point (including
-      // continue).
-      return;
-    case AST_FOR:
-      check_expr(stmt->data.for_stmt.start, ExprUse::Read);
-      check_expr(stmt->data.for_stmt.end, ExprUse::Read);
-      end_statement();
-      {
-        push_scope();
-        if (stmt->data.for_stmt.var &&
-            stmt->data.for_stmt.var->type == AST_IDENTIFIER &&
-            stmt->data.for_stmt.var->data.identifier.name) {
-          declare_var(stmt->data.for_stmt.var->data.identifier.name,
-                      stmt->data.for_stmt.var->inferred_type, false, false);
-        }
-        check_block(stmt->data.for_stmt.body, false);
-        pop_scope();
-        end_statement();
-      }
-      // Moves inside the loop body persist after the loop.
-      return;
-    case AST_BREAK:
-    case AST_CONTINUE:
-      end_statement();
-      return;
-    default:
-      check_expr(stmt, ExprUse::Read);
-      end_statement();
-      return;
-    }
-  }
-
-  void check_assign(ASTNode *node) {
-    ASTNode *left = node->data.assign.left;
-    ASTNode *right = node->data.assign.right;
-    bool is_decl = node->data.assign.is_declaration != 0;
-    ExprInfo rhs = check_expr(right, ExprUse::Move);
-
-    if (is_decl && left && left->type == AST_IDENTIFIER &&
-        left->data.identifier.name) {
-      if (!rhs.borrow_sources.empty() &&
-          rhs.borrow_sources.count(left->data.identifier.name)) {
-        report(left, "cannot borrow value of variable being declared");
-      }
-      bool mut = left->mutability == MUTABILITY_MUTABLE ||
-                 node->data.assign.mutability == MUTABILITY_MUTABLE;
-      const TypeInfo *type = right ? right->inferred_type : nullptr;
-      if (!type || type->kind == TYPEINFO_VOID)
-        type = rhs.type;
-      declare_var(left->data.identifier.name, type ? type : rhs.type, mut,
-                  scopes.size() == 1, rhs.borrow_sources);
-      return;
-    }
-
-    std::string base = lvalue_base(left);
-    if (!base.empty()) {
-      int deref_count = count_derefs(left);
-      std::string target = trace_borrow_levels(base, deref_count);
-      VarState *target_state = lookup(target);
-      if (target_state) {
-        if (target_state->moved)
-          report(left, "use of moved value '" + target + "'");
-        if (target_state->borrowed_shared || target_state->borrowed_mut) {
-          report(left,
-                 "cannot assign to '" + target + "' while it is borrowed");
-        }
-        target_state->moved = false;
-
-        // Determine if the assignment replaces the entire variable or only a
-        // part.
-        bool is_partial = false;
-        ASTNode *lv = left;
-        while (lv && lv->type == AST_UNARYOP &&
-               lv->data.unaryop.op == OP_DEREF) {
-          lv = lv->data.unaryop.expr;
-        }
-        if (lv && (lv->type == AST_MEMBER_ACCESS || lv->type == AST_INDEX)) {
-          is_partial = true;
-        }
-        if (is_partial) {
-          // Partial assignment (e.g., s.field = ...) merges new borrow sources
-          // to preserve existing borrows from other fields.
-          // NOTE: This is conservative; old borrow sources from the same field
-          // are never removed, which may cause false positives but ensures
-          // safety.
-          target_state->borrow_sources.insert(rhs.borrow_sources.begin(),
-                                              rhs.borrow_sources.end());
-        } else {
-          target_state->borrow_sources = rhs.borrow_sources;
+/**
+ * @brief Check a function definition
+ * @details Process parameter declarations and check the function body
+ */
+void OwnershipChecker::check_function(ASTNode *fn) {
+  if (!fn || fn->data.function.is_extern)
+    return;
+  push_scope();
+  ASTNode *params = fn->data.function.params;
+  if (params && params->type == AST_EXPRESSION_LIST) {
+    for (int i = 0; i < params->data.expression_list.expression_count; i++) {
+      ASTNode *param = params->data.expression_list.expressions[i];
+      if (!param)
+        continue;
+      ASTNode *id = param;
+      const TypeInfo *type = param->inferred_type;
+      bool mut = param->mutability == MUTABILITY_MUTABLE;
+      if (param->type == AST_ASSIGN) { // Parameter with default value
+        id = param->data.assign.left;
+        type = param->inferred_type
+                   ? param->inferred_type
+                   : (param->data.assign.right
+                          ? param->data.assign.right->inferred_type
+                          : nullptr);
+        mut = param->data.assign.mutability == MUTABILITY_MUTABLE ||
+              (id && id->mutability == MUTABILITY_MUTABLE);
+        if (param->data.assign.right) {
+          push_scope();
+          check_expr(param->data.assign.right, ExprUse::Read);
+          pop_scope();
+          end_statement();
         }
       }
-    }
-    check_expr(left, ExprUse::AssignTarget);
-  }
-
-  void check_return(ASTNode *node) {
-    ExprInfo value = check_expr(node->data.return_stmt.expr, ExprUse::Move);
-    for (const auto &src : value.borrow_sources) {
-      if (is_local_name(src)) {
-        report(node->data.return_stmt.expr ? node->data.return_stmt.expr : node,
-               "cannot return reference to local variable '" + src + "'");
-        break;
+      if (id && id->type == AST_IDENTIFIER && id->data.identifier.name) {
+        declare_var(id->data.identifier.name, type, mut, false);
       }
     }
   }
+  check_block(fn->data.function.body, false);
+  pop_scope();
+  end_statement();
+}
 
-  ExprInfo check_expr(ASTNode *node, ExprUse use) {
-    ExprInfo info;
-    if (!node)
-      return info;
-    info.type = node->inferred_type;
-    info.copy = is_copy_type(node->inferred_type);
+/**
+ * @brief Check a global variable declaration
+ */
+void OwnershipChecker::check_global(ASTNode *node) {
+  if (!node || !node->data.global_decl.identifier ||
+      node->data.global_decl.identifier->type != AST_IDENTIFIER) {
+    return;
+  }
+  ExprInfo init = check_expr(node->data.global_decl.initializer, ExprUse::Read);
+  const char *name = node->data.global_decl.identifier->data.identifier.name;
+  if (name)
+    declare_var(name, node->inferred_type ? node->inferred_type : init.type,
+                true, true, init.borrow_sources);
+}
 
-    switch (node->type) {
-    case AST_IDENTIFIER:
-      return check_identifier(node, use);
-    case AST_NUM_INT:
-    case AST_NUM_FLOAT:
-    case AST_CHAR:
-    case AST_NIL:
-      info.copy = true;
-      return info;
-    case AST_STRING:
-      info.copy = false;
-      return info;
-    case AST_UNARYOP:
-      return check_unary(node);
-    case AST_BINOP:
-      check_expr(node->data.binop.left, ExprUse::Read);
-      check_expr(node->data.binop.right, ExprUse::Read);
-      return info;
-    case AST_CALL:
-      return check_call(node);
-    case AST_EXPRESSION_LIST:
-      return check_expression_list(node, use);
-    case AST_INDEX: {
-      ExprInfo target = check_expr(node->data.index.target, ExprUse::Read);
-      check_expr(node->data.index.index, ExprUse::Read);
-      info.borrow_sources = target.borrow_sources;
-      return info;
-    }
-    case AST_MEMBER_ACCESS: {
-      ExprInfo obj = check_expr(node->data.member_access.object, ExprUse::Read);
-      // NOTE: This treats field access as borrowing the whole object, like
-      // Rust's field-level borrow. This is conservative and safe, though it may
-      // cause false borrow conflicts.
-      info.borrow_sources = obj.borrow_sources;
-      return info;
-    }
-    case AST_STRUCT_LITERAL:
-      return check_struct_literal(node);
-    case AST_IF:
-      check_stmt(node);
-      return info;
-    case AST_FUNCTION:
-      check_function(node);
-      info.copy = true;
-      return info;
-    case AST_TOINT:
-      check_expr(node->data.toint.expr, ExprUse::Read);
-      return info;
-    case AST_TOFLOAT:
-      check_expr(node->data.tofloat.expr, ExprUse::Read);
-      return info;
-    case AST_INPUT:
-      check_expr(node->data.input.prompt, ExprUse::Read);
-      return info;
-    default:
-      return info;
+/**
+ * @brief Check a return statement
+ * @details Ensure the return value does not reference local variables (prevent
+ * dangling references)
+ */
+void OwnershipChecker::check_return(ASTNode *node) {
+  ExprInfo value = check_expr(node->data.return_stmt.expr, ExprUse::Move);
+  for (const auto &src : value.borrow_sources) {
+    if (is_local_name(src)) {
+      report(node->data.return_stmt.expr ? node->data.return_stmt.expr : node,
+             "cannot return reference to local variable '" + src + "'");
+      break;
     }
   }
+}
 
-  ExprInfo check_identifier(ASTNode *node, ExprUse use) {
-    ExprInfo info;
-    info.type = node->inferred_type;
-    info.copy = is_copy_type(node->inferred_type);
-    const char *cname = node->data.identifier.name;
-    if (!cname)
-      return info;
-    VarState *state = lookup(cname);
-    if (!state)
-      return info;
-    info.type = state->type ? state->type : node->inferred_type;
-    info.copy = is_copy_type(info.type);
-    if (std::isupper(static_cast<unsigned char>(cname[0])))
-      info.copy = true;
-    info.borrow_sources = state->borrow_sources;
+/**
+ * @brief Check an assignment statement (including declarations)
+ * @details Handle variable declarations, move semantics, and borrow checking
+ */
+void OwnershipChecker::check_assign(ASTNode *node) {
+  ASTNode *left = node->data.assign.left;
+  ASTNode *right = node->data.assign.right;
+  bool is_decl = node->data.assign.is_declaration != 0;
+  ExprInfo rhs = check_expr(right, ExprUse::Move);
 
-    if (use != ExprUse::AssignTarget && state->moved) {
-      report(node, std::string("use of moved value '") + cname + "'");
-      return info;
+  // Variable declaration
+  if (is_decl && left && left->type == AST_IDENTIFIER &&
+      left->data.identifier.name) {
+    if (!rhs.borrow_sources.empty() &&
+        rhs.borrow_sources.count(left->data.identifier.name)) {
+      report(left, "cannot borrow value of variable being declared");
     }
-    if (use == ExprUse::Move && !info.copy) {
-      if (state->borrowed_shared || state->borrowed_mut) {
-        report(node,
-               std::string("cannot move '") + cname + "' while it is borrowed");
+    bool mut = left->mutability == MUTABILITY_MUTABLE ||
+               node->data.assign.mutability == MUTABILITY_MUTABLE;
+    const TypeInfo *type = right ? right->inferred_type : nullptr;
+    if (!type || type->kind == TYPEINFO_VOID)
+      type = rhs.type;
+    declare_var(left->data.identifier.name, type ? type : rhs.type, mut,
+                scopes.size() == 1, rhs.borrow_sources);
+    return;
+  }
+
+  // Assignment to existing variable
+  std::string base = lvalue_base(left);
+  if (!base.empty()) {
+    int deref_count = count_derefs(left);
+    std::string target = trace_borrow_levels(base, deref_count);
+    VarState *target_state = lookup(target);
+    if (target_state) {
+      log_var_modification(target_state);
+      if (target_state->moved)
+        report(left, "use of moved value '" + target + "'");
+      if (target_state->borrowed_shared || target_state->borrowed_mut) {
+        report(left, "cannot assign to '" + target + "' while it is borrowed");
+      }
+      target_state->moved = false; // Make available again after reassignment
+
+      // Determine if partial assignment (e.g., struct field, array element)
+      bool is_partial = false;
+      ASTNode *lv = left;
+      while (lv && lv->type == AST_UNARYOP && lv->data.unaryop.op == OP_DEREF) {
+        lv = lv->data.unaryop.expr;
+      }
+      if (lv && (lv->type == AST_MEMBER_ACCESS || lv->type == AST_INDEX)) {
+        is_partial = true;
+      }
+      if (is_partial) {
+        target_state->borrow_sources.insert(rhs.borrow_sources.begin(),
+                                            rhs.borrow_sources.end());
       } else {
-        state->moved = true;
-        state->borrow_sources.clear();
+        target_state->borrow_sources = rhs.borrow_sources;
       }
     }
+  }
+  check_expr(left, ExprUse::AssignTarget);
+}
+
+/**
+ * @brief Check an expression, returning expression information
+ */
+ExprInfo OwnershipChecker::check_expr(ASTNode *node, ExprUse use) {
+  ExprInfo info;
+  if (!node)
+    return info;
+  info.type = node->inferred_type;
+  info.copy = is_copy_type(node->inferred_type);
+
+  switch (node->type) {
+  case AST_IDENTIFIER:
+    return check_identifier(node, use);
+  case AST_NUM_INT:
+  case AST_NUM_FLOAT:
+  case AST_CHAR:
+  case AST_NIL:
+    info.copy = true;
+    return info;
+  case AST_STRING:
+    info.copy = false;
+    return info;
+  case AST_UNARYOP:
+    return check_unary(node);
+  case AST_BINOP:
+    check_expr(node->data.binop.left, ExprUse::Read);
+    check_expr(node->data.binop.right, ExprUse::Read);
+    return info;
+  case AST_CALL:
+    return check_call(node);
+  case AST_EXPRESSION_LIST:
+    return check_expression_list(node, use);
+  case AST_INDEX: {
+    ExprInfo target = check_expr(node->data.index.target, ExprUse::Read);
+    check_expr(node->data.index.index, ExprUse::Read);
+    info.borrow_sources = target.borrow_sources;
     return info;
   }
+  case AST_MEMBER_ACCESS: {
+    ExprInfo obj = check_expr(node->data.member_access.object, ExprUse::Read);
+    info.borrow_sources = obj.borrow_sources;
+    return info;
+  }
+  case AST_STRUCT_LITERAL:
+    return check_struct_literal(node);
+  case AST_IF:
+    check_stmt(node); // if expression handled as statement
+    return info;
+  case AST_FUNCTION:
+    check_function(node);
+    info.copy = true;
+    return info;
+  case AST_TOINT:
+    check_expr(node->data.toint.expr, ExprUse::Read);
+    return info;
+  case AST_TOFLOAT:
+    check_expr(node->data.tofloat.expr, ExprUse::Read);
+    return info;
+  case AST_INPUT:
+    check_expr(node->data.input.prompt, ExprUse::Read);
+    return info;
+  default:
+    return info;
+  }
+}
 
-  ExprInfo check_unary(ASTNode *node) {
-    ExprInfo info;
-    info.type = node->inferred_type;
-    info.copy = is_copy_type(node->inferred_type);
-    UnaryOpType op = node->data.unaryop.op;
-    if (op == OP_ADDRESS) {
-      std::string base = lvalue_base(node->data.unaryop.expr);
-      if (!base.empty()) {
-        std::string root = base;
-        bool is_deref_operand =
-            (node->data.unaryop.expr &&
-             node->data.unaryop.expr->type == AST_UNARYOP &&
-             node->data.unaryop.expr->data.unaryop.op == OP_DEREF);
-        if (is_deref_operand) {
-          std::unordered_set<std::string> visited;
-          VarState *state = lookup(root);
-          while (state && !state->borrow_sources.empty() && state->type &&
-                 state->type->kind == TYPEINFO_PTR) {
-            if (!visited.insert(root).second)
-              break;
-            // follow the first borrow source (should be single for a reference)
-            root = *state->borrow_sources.begin();
-            state = lookup(root);
+/**
+ * @brief Check an identifier expression
+ * @details Handle variable read, move, borrow semantics
+ */
+ExprInfo OwnershipChecker::check_identifier(ASTNode *node, ExprUse use) {
+  ExprInfo info;
+  info.type = node->inferred_type;
+  info.copy = is_copy_type(node->inferred_type);
+  const char *cname = node->data.identifier.name;
+  if (!cname)
+    return info;
+  VarState *state = lookup(cname);
+  if (!state)
+    return info;
+  info.type = state->type ? state->type : node->inferred_type;
+  info.copy = is_copy_type(info.type);
+  // Convention: names starting with uppercase are considered constants/types,
+  // default copyable (simplified handling)
+  if (std::isupper(static_cast<unsigned char>(cname[0])))
+    info.copy = true;
+  info.borrow_sources = state->borrow_sources;
+
+  // Check if using a moved value (unless as assignment target)
+  if (use != ExprUse::AssignTarget && state->moved) {
+    report(node, std::string("use of moved value '") + cname + "'");
+    return info;
+  }
+  // Move semantics: if non-Copy type used with Move, mark as moved
+  if (use == ExprUse::Move && !info.copy) {
+    log_var_modification(state);
+    if (state->borrowed_shared || state->borrowed_mut) {
+      report(node,
+             std::string("cannot move '") + cname + "' while it is borrowed");
+    } else {
+      state->moved = true;
+      state->borrow_sources
+          .clear(); // After move borrow relationships disappear
+    }
+  }
+  return info;
+}
+
+/**
+ * @brief Check a unary operation
+ * @details Focus on handling borrow rules for take-address (&) and dereference
+ * (*)
+ */
+ExprInfo OwnershipChecker::check_unary(ASTNode *node) {
+  ExprInfo info;
+  info.type = node->inferred_type;
+  info.copy = is_copy_type(node->inferred_type);
+  UnaryOpType op = node->data.unaryop.op;
+  if (op == OP_ADDRESS) {
+    // Take address operation: check if borrowable
+    std::string base = lvalue_base(node->data.unaryop.expr);
+    if (!base.empty()) {
+      std::string root = base;
+      // If operand is a dereference (*ptr), trace to the ultimate source
+      // variable
+      bool is_deref_operand =
+          (node->data.unaryop.expr &&
+           node->data.unaryop.expr->type == AST_UNARYOP &&
+           node->data.unaryop.expr->data.unaryop.op == OP_DEREF);
+      if (is_deref_operand) {
+        std::unordered_set<std::string> visited;
+        VarState *state = lookup(root);
+        while (state && !state->borrow_sources.empty() && state->type &&
+               state->type->kind == TYPEINFO_PTR) {
+          if (!visited.insert(root).second)
+            break;
+          root = *state->borrow_sources.begin();
+          state = lookup(root);
+        }
+      }
+      VarState *root_state = lookup(root);
+      if (root_state) {
+        log_var_modification(root_state);
+        if (root_state->moved)
+          report(node, "cannot borrow moved value '" + root + "'");
+        bool wants_mut = node->mutability == MUTABILITY_MUTABLE;
+        if (wants_mut) {
+          // Mutable borrow: no other borrows allowed
+          if (root_state->borrowed_shared || root_state->borrowed_mut) {
+            report(node, "cannot mutably borrow '" + root + "' more than once");
           }
-        }
-        VarState *root_state = lookup(root);
-        if (root_state) {
-          if (root_state->moved)
-            report(node, "cannot borrow moved value '" + root + "'");
-          bool wants_mut = node->mutability == MUTABILITY_MUTABLE;
-          if (wants_mut) {
-            if (root_state->borrowed_shared || root_state->borrowed_mut) {
-              report(node,
-                     "cannot mutably borrow '" + root + "' more than once");
-            }
-            root_state->borrowed_mut = true;
-          } else {
-            if (root_state->borrowed_mut) {
-              report(node, "cannot immutably borrow '" + root +
-                               "' while it is mutably borrowed");
-            }
-            root_state->borrowed_shared = true;
+          root_state->borrowed_mut = true;
+        } else {
+          // Immutable borrow: no existing mutable borrow allowed
+          if (root_state->borrowed_mut) {
+            report(node, "cannot immutably borrow '" + root +
+                             "' while it is mutably borrowed");
           }
-          // The new reference only borrows the root variable, not its entire
-          // borrow set
-          info.borrow_sources = {root};
+          root_state->borrowed_shared = true;
         }
-      }
-      check_expr(node->data.unaryop.expr, ExprUse::Address);
-      info.is_ref = true;
-      info.copy = true;
-      return info;
-    }
-    if (op == OP_DEREF) {
-      ExprInfo inner = check_expr(node->data.unaryop.expr, ExprUse::Read);
-      info.borrow_sources = inner.borrow_sources;
-      return info;
-    }
-    check_expr(node->data.unaryop.expr, ExprUse::Read);
-    return info;
-  }
-
-  ExprInfo check_call(ASTNode *node) {
-    ExprInfo info;
-    info.type = node->inferred_type;
-    info.copy = is_copy_type(node->inferred_type);
-    check_expr(node->data.call.func, ExprUse::Read);
-    ASTNode *args = node->data.call.args;
-    bool returns_ref =
-        node->inferred_type && node->inferred_type->kind == TYPEINFO_PTR;
-    if (args && args->type == AST_EXPRESSION_LIST) {
-      for (int i = 0; i < args->data.expression_list.expression_count; i++) {
-        ExprInfo arg_info = check_expr(
-            args->data.expression_list.expressions[i], ExprUse::Move);
-        if (returns_ref) {
-          // Conservatively merge borrow sources from all arguments to ensure no
-          // potential returned reference (from any argument) is missed.
-          info.borrow_sources.insert(arg_info.borrow_sources.begin(),
-                                     arg_info.borrow_sources.end());
-        }
+        info.borrow_sources = {root};
       }
     }
+    check_expr(node->data.unaryop.expr, ExprUse::Address);
+    info.is_ref = true;
+    info.copy = true;
     return info;
   }
+  if (op == OP_DEREF) {
+    // Dereference: pass through borrow sources
+    ExprInfo inner = check_expr(node->data.unaryop.expr, ExprUse::Read);
+    info.borrow_sources = inner.borrow_sources;
+    return info;
+  }
+  check_expr(node->data.unaryop.expr, ExprUse::Read);
+  return info;
+}
 
-  ExprInfo check_expression_list(ASTNode *node, ExprUse use = ExprUse::Move) {
-    ExprInfo info;
-    info.type = node->inferred_type;
-    info.copy = is_copy_type(node->inferred_type);
-    for (int i = 0; i < node->data.expression_list.expression_count; i++) {
-      ExprInfo elem =
-          check_expr(node->data.expression_list.expressions[i], use);
+/**
+ * @brief Check a function call
+ * @details Handle argument passing (move semantics); if the function returns a
+ * reference, collect borrow sources
+ */
+ExprInfo OwnershipChecker::check_call(ASTNode *node) {
+  ExprInfo info;
+  info.type = node->inferred_type;
+  info.copy = is_copy_type(node->inferred_type);
+  check_expr(node->data.call.func, ExprUse::Read);
+  ASTNode *args = node->data.call.args;
+  bool returns_ref =
+      node->inferred_type && node->inferred_type->kind == TYPEINFO_PTR;
+  if (args && args->type == AST_EXPRESSION_LIST) {
+    for (int i = 0; i < args->data.expression_list.expression_count; i++) {
+      ExprInfo arg_info =
+          check_expr(args->data.expression_list.expressions[i], ExprUse::Move);
+      if (returns_ref) {
+        info.borrow_sources.insert(arg_info.borrow_sources.begin(),
+                                   arg_info.borrow_sources.end());
+      }
+    }
+  }
+  return info;
+}
+
+/**
+ * @brief Check an expression list (e.g., argument list, struct field list)
+ */
+ExprInfo OwnershipChecker::check_expression_list(ASTNode *node, ExprUse use) {
+  ExprInfo info;
+  info.type = node->inferred_type;
+  info.copy = is_copy_type(node->inferred_type);
+  for (int i = 0; i < node->data.expression_list.expression_count; i++) {
+    ExprInfo elem = check_expr(node->data.expression_list.expressions[i], use);
+    info.borrow_sources.insert(elem.borrow_sources.begin(),
+                               elem.borrow_sources.end());
+  }
+  return info;
+}
+
+/**
+ * @brief Check a struct literal
+ * @details Each field is processed as move, collecting all borrow sources
+ */
+ExprInfo OwnershipChecker::check_struct_literal(ASTNode *node) {
+  ExprInfo info;
+  info.type = node->inferred_type;
+  info.copy = false;
+  ASTNode *fields = node->data.struct_literal.fields;
+  if (fields && fields->type == AST_EXPRESSION_LIST) {
+    for (int i = 0; i < fields->data.expression_list.expression_count; i++) {
+      ASTNode *field = fields->data.expression_list.expressions[i];
+      ExprInfo elem;
+      if (field && field->type == AST_ASSIGN) {
+        elem = check_expr(field->data.assign.right, ExprUse::Move);
+      } else {
+        elem = check_expr(field, ExprUse::Move);
+      }
       info.borrow_sources.insert(elem.borrow_sources.begin(),
                                  elem.borrow_sources.end());
     }
-    return info;
   }
+  return info;
+}
 
-  ExprInfo check_struct_literal(ASTNode *node) {
-    ExprInfo info;
-    info.type = node->inferred_type;
-    info.copy = false;
-    ASTNode *fields = node->data.struct_literal.fields;
-    if (fields && fields->type == AST_EXPRESSION_LIST) {
-      for (int i = 0; i < fields->data.expression_list.expression_count; i++) {
-        ASTNode *field = fields->data.expression_list.expressions[i];
-        ExprInfo elem;
-        if (field && field->type == AST_ASSIGN) {
-          elem = check_expr(field->data.assign.right, ExprUse::Move);
-        } else {
-          elem = check_expr(field, ExprUse::Move);
-        }
-        info.borrow_sources.insert(elem.borrow_sources.begin(),
-                                   elem.borrow_sources.end());
-      }
-    }
-    return info;
+/**
+ * @brief Compute the number of dereference levels of an expression
+ */
+int OwnershipChecker::count_derefs(ASTNode *node) {
+  int count = 0;
+  while (node && node->type == AST_UNARYOP &&
+         node->data.unaryop.op == OP_DEREF) {
+    ++count;
+    node = node->data.unaryop.expr;
   }
-};
+  return count;
+}
+
+/**
+ * @brief Trace the borrow source through multiple pointer levels
+ */
+std::string OwnershipChecker::trace_borrow_levels(const std::string &base,
+                                                  int levels) {
+  if (levels <= 0 || base.empty())
+    return base;
+  std::string current = base;
+  for (int i = 0; i < levels; ++i) {
+    VarState *state = lookup(current);
+    if (!state || state->borrow_sources.empty())
+      break;
+    if (state->type && state->type->kind == TYPEINFO_PTR) {
+      current = *state->borrow_sources.begin();
+    } else {
+      break;
+    }
+  }
+  return current;
+}
+
+/**
+ * @brief Extract the underlying variable name of an expression
+ */
+std::string OwnershipChecker::lvalue_base(ASTNode *node) {
+  if (!node)
+    return {};
+  switch (node->type) {
+  case AST_IDENTIFIER:
+    return node->data.identifier.name ? node->data.identifier.name : "";
+  case AST_MEMBER_ACCESS:
+    return lvalue_base(node->data.member_access.object);
+  case AST_INDEX:
+    return lvalue_base(node->data.index.target);
+  case AST_UNARYOP:
+    if (node->data.unaryop.op == OP_DEREF)
+      return lvalue_base(node->data.unaryop.expr);
+    return {};
+  default:
+    return {};
+  }
+}
+
+/**
+ * @brief Traverse the AST root node
+ */
+void OwnershipChecker::check_node(ASTNode *node) {
+  if (!node)
+    return;
+  switch (node->type) {
+  case AST_PROGRAM:
+    check_block(node, false);
+    end_statement();
+    break;
+  case AST_FUNCTION:
+    check_function(node);
+    break;
+  case AST_STRUCT_DEF:
+  case AST_IMPORT:
+    // Type definitions and imports do not affect ownership, ignore
+    break;
+  case AST_GLOBAL:
+    check_global(node);
+    end_statement();
+    break;
+  default:
+    check_stmt(node);
+    break;
+  }
+}
 
 } // namespace
 
+/**
+ * @brief C interface: exposed ownership checking entry point
+ * @param root AST root node
+ * @return 0 success, 1 failure
+ */
 extern "C" int ownership_check_program(ASTNode *root) {
   OwnershipChecker checker;
   return checker.check(root) == 0 ? 0 : 1;
