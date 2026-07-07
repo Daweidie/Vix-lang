@@ -735,6 +735,17 @@ using namespace llvm;
                     }
                 }
 
+                // Fallback: if elemType is still ptr but the arg has a concrete
+                // non-pointer type, use the arg's type. This handles generic
+                // type params like T=i32 where TYPEINFO_VAR maps to ptr.
+                if (elemType && elemType->isPointerTy() && argRes.value &&
+                    argRes.value->getType() && !argRes.value->getType()->isPointerTy() &&
+                    !argRes.value->getType()->isStructTy() &&
+                    !(argRes.structType && (argRes.value->getType()->isStructTy() ||
+                       (argRes.value->getType()->isPointerTy() && argRes.type == ValueType::POINTER)))) {
+                    elemType = argRes.value->getType();
+                }
+
                 Type* storageElemType = elemType;
                 ValueType elemVT = typeHelper.getValueTypeFromType(elemType);
                 Value* argCast = nullptr;
@@ -1098,7 +1109,7 @@ using namespace llvm;
                 llvm::errs() << "Error: Failed to instantiate generic function '" << calleeName << "'\n";
                 return VisitResult();
             }
-            calleeName = mangleGenericFunctionName(calleeName, node->data.call.type_args);
+            calleeName = instFn->getName().str();
         }
 
         Function* callee = module->getFunction(calleeName);
@@ -1107,8 +1118,8 @@ using namespace llvm;
             if (fit != genericFunctionTemplates.end()) {
                 Function* instFn = instantiateGenericFunction(calleeName, nullptr);
                 if (instFn) {
-                    calleeName = mangleGenericFunctionName(calleeName, nullptr);
-                    callee = module->getFunction(calleeName);
+                    callee = instFn;
+                    calleeName = instFn->getName().str();
                 }
             }
         }

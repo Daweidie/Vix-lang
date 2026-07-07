@@ -114,6 +114,7 @@
 ### Task 1: 固化 Browser Core 子集边界与回归基线
 
 **Files:**
+
 - Create: `docs/browser-core-wasm-runtime.md`
 - Create: `tests/fixtures/wasm_core/hello.vix`
 - Create: `tests/fixtures/wasm_core/control_flow.vix`
@@ -124,6 +125,7 @@
 - Modify: `tests/test_wasm_codegen.cpp`
 
 **Interfaces:**
+
 - Consumes: `CompileResult vixc_compile_string(const char *source)`、`bool WasmCodegen::emit(ASTNode *root, std::vector<uint8_t> &out_bytes, std::string &error_msg)`
 - Produces:
   - 测试辅助函数：`static std::string read_fixture(const char *path)`
@@ -345,11 +347,13 @@ git commit -m "test: add browser core wasm fixtures and runtime baseline"
 ### Task 2: 修正局部变量、参数绑定与标量表达式基线
 
 **Files:**
+
 - Modify: `src/compiler/WasmCodegen.h`
 - Modify: `src/compiler/WasmCodegen.cpp`
 - Modify: `tests/test_wasm_codegen.cpp`
 
 **Interfaces:**
+
 - Consumes: `expect_emit_success(const char *fixture_path)`、现有 `FuncInfo`
 - Produces:
   - `uint32_t bind_param_local(const char *name, uint32_t index)`
@@ -461,11 +465,13 @@ git commit -m "fix: bind wasm function params and local declarations"
 ### Task 3: 实现控制流节点 `while` / `for` / `break` / `continue`
 
 **Files:**
+
 - Modify: `src/compiler/WasmCodegen.h`
 - Modify: `src/compiler/WasmCodegen.cpp`
 - Modify: `tests/test_wasm_codegen.cpp`
 
 **Interfaces:**
+
 - Consumes: Task 2 的参数/局部变量绑定
 - Produces:
   - `uintptr_t compile_while(ASTNode *while_node)`
@@ -623,6 +629,7 @@ git commit -m "feat: add wasm control flow lowering for browser core"
 ### Task 4: 实现线性内存分配器与数组读写
 
 **Files:**
+
 - Modify: `src/compiler/WasmTypeMap.h`
 - Modify: `src/compiler/WasmTypeMap.cpp`
 - Modify: `src/compiler/WasmCodegen.h`
@@ -630,6 +637,7 @@ git commit -m "feat: add wasm control flow lowering for browser core"
 - Modify: `tests/test_wasm_codegen.cpp`
 
 **Interfaces:**
+
 - Consumes: Task 3 控制流能力
 - Produces:
   - `uint32_t m_heap_offset`
@@ -813,6 +821,7 @@ git commit -m "feat: add browser core wasm array memory model"
 ### Task 5: 实现 struct 布局、字段访问与字段赋值
 
 **Files:**
+
 - Modify: `src/compiler/WasmTypeMap.h`
 - Modify: `src/compiler/WasmTypeMap.cpp`
 - Modify: `src/compiler/WasmCodegen.h`
@@ -820,6 +829,7 @@ git commit -m "feat: add browser core wasm array memory model"
 - Modify: `tests/test_wasm_codegen.cpp`
 
 **Interfaces:**
+
 - Consumes: Task 4 的线性内存读写辅助
 - Produces:
   - `struct WasmFieldLayout { std::string name; uint32_t offset; uint32_t size; };`
@@ -988,6 +998,7 @@ git commit -m "feat: add browser core wasm struct layout and field access"
 ### Task 6: 浏览器集成、运行期验证与示例收口
 
 **Files:**
+
 - Modify: `playground/playground.js`
 - Modify: `playground/playground.html`
 - Modify: `WebSite/playground/playground.js`
@@ -996,6 +1007,7 @@ git commit -m "feat: add browser core wasm struct layout and field access"
 - Modify: `tests/test_wasm_codegen.cpp`
 
 **Interfaces:**
+
 - Consumes: Task 1-5 的 Wasm emit 成果
 - Produces:
   - Playground 示例集：`hello`、`bubble`、`struct`、`binary-search`

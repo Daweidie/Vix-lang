@@ -5,7 +5,7 @@ endif
 syn case match
 
 " Comments
-syn keyword vixTodo TODO FIXME XXX NOTE contained
+syn keyword vixTodo TODO FIXME XXX NOTE HACK contained
 syn match vixComment "//.*$" contains=vixTodo
 syn region vixComment start="/\*" end="\*/" contains=vixTodo,vixComment
 
@@ -35,10 +35,11 @@ syn keyword vixSelf self
 " Keywords
 syn keyword vixKeyword fn return let mut if elif else while for in
 syn keyword vixKeyword match struct type pub import extern impl
-syn keyword vixKeyword break continue and or print as
+syn keyword vixKeyword break continue and or print as macro
 
 " Function definition: the name after `fn`
 syn match vixFuncName '\<fn\>\s*\zs[a-zA-Z_][a-zA-Z0-9_]*'
+syn match vixMacroName '\<macro\>\s*\$\?\zs[a-zA-Z_][a-zA-Z0-9_]*'
 
 " Type definition: the name after `type`, `struct`, `impl`
 syn match vixTypeName '\<type\>\s*\zs[a-zA-Z_][a-zA-Z0-9_]*'
@@ -49,7 +50,7 @@ syn match vixTypeName '\<impl\>\s*\zs[a-zA-Z_][a-zA-Z0-9_]*'
 syn match vixImportName '\<import\>\s*\zs[a-zA-Z_./][a-zA-Z0-9_./]*'
 
 " Generic parameters :[T] or :[T, E]
-syn match vixGeneric ':[A-Za-z_][A-Za-z0-9_, ]*\]'
+syn match vixGeneric ':\[[A-Za-z_][A-Za-z0-9_, ]*\]'
 
 " Optional type ?T
 syn match vixOptional '?[A-Za-z_][A-Za-z0-9_]*'
@@ -79,6 +80,7 @@ hi def link vixBool        Boolean
 hi def link vixSelf        Identifier
 hi def link vixKeyword     Keyword
 hi def link vixFuncName    Function
+hi def link vixMacroName   Macro
 hi def link vixTypeName    Type
 hi def link vixImportName  String
 hi def link vixGeneric     Special

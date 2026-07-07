@@ -130,3 +130,70 @@ fn main(): i32 {
     run = subprocess.run(["lli", str(ll_path)], capture_output=True, text=True, timeout=20)
     assert run.returncode == 0
     assert run.stdout.splitlines() == ["4.500000", "1"]
+
+
+def test_vixc0_codegen_bitwise_integer_ops(vixc0_binary, tmp_path):
+    src = """
+fn main(): i32 {
+    let one = 1
+    let masked = (one + 239) & (one + 14)
+    let shifted = one << 5
+    let combined = masked | shifted
+    let result = combined + (64 >> (one + 3))
+    print(result)
+    return result
+}
+"""
+
+    result = run_vixc0(vixc0_binary, src)
+    assert result.returncode == 0, result.stderr
+    assert " and " in result.stdout
+    assert " or " in result.stdout
+    assert " shl " in result.stdout
+    assert " ashr " in result.stdout
+
+    ll_path = tmp_path / "bitwise_ops.ll"
+    ll_path.write_text(result.stdout)
+    verify = subprocess.run(["opt", "-passes=verify", "-disable-output", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert verify.returncode == 0, verify.stderr
+
+    run = subprocess.run(["lli", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert run.returncode == 36
+    assert run.stdout.strip() == "36"
+
+
+def test_vixc0_typed_i8_pointer_index_supports_byte_arithmetic(vixc0_binary, tmp_path):
+    src = """
+extern "C"
+{
+    fn malloc(size: usize): &i8
+    fn free(buf: ptr): void
+}
+
+fn main(): i32 {
+    let buf: &i8 = malloc(4)
+    buf[0] = 65
+    buf[1] = 255
+    let a = buf[0] & 255
+    let b = buf[1] & 255
+    print(a)
+    print(b)
+    free(buf)
+    return 0
+}
+"""
+
+    result = run_vixc0(vixc0_binary, src)
+    assert result.returncode == 0, result.stderr
+    assert "load i8" in result.stdout
+    assert "zext i8" in result.stdout
+    assert " and " in result.stdout
+
+    ll_path = tmp_path / "typed_i8_pointer_index.ll"
+    ll_path.write_text(result.stdout)
+    verify = subprocess.run(["opt", "-passes=verify", "-disable-output", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert verify.returncode == 0, verify.stderr
+
+    run = subprocess.run(["lli", str(ll_path)], capture_output=True, text=True, timeout=20)
+    assert run.returncode == 0
+    assert run.stdout.splitlines() == ["65", "255"]

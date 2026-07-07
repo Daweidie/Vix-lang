@@ -1,16 +1,16 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/README/image.png">
-    <source media="(prefers-color-scheme: light)" srcset="images/README/image.png">
+    <source media="(prefers-color-scheme: dark)" srcset="image.png">
+    <source media="(prefers-color-scheme: light)" srcset="image.png">
     <img
       alt="Vix Programming Language"
-      src="images/README/image.png"
+      src="image.png"
       width="50%">
   </picture>
 
 [Website][Vix] | [Getting Started][Getting Started] | [Learn][Learn] | [Documentation][Documentation] | [Contributing][Contributing]
 </div>
-This is the main source repository for Vix It contains the compiler,
+This is the main source repository for Vix. It contains the compiler,
 runtime-related components, examples, and language documentation.
 
 [Vix]: https://vixlang.github.io

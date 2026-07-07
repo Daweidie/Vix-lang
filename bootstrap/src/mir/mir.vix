@@ -1,0 +1,1006 @@
+#[no_main]
+import "ast.vix"
+import "builder.vix"
+import "mir_builder.vix"
+import "type/typeck.vix"
+
+pub type MirValue = struct {
+    name: string,
+    ty: string
+}
+
+pub fn mir_escape_string(text: string): string
+{
+    let mut out = ""
+    for (i in 0 .. text.length)
+    {
+        let c = text[i]
+        if (c == 92) { out = out + "\\\\" }
+        elif (c == '"') { out = out + "\\\"" }
+        elif (c == 10) { out = out + "\\n" }
+        elif (c == 9) { out = out + "\\t" }
+        elif (c == 13) { out = out + "\\r" }
+        else { out = out + char_string(c) }
+    }
+    return out
+}
+
+pub fn mir_type(ty: string): string
+{
+    if (ty == "") { return "i32" }
+    if (ty == "bool") { return "i1" }
+    if (ty == "char") { return "i8" }
+    if (ty == "string") { return "ptr" }
+    if (type_text_is_ptr_to_array(ty) == 1) { return "ptr" }
+    if (is_ptr_to_struct(ty) == 1) { return "ptr:" + mir_type(strip_ptr_prefix(ty)) }
+    if (type_text_is_array(ty) == 1) { return "ptr" }
+    if (mir_type_is_option_text(ty) == 1) { return "ptr" }
+    if (type_is_struct(type_text_base_name_builder(ty)) == 1) { return "@" + type_text_base_name_builder(ty) }
+    return ty
+}
+
+pub fn mir_zero_value(ty: string): string
+{
+    if (ty == "void") { return "" }
+    if (ty == "f32" or ty == "f64") { return "0.0" }
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or mir_type_is_option_text(ty) == 1) { return "null" }
+    if (type_is_struct(type_text_base_name_builder(ty)) == 1) { return "undef" }
+    return "0"
+}
+
+pub fn mir_type_is_option_text(ty: string): i32
+{
+    if (type_text_is_option(ty) == 1) { return 1 }
+    if (ty.length > 1 and ty[0] == '?') { return 1 }
+    return 0
+}
+
+pub fn mir_type_option_inner(ty: string): string
+{
+    if (type_text_is_option(ty) == 1) { return type_text_option_inner(ty) }
+    if (ty.length > 1 and ty[0] == '?') { return str_from(ty, 1) }
+    return "unknown"
+}
+
+pub fn mir_var_addr(name: string): string
+{
+    return "%" + name + "_addr"
+}
+
+pub fn mir_define_local(name: string, ty: string)
+{
+    set_local_var_type(name, ty)
+}
+
+pub fn mir_get_local_ty(name: string): string
+{
+    return get_local_var_type(name)
+}
+
+pub fn mir_register_program(program: AstProgram)
+{
+    reset_function_sigs()
+    reset_struct_sigs()
+    for (i in 0 .. program.structs.length)
+    {
+        declare_struct_sig(program.structs[i].name)
+    }
+    for (i in 0 .. program.structs.length)
+    {
+        register_struct_sig(program.structs[i].name, program.structs[i].field_names, program.structs[i].field_types)
+    }
+    for (i in 0 .. program.extern_functions.length)
+    {
+        register_function_sig_vararg(program.extern_functions[i].name, program.extern_functions[i].ret_ty, program.extern_functions[i].param_types, program.extern_functions[i].is_var_arg)
+    }
+    for (i in 0 .. program.functions.length)
+    {
+        register_function_sig(program.functions[i].name, program.functions[i].ret_ty, program.functions[i].param_types)
+    }
+    register_function_sig_vararg("printf", "i32", ["ptr"], 1)
+    register_function_sig_vararg("strcmp", "i32", ["ptr", "ptr"], 0)
+    register_function_sig_vararg("strlen", "i32", ["ptr"], 0)
+    register_function_sig_vararg("vix_array_len", "i32", ["ptr"], 0)
+    register_function_sig_vararg("vix_array_push_i32", "ptr", ["ptr", "i32"], 0)
+    register_function_sig_vararg("vix_array_push_ptr", "ptr", ["ptr", "ptr"], 0)
+    register_function_sig_vararg("vix_array_push_bytes", "ptr", ["ptr", "ptr", "usize"], 0)
+    register_function_sig_vararg("vix_string_concat", "string", ["string", "string"], 0)
+}
+
+pub fn mir_program_has_extern(program: AstProgram, name: string): i32
+{
+    for (i in 0 .. program.extern_functions.length)
+    {
+        if (program.extern_functions[i].name == name) { return 1 }
+    }
+    return 0
+}
+
+pub fn mir_expr_type(es: &ExprStore, expr: AstExpr): string
+{
+    if (expr.tag == "int") { return "i32" }
+    if (expr.tag == "float") { return "f64" }
+    if (expr.tag == "bool") { return "bool" }
+    if (expr.tag == "string") { return "string" }
+    if (expr.tag == "ident") { return mir_get_local_ty(expr.text) }
+    if (expr.tag == "addr") { return "ptr" }
+    if (expr.tag == "deref")
+    {
+        let base_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
+        if (is_ptr_to_struct(base_ty) == 1) { return strip_ptr_prefix(base_ty) }
+        if (base_ty == "string") { return "i8" }
+        return "i32"
+    }
+    if (expr.tag == "field")
+    {
+        let base_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
+        if (expr.text == "length") { return "i32" }
+        return get_struct_field_type(type_text_base_name_builder(strip_ptr_prefix(base_ty)), expr.text)
+    }
+    if (expr.tag == "struct_literal") { return expr.text }
+    if (expr.tag == "index")
+    {
+        let base_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
+        return type_text_index_element(base_ty)
+    }
+    if (expr.tag == "unaryop")
+    {
+        if (expr.text == "!") { return "bool" }
+        return mir_expr_type(es, expr_store_get(es, expr.left_idx))
+    }
+    if (expr.tag == "binop")
+    {
+        if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=" or expr.text == "and" or expr.text == "or") { return "bool" }
+        let left_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
+        let right_ty = mir_expr_type(es, expr_store_get(es, expr.right_idx))
+        if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and type_is_integer(right_ty) == 1) { return left_ty }
+        if (expr.text == "+" and type_is_integer(left_ty) == 1 and (right_ty == "string" or right_ty == "ptr")) { return right_ty }
+        if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr")) { return "string" }
+        return type_numeric_result(left_ty, right_ty)
+    }
+    if (expr.tag == "call") { return get_function_return_type(expr.text) }
+    if (expr.tag == "array_literal") { return "[i32]" }
+    if (expr.tag == "block_expr")
+    {
+        if (expr.right_idx >= 0) { return mir_expr_type(es, expr_store_get(es, expr.right_idx)) }
+        return "i32"
+    }
+    if (expr.tag == "if_expr") { return mir_expr_type(es, expr_store_get(es, expr.right_idx)) }
+    if (expr.tag == "match_expr")
+    {
+        let mut result_ty = "unknown"
+        let arm_count = expr.args.length / 2
+        for (i in 0 .. arm_count)
+        {
+            let body_idx = expr.args[i * 2 + 1]
+            if (body_idx >= 0 and result_ty == "unknown")
+            {
+                result_ty = mir_expr_type(es, expr_store_get(es, body_idx))
+            }
+        }
+        if (result_ty != "unknown") { return result_ty }
+    }
+    return "i32"
+}
+
+pub fn mir_cast_if_needed(b: &MirBuilder, value: MirValue, to_ty: string): MirValue
+{
+    if (to_ty == "" or value.ty == to_ty) { return value }
+    let from_mir = mir_type(value.ty)
+    let to_mir = mir_type(to_ty)
+    let out = mir_temp(b)
+    if ((value.ty == "i32" or value.ty == "bool") and (to_ty == "i64" or to_ty == "usize" or to_ty == "u64"))
+    {
+        mir_inst(b, out + " = zext " + from_mir + " " + value.name + " to " + to_mir)
+        return MirValue{ name: out, ty: to_ty }
+    }
+    if ((value.ty == "i64" or value.ty == "usize" or value.ty == "u64") and to_ty == "i32")
+    {
+        mir_inst(b, out + " = trunc " + from_mir + " " + value.name + " to " + to_mir)
+        return MirValue{ name: out, ty: to_ty }
+    }
+    if (type_is_integer(value.ty) == 1 and (to_ty == "f32" or to_ty == "f64"))
+    {
+        mir_inst(b, out + " = sitofp " + from_mir + " " + value.name + " to " + to_mir)
+        return MirValue{ name: out, ty: to_ty }
+    }
+    if (value.ty == "f32" and to_ty == "f64")
+    {
+        mir_inst(b, out + " = fpext " + from_mir + " " + value.name + " to " + to_mir)
+        return MirValue{ name: out, ty: to_ty }
+    }
+    if (value.ty == "f64" and to_ty == "f32")
+    {
+        mir_inst(b, out + " = fptrunc " + from_mir + " " + value.name + " to " + to_mir)
+        return MirValue{ name: out, ty: to_ty }
+    }
+    return MirValue{ name: value.name, ty: to_ty }
+}
+
+pub fn mir_truthy(b: &MirBuilder, value: MirValue): MirValue
+{
+    if (value.ty == "bool") { return value }
+    let out = mir_temp(b)
+    mir_inst(b, out + " = icmp ne " + mir_type(value.ty) + " " + value.name + ", " + mir_zero_value(value.ty))
+    return MirValue{ name: out, ty: "bool" }
+}
+
+pub fn mir_type_is_pointer_like(ty: string): i32
+{
+    if (ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or mir_type_is_option_text(ty) == 1) { return 1 }
+    return 0
+}
+
+pub fn mir_array_element_type(es: &ExprStore, expr: AstExpr, expected_ty: string): string
+{
+    if (type_text_is_array(expected_ty) == 1) { return type_array_element(expected_ty) }
+    if (expr.args.length > 0) { return mir_expr_type(es, expr_store_get(es, expr.args[0])) }
+    return "i32"
+}
+
+pub fn mir_array_push_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, arr: MirValue, val_expr: AstExpr, elem_ty: string): MirValue
+{
+    let out = mir_temp(b)
+    if (mir_type_is_pointer_like(elem_ty) == 1)
+    {
+        let val = mir_expr_value_typed(b, es, store, val_expr, "ptr")
+        mir_inst(b, out + " = call @vix_array_push_ptr(ptr " + arr.name + ", ptr " + val.name + "): ptr")
+        return MirValue{ name: out, ty: "ptr" }
+    }
+    if (elem_ty == "i32" or elem_ty == "bool" or elem_ty == "i8" or elem_ty == "u8" or elem_ty == "char")
+    {
+        let val = mir_expr_value_typed(b, es, store, val_expr, "i32")
+        mir_inst(b, out + " = call @vix_array_push_i32(ptr " + arr.name + ", i32 " + val.name + "): ptr")
+        return MirValue{ name: out, ty: "ptr" }
+    }
+    let val = mir_expr_value_typed(b, es, store, val_expr, elem_ty)
+    let slot = mir_temp(b)
+    mir_inst(b, slot + " = alloca " + mir_type(elem_ty))
+    mir_inst(b, "store " + mir_type(elem_ty) + " " + val.name + ", " + slot)
+    mir_inst(b, out + " = call @vix_array_push_bytes(ptr " + arr.name + ", ptr " + slot + ", usize sizeof(" + mir_type(elem_ty) + ")): ptr")
+    return MirValue{ name: out, ty: "ptr" }
+}
+
+pub fn mir_type_size_hint(ty: string): i32
+{
+    if (ty == "i8" or ty == "u8" or ty == "char" or ty == "bool") { return 1 }
+    if (ty == "f64") { return 8 }
+    if (ty == "i64" or ty == "u64" or ty == "usize" or ty == "ptr" or ty == "string" or is_ptr_to_struct(ty) == 1 or type_text_is_array(ty) == 1 or mir_type_is_option_text(ty) == 1) { return 8 }
+    return 4
+}
+
+pub fn mir_expr_value_typed(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr, expected_ty: string): MirValue
+{
+    if (expr.tag == "int")
+    {
+        return MirValue{ name: mir_i32(expr.int_value), ty: if (expected_ty != "" and type_is_integer(expected_ty) == 1) { expected_ty } else { "i32" } }
+    }
+    if (expr.tag == "bool")
+    {
+        return MirValue{ name: mir_i32(expr.int_value), ty: "bool" }
+    }
+    if (expr.tag == "float")
+    {
+        return MirValue{ name: ast_f64(expr.float_value), ty: if (expected_ty == "f32") { "f32" } else { "f64" } }
+    }
+    if (expr.tag == "string")
+    {
+        let out = mir_temp(b)
+        mir_inst(b, out + " = const ptr \"" + mir_escape_string(expr.text) + "\"")
+        return MirValue{ name: out, ty: "string" }
+    }
+    if (expr.tag == "ident")
+    {
+        let ty = mir_get_local_ty(expr.text)
+        let load_ty = if (expected_ty == "ptr" or type_text_is_array(expected_ty) == 1) { "ptr" } else { ty }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = load " + mir_type(load_ty) + ", " + mir_var_addr(expr.text))
+        return mir_cast_if_needed(b, MirValue{ name: out, ty: load_ty }, expected_ty)
+    }
+    if (expr.tag == "addr")
+    {
+        let var_ty = mir_get_local_ty(expr.text)
+        if (type_text_is_array(var_ty) == 1)
+        {
+            let out = mir_temp(b)
+            mir_inst(b, out + " = load ptr, " + mir_var_addr(expr.text))
+            return MirValue{ name: out, ty: "ptr" }
+        }
+        return MirValue{ name: mir_var_addr(expr.text), ty: "ptr" }
+    }
+    if (expr.tag == "deref")
+    {
+        let ptr_expr = expr_store_get(es, expr.left_idx)
+        let ptr_val = mir_expr_value_typed(b, es, store, ptr_expr, "ptr")
+        let base_ty = mir_expr_type(es, ptr_expr)
+        let pointee_ty = if (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = load " + mir_type(pointee_ty) + ", " + ptr_val.name)
+        return mir_cast_if_needed(b, MirValue{ name: out, ty: pointee_ty }, expected_ty)
+    }
+    if (expr.tag == "field")
+    {
+        if (expr.text == "length")
+        {
+            let base_expr = expr_store_get(es, expr.left_idx)
+            let base_ty = mir_expr_type(es, base_expr)
+            let base = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "ptr")
+            let out = mir_temp(b)
+            if (base_ty == "string") { mir_inst(b, out + " = call @strlen(ptr " + base.name + "): i32") }
+            else { mir_inst(b, out + " = call @vix_array_len(ptr " + base.name + "): i32") }
+            return MirValue{ name: out, ty: "i32" }
+        }
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = mir_expr_type(es, base_expr)
+        let struct_ty = type_text_base_name_builder(strip_ptr_prefix(base_ty))
+        let field_index = get_struct_field_index(struct_ty, expr.text)
+        let field_ty = get_struct_field_type(struct_ty, expr.text)
+        let base = mir_expr_value_typed(b, es, store, base_expr, base_ty)
+        let out = mir_temp(b)
+        mir_inst(b, out + " = extractvalue " + mir_type(struct_ty) + " " + base.name + ", [" + mir_i32(field_index) + "]")
+        return mir_cast_if_needed(b, MirValue{ name: out, ty: field_ty }, expected_ty)
+    }
+    if (expr.tag == "struct_literal")
+    {
+        let mut current = mir_temp(b)
+        mir_inst(b, current + " = const " + mir_type(expr.text) + " undef")
+        for (i in 0 .. expr.field_names.length)
+        {
+            let field_name = expr.field_names[i]
+            let field_index = get_struct_field_index(expr.text, field_name)
+            let field_ty = get_struct_field_type(expr.text, field_name)
+            let val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.args[i]), field_ty)
+            let next = mir_temp(b)
+            mir_inst(b, next + " = insertvalue " + mir_type(expr.text) + " " + current + ", " + val.name + ", [" + mir_i32(field_index) + "]")
+            current = next
+        }
+        return MirValue{ name: current, ty: expr.text }
+    }
+    if (expr.tag == "index")
+    {
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = mir_expr_type(es, base_expr)
+        let elem_ty = type_text_index_element(base_ty)
+        let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = gep " + mir_type(elem_ty) + ", " + base.name + ", [" + index.name + "]")
+        let out = mir_temp(b)
+        mir_inst(b, out + " = load " + mir_type(elem_ty) + ", " + slot)
+        return mir_cast_if_needed(b, MirValue{ name: out, ty: elem_ty }, expected_ty)
+    }
+    if (expr.tag == "unaryop")
+    {
+        let operand_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
+        let operand = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), operand_ty)
+        let out = mir_temp(b)
+        if (expr.text == "-")
+        {
+            if (operand_ty == "f32" or operand_ty == "f64")
+            {
+                mir_inst(b, out + " = fneg " + mir_type(operand_ty) + " " + operand.name)
+            }
+            else
+            {
+                mir_inst(b, out + " = neg " + mir_type(operand_ty) + " " + operand.name)
+            }
+            return MirValue{ name: out, ty: operand_ty }
+        }
+        if (expr.text == "!")
+        {
+            let bool_val = mir_truthy(b, operand)
+            mir_inst(b, out + " = icmp eq i1 " + bool_val.name + ", 0")
+            return MirValue{ name: out, ty: "bool" }
+        }
+        return operand
+    }
+    if (expr.tag == "binop")
+    {
+        return mir_binop_value(b, es, store, expr, expected_ty)
+    }
+    if (expr.tag == "call")
+    {
+        let ret_ty = get_function_return_type(expr.text)
+        let mut args_text = ""
+        for (i in 0 .. expr.args.length)
+        {
+            let arg_ty = if (i < get_function_param_count(expr.text)) { get_function_param_type(expr.text, i) } else { mir_expr_type(es, expr_store_get(es, expr.args[i])) }
+            let arg_expr = expr_store_get(es, expr.args[i])
+            let val = if (is_ptr_to_struct(arg_ty) == 1 and arg_expr.tag == "field") { mir_field_address(b, es, store, arg_expr) } else { mir_expr_value_typed(b, es, store, arg_expr, arg_ty) }
+            if (i > 0) { args_text = args_text + ", " }
+            args_text = args_text + mir_type(arg_ty) + " " + val.name
+        }
+        if (ret_ty == "void")
+        {
+            mir_inst(b, "call @" + expr.text + "(" + args_text + "): void")
+            return MirValue{ name: "0", ty: "i32" }
+        }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = call @" + expr.text + "(" + args_text + "): " + mir_type(ret_ty))
+        return mir_cast_if_needed(b, MirValue{ name: out, ty: ret_ty }, expected_ty)
+    }
+    if (expr.tag == "option")
+    {
+        if (expr.option_has_value == 0) { return MirValue{ name: "null", ty: "ptr" } }
+        if (expr.left_idx >= 0)
+        {
+            let value_expr = expr_store_get(es, expr.left_idx)
+            let value_ty = mir_expr_type(es, value_expr)
+            let value = mir_expr_value_typed(b, es, store, value_expr, value_ty)
+            if (value_ty == "ptr" or value_ty == "string" or type_text_is_array(value_ty) == 1 or is_ptr_to_struct(value_ty) == 1)
+            {
+                return MirValue{ name: value.name, ty: "ptr" }
+            }
+            let out = mir_temp(b)
+            mir_inst(b, out + " = add " + mir_type(value_ty) + " " + value.name + ", 1")
+            return MirValue{ name: out, ty: "ptr" }
+        }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = const ptr \"" + mir_escape_string(expr.option_value) + "\"")
+        return MirValue{ name: out, ty: "string" }
+    }
+    if (expr.tag == "array_literal")
+    {
+        let elem_ty = mir_array_element_type(es, expr, expected_ty)
+        let mut arr = MirValue{ name: "null", ty: "ptr" }
+        for (i in 0 .. expr.args.length)
+        {
+            arr = mir_array_push_value(b, es, store, arr, expr_store_get(es, expr.args[i]), elem_ty)
+        }
+        return MirValue{ name: arr.name, ty: "[" + elem_ty + "]" }
+    }
+    if (expr.tag == "block_expr")
+    {
+        if (expr.left_idx >= 0)
+        {
+            mir_stmt(b, es, store, expr.left_idx, "", "")
+        }
+        if (expr.right_idx >= 0 and mir_block_is_open(b) == 1)
+        {
+            return mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), expected_ty)
+        }
+        let zero_ty = if (expected_ty != "") { expected_ty } else { "i32" }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = const " + mir_type(zero_ty) + " " + mir_zero_value(zero_ty))
+        return MirValue{ name: out, ty: zero_ty }
+    }
+    if (expr.tag == "if_expr")
+    {
+        let result_ty = mir_expr_type(es, expr)
+        let storage_ty = if (expected_ty != "") { expected_ty } else { result_ty }
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = alloca " + mir_type(storage_ty))
+        let then_label = mir_label(b, "ifexpr.then")
+        let else_label = mir_label(b, "ifexpr.else")
+        let end_label = mir_label(b, "ifexpr.end")
+        let cond = mir_truthy(b, mir_expr_value(b, es, store, expr_store_get(es, expr.left_idx)))
+        mir_emit_term(b, "br_cond " + cond.name + ", label " + then_label + ", label " + else_label)
+        mir_block(b, then_label)
+        let then_val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), storage_ty)
+        mir_inst(b, "store " + mir_type(storage_ty) + " " + then_val.name + ", " + slot)
+        if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+        mir_block(b, else_label)
+        let else_val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.args[0]), storage_ty)
+        mir_inst(b, "store " + mir_type(storage_ty) + " " + else_val.name + ", " + slot)
+        if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+        mir_block(b, end_label)
+        let out = mir_temp(b)
+        mir_inst(b, out + " = load " + mir_type(storage_ty) + ", " + slot)
+        return MirValue{ name: out, ty: storage_ty }
+    }
+    if (expr.tag == "match_expr")
+    {
+        let result_ty = mir_expr_type(es, expr)
+        let storage_ty = if (expected_ty != "") { expected_ty } else { result_ty }
+        let subject = mir_expr_value(b, es, store, expr_store_get(es, expr.left_idx))
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = alloca " + mir_type(storage_ty))
+        let end_label = mir_label(b, "matchexpr.end")
+        let mut next_label = mir_label(b, "matchexpr.test")
+        let mut default_body = -1
+        let arm_count = expr.args.length / 2
+        mir_emit_term(b, "br label " + next_label)
+        for (i in 0 .. arm_count)
+        {
+            let pattern_idx = expr.args[i * 2]
+            let body_idx = expr.args[i * 2 + 1]
+            if (pattern_idx < 0)
+            {
+                default_body = body_idx
+            }
+            else
+            {
+                mir_block(b, next_label)
+                let body_label = mir_label(b, "matchexpr.body")
+                let after_label = mir_label(b, "matchexpr.test")
+                let cmp = mir_match_compare(b, es, store, subject, pattern_idx)
+                mir_emit_term(b, "br_cond " + cmp.name + ", label " + body_label + ", label " + after_label)
+                mir_block(b, body_label)
+                mir_bind_option_pattern(b, es, subject, pattern_idx)
+                if (body_idx >= 0)
+                {
+                    let body_val = mir_expr_value_typed(b, es, store, expr_store_get(es, body_idx), storage_ty)
+                    mir_inst(b, "store " + mir_type(storage_ty) + " " + body_val.name + ", " + slot)
+                }
+                else
+                {
+                    mir_inst(b, "store " + mir_type(storage_ty) + " " + mir_zero_value(storage_ty) + ", " + slot)
+                }
+                if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+                next_label = after_label
+            }
+        }
+        mir_block(b, next_label)
+        if (default_body >= 0)
+        {
+            let default_val = mir_expr_value_typed(b, es, store, expr_store_get(es, default_body), storage_ty)
+            mir_inst(b, "store " + mir_type(storage_ty) + " " + default_val.name + ", " + slot)
+        }
+        else
+        {
+            mir_inst(b, "store " + mir_type(storage_ty) + " " + mir_zero_value(storage_ty) + ", " + slot)
+        }
+        if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+        mir_block(b, end_label)
+        let out2 = mir_temp(b)
+        mir_inst(b, out2 + " = load " + mir_type(storage_ty) + ", " + slot)
+        return MirValue{ name: out2, ty: storage_ty }
+    }
+    if (expr.tag == "method_call")
+    {
+        if (expr.text == "push")
+        {
+            let base_expr = expr_store_get(es, expr.left_idx)
+            let base_ty = mir_expr_type(es, base_expr)
+            let elem_ty = if (type_text_is_array(base_ty) == 1) { type_array_element(base_ty) } else { "i32" }
+            let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
+            let pushed = mir_array_push_value(b, es, store, base, expr_store_get(es, expr.args[0]), elem_ty)
+            let base_addr = mir_field_address(b, es, store, base_expr)
+            mir_inst(b, "store ptr " + pushed.name + ", " + base_addr.name)
+            if (expected_ty == "ptr") { return pushed }
+            return MirValue{ name: "0", ty: "i32" }
+        }
+        let out = mir_temp(b)
+        mir_inst(b, out + " = const i32 0")
+        return MirValue{ name: out, ty: "i32" }
+    }
+    let fallback = mir_temp(b)
+    mir_inst(b, fallback + " = const " + mir_type(if (expected_ty != "") { expected_ty } else { "i32" }) + " " + mir_zero_value(if (expected_ty != "") { expected_ty } else { "i32" }))
+    return MirValue{ name: fallback, ty: if (expected_ty != "") { expected_ty } else { "i32" } }
+}
+
+pub fn mir_binop_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr, expected_ty: string): MirValue
+{
+    if (expr.text == "and" or expr.text == "or")
+    {
+        let left = mir_truthy(b, mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "bool"))
+        let right = mir_truthy(b, mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "bool"))
+        let out = mir_temp(b)
+        mir_inst(b, out + " = " + expr.text + " i1 " + left.name + ", " + right.name)
+        return MirValue{ name: out, ty: "bool" }
+    }
+    let left_ty = mir_expr_type(es, expr_store_get(es, expr.left_idx))
+    let right_ty = mir_expr_type(es, expr_store_get(es, expr.right_idx))
+    if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and type_is_integer(right_ty) == 1)
+    {
+        let base = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "ptr")
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
+        let out_ptr = mir_temp(b)
+        mir_inst(b, out_ptr + " = gep i8, " + base.name + ", [" + index.name + "]")
+        return MirValue{ name: out_ptr, ty: left_ty }
+    }
+    if (expr.text == "+" and type_is_integer(left_ty) == 1 and (right_ty == "string" or right_ty == "ptr"))
+    {
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "i32")
+        let base = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "ptr")
+        let out_ptr = mir_temp(b)
+        mir_inst(b, out_ptr + " = gep i8, " + base.name + ", [" + index.name + "]")
+        return MirValue{ name: out_ptr, ty: right_ty }
+    }
+    if (expr.text == "+" and (left_ty == "string" or left_ty == "ptr") and (right_ty == "string" or right_ty == "ptr"))
+    {
+        let left_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "string")
+        let right_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "string")
+        let out2 = mir_temp(b)
+        mir_inst(b, out2 + " = call @vix_string_concat(ptr " + left_str.name + ", ptr " + right_str.name + "): ptr")
+        return MirValue{ name: out2, ty: "string" }
+    }
+    if ((expr.text == "==" or expr.text == "!=") and left_ty == "string" and right_ty == "string")
+    {
+        let left_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), "string")
+        let right_str = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "string")
+        let cmp_val = mir_temp(b)
+        let out = mir_temp(b)
+        mir_inst(b, cmp_val + " = call @strcmp(ptr " + left_str.name + ", ptr " + right_str.name + "): i32")
+        let cmp = if (expr.text == "==") { "eq" } else { "ne" }
+        mir_inst(b, out + " = icmp " + cmp + " i32 " + cmp_val + ", 0")
+        return MirValue{ name: out, ty: "bool" }
+    }
+    let result_ty = if (expr.text == "==" or expr.text == "!=" or expr.text == "<" or expr.text == "<=" or expr.text == ">" or expr.text == ">=") { type_numeric_result(left_ty, right_ty) } elif (expected_ty != "" and type_is_numeric(expected_ty) == 1) { expected_ty } else { type_numeric_result(left_ty, right_ty) }
+    let left = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.left_idx), result_ty)
+    let right = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), result_ty)
+    let out = mir_temp(b)
+    if (expr.text == "+" or expr.text == "-" or expr.text == "*" or expr.text == "/" or expr.text == "%" or expr.text == "&" or expr.text == "|" or expr.text == "<<" or expr.text == ">>")
+    {
+        let mut op = ""
+        if (expr.text == "+") { if (result_ty == "f32" or result_ty == "f64") { op = "fadd" } else { op = "add" } }
+        elif (expr.text == "-") { if (result_ty == "f32" or result_ty == "f64") { op = "fsub" } else { op = "sub" } }
+        elif (expr.text == "*") { if (result_ty == "f32" or result_ty == "f64") { op = "fmul" } else { op = "mul" } }
+        elif (expr.text == "/") { if (result_ty == "f32" or result_ty == "f64") { op = "fdiv" } else { op = "sdiv" } }
+        elif (expr.text == "%") { if (result_ty == "f32" or result_ty == "f64") { op = "frem" } else { op = "srem" } }
+        elif (expr.text == "&") { op = "and" }
+        elif (expr.text == "|") { op = "or" }
+        elif (expr.text == "<<") { op = "shl" }
+        else { op = "ashr" }
+        mir_inst(b, out + " = " + op + " " + mir_type(result_ty) + " " + left.name + ", " + right.name)
+        return MirValue{ name: out, ty: result_ty }
+    }
+    let mut cmp = ""
+    if (expr.text == "==") { cmp = "eq" }
+    elif (expr.text == "!=") { cmp = "ne" }
+    elif (expr.text == "<") { if (result_ty == "f32" or result_ty == "f64") { cmp = "olt" } else { cmp = "slt" } }
+    elif (expr.text == "<=") { if (result_ty == "f32" or result_ty == "f64") { cmp = "ole" } else { cmp = "sle" } }
+    elif (expr.text == ">") { if (result_ty == "f32" or result_ty == "f64") { cmp = "ogt" } else { cmp = "sgt" } }
+    else { if (result_ty == "f32" or result_ty == "f64") { cmp = "oge" } else { cmp = "sge" } }
+    let mut cmp_op = "icmp"
+    if (result_ty == "f32" or result_ty == "f64") { cmp_op = "fcmp" }
+    mir_inst(b, out + " = " + cmp_op + " " + cmp + " " + mir_type(result_ty) + " " + left.name + ", " + right.name)
+    return MirValue{ name: out, ty: "bool" }
+}
+
+pub fn mir_expr_value(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr): MirValue
+{
+    return mir_expr_value_typed(b, es, store, expr, mir_expr_type(es, expr))
+}
+
+pub fn mir_store_expr_to_name(b: &MirBuilder, es: &ExprStore, store: &StmtStore, name: string, expr_idx: i32, ty: string)
+{
+    let val = mir_expr_value_typed(b, es, store, expr_store_get(es, expr_idx), ty)
+    mir_inst(b, "store " + mir_type(ty) + " " + val.name + ", " + mir_var_addr(name))
+}
+
+pub fn mir_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt_idx: i32, break_label: string, continue_label: string)
+{
+    if (stmt_idx < 0 or mir_block_is_open(b) == 0) { return }
+    let stmt = stmt_store_get(store, stmt_idx)
+    match stmt.tag {
+        "return" -> {
+            if (b.ret_ty == "void") { mir_emit_term(b, "ret void") }
+            else { mir_emit_term(b, "ret " + mir_type(b.ret_ty) + " " + mir_zero_value(b.ret_ty)) }
+        }
+        "return_expr" -> {
+            let val = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.value_idx), b.ret_ty)
+            if (b.ret_ty == "void") { mir_emit_term(b, "ret void") }
+            else { mir_emit_term(b, "ret " + mir_type(b.ret_ty) + " " + val.name) }
+        }
+        "let" -> {
+            let expr = expr_store_get(es, stmt.assign_idx)
+            let ty = if (stmt.type_text != "") { stmt.type_text } else { mir_expr_type(es, expr) }
+            mir_define_local(stmt.assign_name, ty)
+            mir_inst(b, mir_var_addr(stmt.assign_name) + " = alloca " + mir_type(ty))
+            mir_store_expr_to_name(b, es, store, stmt.assign_name, stmt.assign_idx, ty)
+        }
+        "assign" -> {
+            let ty = mir_get_local_ty(stmt.assign_name)
+            mir_store_expr_to_name(b, es, store, stmt.assign_name, stmt.assign_idx, ty)
+        }
+        "print" -> {
+            let expr = expr_store_get(es, stmt.print_idx)
+            let ty = mir_expr_type(es, expr)
+            let val = mir_expr_value_typed(b, es, store, expr, ty)
+            let fmt_text = if (ty == "i64" or ty == "u64" or ty == "usize") { "%ld\\n" } elif (ty == "f32" or ty == "f64") { "%f\\n" } elif (ty == "string") { "%s\\n" } else { "%d\\n" }
+            let fmt = mir_temp(b)
+            mir_inst(b, fmt + " = const ptr \"" + fmt_text + "\"")
+            mir_inst(b, "call @printf(ptr " + fmt + ", " + mir_type(ty) + " " + val.name + "): i32")
+        }
+        "expr" -> {
+            let ignored = mir_expr_value(b, es, store, expr_store_get(es, stmt.value_idx))
+        }
+        "break" -> {
+            if (break_label != "") { mir_emit_term(b, "br label " + break_label) }
+        }
+        "continue" -> {
+            if (continue_label != "") { mir_emit_term(b, "br label " + continue_label) }
+        }
+        "block" -> {
+            if (stmt.stmt_indices.length > 0)
+            {
+                for (i in 0 .. stmt.stmt_indices.length)
+                {
+                    mir_stmt(b, es, store, stmt.stmt_indices[i], break_label, continue_label)
+                }
+            }
+            else
+            {
+                for (i in 0 .. stmt.block_count)
+                {
+                    mir_stmt(b, es, store, stmt.block_start + i, break_label, continue_label)
+                }
+            }
+        }
+        "if" -> {
+            let then_label = mir_label(b, "if.then")
+            let else_label = mir_label(b, "if.else")
+            let end_label = mir_label(b, "if.end")
+            let cond = mir_truthy(b, mir_expr_value(b, es, store, expr_store_get(es, stmt.value_idx)))
+            mir_emit_term(b, "br_cond " + cond.name + ", label " + then_label + ", label " + else_label)
+            mir_block(b, then_label)
+            mir_stmt(b, es, store, stmt.body_idx, break_label, continue_label)
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+            mir_block(b, else_label)
+            if (stmt.assign_idx >= 0) { mir_stmt(b, es, store, stmt.assign_idx, break_label, continue_label) }
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+            mir_block(b, end_label)
+        }
+        "while" -> {
+            let cond_label = mir_label(b, "while.cond")
+            let body_label = mir_label(b, "while.body")
+            let end_label = mir_label(b, "while.end")
+            mir_emit_term(b, "br label " + cond_label)
+            mir_block(b, cond_label)
+            let cond = mir_truthy(b, mir_expr_value(b, es, store, expr_store_get(es, stmt.value_idx)))
+            mir_emit_term(b, "br_cond " + cond.name + ", label " + body_label + ", label " + end_label)
+            mir_block(b, body_label)
+            mir_stmt(b, es, store, stmt.body_idx, end_label, cond_label)
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + cond_label) }
+            mir_block(b, end_label)
+        }
+        "for_range" -> {
+            let cond_label = mir_label(b, "for.cond")
+            let body_label = mir_label(b, "for.body")
+            let step_label = mir_label(b, "for.step")
+            let end_label = mir_label(b, "for.end")
+            mir_define_local(stmt.assign_name, "i32")
+            mir_inst(b, mir_var_addr(stmt.assign_name) + " = alloca i32")
+            mir_store_expr_to_name(b, es, store, stmt.assign_name, stmt.value_idx, "i32")
+            let limit_name = "__for_end_" + stmt.assign_name + mir_i32(b.label_counter)
+            mir_define_local(limit_name, "i32")
+            mir_inst(b, mir_var_addr(limit_name) + " = alloca i32")
+            mir_store_expr_to_name(b, es, store, limit_name, stmt.assign_idx, "i32")
+            mir_emit_term(b, "br label " + cond_label)
+            mir_block(b, cond_label)
+            let iter = mir_expr_value_typed(b, es, store, AstExpr{ tag: "ident", text: stmt.assign_name, int_value: 0, float_value: 0.0, left_idx: -1, right_idx: -1, args: [], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 }, "i32")
+            let limit = mir_expr_value_typed(b, es, store, AstExpr{ tag: "ident", text: limit_name, int_value: 0, float_value: 0.0, left_idx: -1, right_idx: -1, args: [], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 }, "i32")
+            let cmp = mir_temp(b)
+            mir_inst(b, cmp + " = icmp slt i32 " + iter.name + ", " + limit.name)
+            mir_emit_term(b, "br_cond " + cmp + ", label " + body_label + ", label " + end_label)
+            mir_block(b, body_label)
+            mir_stmt(b, es, store, stmt.body_idx, end_label, step_label)
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + step_label) }
+            mir_block(b, step_label)
+            let cur = mir_expr_value_typed(b, es, store, AstExpr{ tag: "ident", text: stmt.assign_name, int_value: 0, float_value: 0.0, left_idx: -1, right_idx: -1, args: [], field_names: [], option_has_value: 0, option_value: "", line: 0, col: 0 }, "i32")
+            let inc = mir_temp(b)
+            mir_inst(b, inc + " = add i32 " + cur.name + ", 1")
+            mir_inst(b, "store i32 " + inc + ", " + mir_var_addr(stmt.assign_name))
+            mir_emit_term(b, "br label " + cond_label)
+            mir_block(b, end_label)
+        }
+        "field_assign" -> {
+            let base_expr = expr_store_get(es, stmt.value_idx)
+            let base_ty = mir_expr_type(es, base_expr)
+            let struct_ty = type_text_base_name_builder(strip_ptr_prefix(base_ty))
+            let field_index = get_struct_field_index(struct_ty, stmt.assign_name)
+            let field_ty = get_struct_field_type(struct_ty, stmt.assign_name)
+            let base_addr = mir_field_address(b, es, store, base_expr)
+            let slot = mir_temp(b)
+            mir_inst(b, slot + " = gep " + mir_type(struct_ty) + ", " + base_addr.name + ", [0, " + mir_i32(field_index) + "]")
+            let val = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), field_ty)
+            mir_inst(b, "store " + mir_type(field_ty) + " " + val.name + ", " + slot)
+        }
+        "store_deref" -> {
+            let ptr_expr = expr_store_get(es, stmt.value_idx)
+            let base_ty = mir_expr_type(es, ptr_expr)
+            let pointee_ty = if (is_ptr_to_struct(base_ty) == 1) { strip_ptr_prefix(base_ty) } elif (base_ty == "string") { "i8" } else { "i32" }
+            let ptr_val = mir_expr_value_typed(b, es, store, ptr_expr, "ptr")
+            let val = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), pointee_ty)
+            mir_inst(b, "store " + mir_type(pointee_ty) + " " + val.name + ", " + ptr_val.name)
+        }
+        "store_index" -> {
+            let base_expr = expr_store_get(es, stmt.value_idx)
+            let base_ty = mir_expr_type(es, base_expr)
+            let elem_ty = type_text_index_element(base_ty)
+            let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
+            let index = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.direct_ret), "i32")
+            let slot = mir_temp(b)
+            mir_inst(b, slot + " = gep " + mir_type(elem_ty) + ", " + base.name + ", [" + index.name + "]")
+            let val = mir_expr_value_typed(b, es, store, expr_store_get(es, stmt.assign_idx), elem_ty)
+            mir_inst(b, "store " + mir_type(elem_ty) + " " + val.name + ", " + slot)
+        }
+        "match" -> {
+            mir_match_stmt(b, es, store, stmt, break_label, continue_label)
+        }
+        _ -> {}
+    }
+}
+
+pub fn mir_field_address(b: &MirBuilder, es: &ExprStore, store: &StmtStore, expr: AstExpr): MirValue
+{
+    if (expr.tag == "ident")
+    {
+        return MirValue{ name: mir_var_addr(expr.text), ty: "ptr" }
+    }
+    if (expr.tag == "field")
+    {
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = mir_expr_type(es, base_expr)
+        let struct_ty = type_text_base_name_builder(strip_ptr_prefix(base_ty))
+        let field_index = get_struct_field_index(struct_ty, expr.text)
+        let base_addr = mir_field_address(b, es, store, base_expr)
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = gep " + mir_type(struct_ty) + ", " + base_addr.name + ", [0, " + mir_i32(field_index) + "]")
+        return MirValue{ name: slot, ty: "ptr" }
+    }
+    if (expr.tag == "index")
+    {
+        let base_expr = expr_store_get(es, expr.left_idx)
+        let base_ty = mir_expr_type(es, base_expr)
+        let elem_ty = type_text_index_element(base_ty)
+        let base = mir_expr_value_typed(b, es, store, base_expr, "ptr")
+        let index = mir_expr_value_typed(b, es, store, expr_store_get(es, expr.right_idx), "i32")
+        let slot = mir_temp(b)
+        mir_inst(b, slot + " = gep " + mir_type(elem_ty) + ", " + base.name + ", [" + index.name + "]")
+        return MirValue{ name: slot, ty: "ptr" }
+    }
+    return mir_expr_value_typed(b, es, store, expr, "ptr")
+}
+
+pub fn mir_match_compare(b: &MirBuilder, es: &ExprStore, store: &StmtStore, subject: MirValue, pattern_idx: i32): MirValue
+{
+    let pattern_expr = expr_store_get(es, pattern_idx)
+    if (mir_type_is_option_text(subject.ty) == 1 and pattern_expr.tag == "option")
+    {
+        let out2 = mir_temp(b)
+        let pred = if (pattern_expr.option_has_value == 0) { "eq" } else { "ne" }
+        mir_inst(b, out2 + " = icmp " + pred + " ptr " + subject.name + ", null")
+        return MirValue{ name: out2, ty: "bool" }
+    }
+    let pattern = mir_expr_value_typed(b, es, store, expr_store_get(es, pattern_idx), subject.ty)
+    let out = mir_temp(b)
+    if (subject.ty == "string")
+    {
+        let cmp_val = mir_temp(b)
+        mir_inst(b, cmp_val + " = call @strcmp(ptr " + subject.name + ", ptr " + pattern.name + "): i32")
+        mir_inst(b, out + " = icmp eq i32 " + cmp_val + ", 0")
+    }
+    elif (subject.ty == "f32" or subject.ty == "f64")
+    {
+        mir_inst(b, out + " = fcmp oeq " + mir_type(subject.ty) + " " + subject.name + ", " + pattern.name)
+    }
+    else
+    {
+        mir_inst(b, out + " = icmp eq " + mir_type(subject.ty) + " " + subject.name + ", " + pattern.name)
+    }
+    return MirValue{ name: out, ty: "bool" }
+}
+
+pub fn mir_bind_option_pattern(b: &MirBuilder, es: &ExprStore, subject: MirValue, pattern_idx: i32)
+{
+    if (mir_type_is_option_text(subject.ty) == 0 or pattern_idx < 0) { return }
+    let pattern_expr = expr_store_get(es, pattern_idx)
+    if (pattern_expr.tag != "option" or pattern_expr.option_has_value == 0 or pattern_expr.left_idx < 0) { return }
+    let bind_expr = expr_store_get(es, pattern_expr.left_idx)
+    if (bind_expr.tag != "ident" or bind_expr.text == "_") { return }
+    let inner_ty = mir_type_option_inner(subject.ty)
+    mir_define_local(bind_expr.text, inner_ty)
+    mir_inst(b, mir_var_addr(bind_expr.text) + " = alloca " + mir_type(inner_ty))
+    let mut bind_val = subject.name
+    if (inner_ty != "ptr" and inner_ty != "string" and type_text_is_array(inner_ty) == 0 and is_ptr_to_struct(inner_ty) == 0)
+    {
+        bind_val = mir_temp(b)
+        mir_inst(b, bind_val + " = sub " + mir_type(inner_ty) + " " + subject.name + ", 1")
+    }
+    mir_inst(b, "store " + mir_type(inner_ty) + " " + bind_val + ", " + mir_var_addr(bind_expr.text))
+}
+
+pub fn mir_match_stmt(b: &MirBuilder, es: &ExprStore, store: &StmtStore, stmt: AstStmt, break_label: string, continue_label: string)
+{
+    let subject = mir_expr_value(b, es, store, expr_store_get(es, stmt.value_idx))
+    let end_label = mir_label(b, "match.end")
+    let mut next_label = mir_label(b, "match.test")
+    let mut default_body = -1
+    mir_emit_term(b, "br label " + next_label)
+    for (i in 0 .. stmt.match_pattern_indices.length)
+    {
+        if (stmt.match_pattern_indices[i] < 0)
+        {
+            default_body = stmt.match_body_indices[i]
+        }
+        else
+        {
+            mir_block(b, next_label)
+            let body_label = mir_label(b, "match.body")
+            let after_label = mir_label(b, "match.test")
+            let cmp = mir_match_compare(b, es, store, subject, stmt.match_pattern_indices[i])
+            mir_emit_term(b, "br_cond " + cmp.name + ", label " + body_label + ", label " + after_label)
+            mir_block(b, body_label)
+            mir_bind_option_pattern(b, es, subject, stmt.match_pattern_indices[i])
+            mir_stmt(b, es, store, stmt.match_body_indices[i], break_label, continue_label)
+            if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+            next_label = after_label
+        }
+    }
+    mir_block(b, next_label)
+    if (default_body >= 0)
+    {
+        mir_stmt(b, es, store, default_body, break_label, continue_label)
+    }
+    if (mir_block_is_open(b) == 1) { mir_emit_term(b, "br label " + end_label) }
+    mir_block(b, end_label)
+}
+
+pub fn mir_function_header(func: AstFunction): string
+{
+    let mut out = "fn @" + func.name + "("
+    for (i in 0 .. func.param_names.length)
+    {
+        if (i > 0) { out = out + ", " }
+        out = out + "%" + func.param_names[i] + ": " + mir_type(func.param_types[i])
+    }
+    out = out + "): " + mir_type(func.ret_ty) + " {"
+    return out
+}
+
+pub fn mir_emit_function(program: AstProgram, func: AstFunction): string
+{
+    let mut b = mir_builder_new()
+    b.ret_ty = func.ret_ty
+    reset_local_vars()
+    mir_line(&b, mir_function_header(func))
+    mir_block(&b, "%entry")
+    for (i in 0 .. func.param_names.length)
+    {
+        mir_define_local(func.param_names[i], func.param_types[i])
+        mir_inst(&b, mir_var_addr(func.param_names[i]) + " = alloca " + mir_type(func.param_types[i]))
+        mir_inst(&b, "store " + mir_type(func.param_types[i]) + " %" + func.param_names[i] + ", " + mir_var_addr(func.param_names[i]))
+    }
+    mir_stmt(&b, program.expr_store, program.store, func.body_idx, "", "")
+    if (mir_block_is_open(&b) == 1)
+    {
+        if (func.ret_ty == "void") { mir_emit_term(&b, "ret void") }
+        else { mir_emit_term(&b, "ret " + mir_type(func.ret_ty) + " " + mir_zero_value(func.ret_ty)) }
+    }
+    mir_line(&b, "}")
+    return b.out
+}
+
+pub fn mir_program(program: AstProgram): string
+{
+    if (program.ok == 0) { return program.error }
+    mir_register_program(program)
+    let mut out = "mir_module vixc0 {\n"
+    for (i in 0 .. program.structs.length)
+    {
+        out = out + "    type @" + program.structs[i].name + " = { "
+        for (j in 0 .. program.structs[i].field_types.length)
+        {
+            if (j > 0) { out = out + ", " }
+            out = out + mir_type(program.structs[i].field_types[j])
+        }
+        out = out + " }\n"
+    }
+    for (i in 0 .. program.extern_functions.length)
+    {
+        let ext = program.extern_functions[i]
+        out = out + "    " + if (ext.is_var_arg == 1) { "extern_vararg" } else { "extern" } + " fn @" + ext.name + "("
+        for (j in 0 .. ext.param_types.length)
+        {
+            if (j > 0) { out = out + ", " }
+            out = out + mir_type(ext.param_types[j])
+        }
+        out = out + "): " + mir_type(ext.ret_ty) + "\n"
+    }
+    if (mir_program_has_extern(program, "printf") == 0) { out = out + "    extern_vararg fn @printf(ptr): i32\n" }
+    if (mir_program_has_extern(program, "strcmp") == 0) { out = out + "    extern fn @strcmp(ptr, ptr): i32\n" }
+    if (mir_program_has_extern(program, "strlen") == 0) { out = out + "    extern fn @strlen(ptr): i32\n" }
+    out = out + "    extern fn @vix_array_len(ptr): i32\n"
+    out = out + "    extern fn @vix_array_push_i32(ptr, i32): ptr\n"
+    out = out + "    extern fn @vix_array_push_ptr(ptr, ptr): ptr\n"
+    out = out + "    extern fn @vix_array_push_bytes(ptr, ptr, usize): ptr\n"
+    out = out + "    extern fn @vix_string_concat(ptr, ptr): ptr\n"
+    for (i in 0 .. program.functions.length)
+    {
+        out = out + "\n" + mir_emit_function(program, program.functions[i])
+    }
+    out = out + "}\n"
+    return out
+}

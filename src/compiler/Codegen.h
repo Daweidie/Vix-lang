@@ -109,6 +109,7 @@ private:
     std::string mangleGenericFunctionName(const std::string& baseName, ASTNode* typeArgs) const;
     bool bindGenericTypeArgs(ASTNode* fnNode, ASTNode* typeArgs, std::map<std::string, llvm::Type*>& outBindings);
     llvm::Function* instantiateGenericFunction(const std::string& baseName, ASTNode* typeArgs);
+    static std::string llvmTypeToToken(llvm::Type* type);
 
     // Insert point / module helpers
     bool ensureValidInsertPoint();

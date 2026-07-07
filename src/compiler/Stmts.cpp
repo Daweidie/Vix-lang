@@ -87,7 +87,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIf(ASTNode* node) {
     VisitResult thenResult = visit(node->data.if_stmt.then_body);
     scopeManager.exitScope();
     BasicBlock* thenEndBB = builder.GetInsertBlock();
-    bool thenTerminated = thenEndBB->getTerminator();
+    bool thenTerminated = !thenEndBB || thenEndBB->getTerminator();
     if (!thenTerminated) {
         builder.CreateBr(mergeBB);
     }
@@ -103,7 +103,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIf(ASTNode* node) {
         scopeManager.exitScope();
     }
     BasicBlock* elseEndBB = builder.GetInsertBlock();
-    bool elseTerminated = elseEndBB->getTerminator();
+    bool elseTerminated = !elseEndBB || elseEndBB->getTerminator();
     if (!elseTerminated) {
         builder.CreateBr(mergeBB);
     }
@@ -177,7 +177,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitWhile(ASTNode* node) {
     loopContinueTargets.pop_back();
     loopBreakTargets.pop_back();
     loopBB = builder.GetInsertBlock();
-    if (!loopBB->getTerminator()) {
+    if (loopBB && !loopBB->getTerminator()) {
         builder.CreateBr(condBB);
     }
     
@@ -334,7 +334,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitFor(ASTNode* node) {
         loopContinueTargets.pop_back();
         loopBreakTargets.pop_back();
 
-        if (!builder.GetInsertBlock()->getTerminator()) {
+        if (builder.GetInsertBlock() && !builder.GetInsertBlock()->getTerminator()) {
             builder.CreateBr(incBB);
         }
 
@@ -396,7 +396,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitFor(ASTNode* node) {
     scopeManager.exitScope();
     loopContinueTargets.pop_back();
     loopBreakTargets.pop_back();
-    if (!builder.GetInsertBlock()->getTerminator()) {
+    if (builder.GetInsertBlock() && !builder.GetInsertBlock()->getTerminator()) {
         builder.CreateBr(incBB);
     }
     builder.SetInsertPoint(incBB);
@@ -1092,6 +1092,29 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
             }
             if (!inferredLLVM && node->data.assign.right && node->data.assign.right->inferred_type) {
                 inferredLLVM = getLLVMTypeFromTypeInfo(node->data.assign.right->inferred_type);
+            }
+            // Check declared type against active generic type bindings:
+            // when a generic type param T resolves to a concrete type (e.g. i32),
+            // the inferred_type may still be TYPEINFO_VAR which maps to ptr.
+            // Use the concrete binding type instead.
+            if (node->data.assign.declared_type &&
+                node->data.assign.declared_type->type == AST_IDENTIFIER &&
+                node->data.assign.declared_type->data.identifier.name) {
+                std::string typeName(node->data.assign.declared_type->data.identifier.name);
+                auto gbt = activeGenericTypeBindings.find(typeName);
+                if (gbt != activeGenericTypeBindings.end() && gbt->second) {
+                    inferredLLVM = gbt->second;
+                }
+            }
+            // When inferredLLVM is ptr (from TYPEINFO_VAR generic param mapping)
+            // but the actual right-hand value is a concrete non-pointer type,
+            // use the actual value type. This handles `let temp = arr[j]` in a
+            // generic context where T=i32: arr[j] returns i32 but inferred_type
+            // is TYPEINFO_VAR → ptr.
+            if (inferredLLVM && inferredLLVM->isPointerTy() &&
+                rightVal.value && rightVal.value->getType() &&
+                !rightVal.value->getType()->isPointerTy()) {
+                inferredLLVM = nullptr;
             }
             if (inferredLLVM && inferredLLVM != rightVal.value->getType()) {
                 // Convert the value to the inferred type (e.g., ptr -> i32 for ADT payloads)

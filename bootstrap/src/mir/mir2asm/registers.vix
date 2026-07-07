@@ -1,0 +1,69 @@
+#[no_main]
+import "target.vix"
+
+pub fn mir2asm_acc(ty: string): string
+{
+    if (mir2asm_type_is_64(ty) == 1) { return "rax" }
+    if (ty == "i8" or ty == "u8" or ty == "char") { return "al" }
+    return "eax"
+}
+
+pub fn mir2asm_dx(ty: string): string
+{
+    if (mir2asm_type_is_64(ty) == 1) { return "rdx" }
+    return "edx"
+}
+
+pub fn mir2asm_cx(ty: string): string
+{
+    if (mir2asm_type_is_64(ty) == 1) { return "rcx" }
+    return "ecx"
+}
+
+pub fn mir2asm_arg_reg(index: i32): string
+{
+    return mir2asm_arg_reg_typed(index, "i32")
+}
+
+pub fn mir2asm_arg_reg_typed(index: i32, ty: string): string
+{
+    if (mir2asm_type_is_float(ty) == 1)
+    {
+        if (index == 0) { return "xmm0" }
+        if (index == 1) { return "xmm1" }
+        if (index == 2) { return "xmm2" }
+        if (index == 3) { return "xmm3" }
+        if (index == 4) { return "xmm4" }
+        if (index == 5) { return "xmm5" }
+        if (index == 6) { return "xmm6" }
+        if (index == 7) { return "xmm7" }
+        return "xmm0"
+    }
+    if (ty == "i8" or ty == "u8" or ty == "char")
+    {
+        if (index == 0) { return "dil" }
+        if (index == 1) { return "sil" }
+        if (index == 2) { return "dl" }
+        if (index == 3) { return "cl" }
+        if (index == 4) { return "r8b" }
+        if (index == 5) { return "r9b" }
+        return "al"
+    }
+    if (mir2asm_type_is_64(ty) == 1)
+    {
+        if (index == 0) { return "rdi" }
+        if (index == 1) { return "rsi" }
+        if (index == 2) { return "rdx" }
+        if (index == 3) { return "rcx" }
+        if (index == 4) { return "r8" }
+        if (index == 5) { return "r9" }
+        return "rax"
+    }
+    if (index == 0) { return "edi" }
+    if (index == 1) { return "esi" }
+    if (index == 2) { return "edx" }
+    if (index == 3) { return "ecx" }
+    if (index == 4) { return "r8d" }
+    if (index == 5) { return "r9d" }
+    return "eax"
+}
