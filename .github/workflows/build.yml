@@ -137,17 +137,19 @@ jobs:
       - name: Check — compile examples with ownership (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          ./build/vixc examples/owner.vix --check
           ./build/vixc examples/pointer.vix --check
           ./build/vixc examples/fib.vix --check
+          ./build/vixc examples/struct2.vix --check
+          ! ./build/vixc examples/owner.vix --check
 
       - name: Check — compile examples with ownership (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          ./build/vixc examples/owner.vix --check
           ./build/vixc examples/pointer.vix --check
           ./build/vixc examples/fib.vix --check
+          ./build/vixc examples/struct2.vix --check
+          ! ./build/vixc examples/owner.vix --check
 
       - name: Regression test — pytest (Linux/macOS)
         if: runner.os != 'Windows'
