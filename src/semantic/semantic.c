@@ -406,11 +406,10 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
         return 0;
     }
     VisitedNode* new_visited_list = add_visited_node(node, visited_list);
-    if (!new_visited_list) {
+    if (new_visited_list == visited_list) {
         /*
-        如果无法添加到访问列表，可能是因为内存分配失败
-        在这种情况下，我们仍然可以继续处理，但不进行递归保护
-        但为了安全，我们返回0避免进一步处理
+        failed to add to visited list, likely out of memory
+        proceeding without recursion guard is unsafe, so bail out
         */
         return 0;
     }
@@ -592,6 +591,8 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
                 const char* filename = node_source_filename(node);
                 int line = (node->location.first_line > 0) ? node->location.first_line : 1;
                 int column = (node->location.first_column > 0) ? node->location.first_column : 1;
+                set_location_with_column(filename, line, column);
+                adjust_column_to_identifier(node->data.identifier.name);
                 report_undefined_identifier_with_location_and_column(
                     node->data.identifier.name, 
                     filename, 
@@ -608,13 +609,44 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
             if (node->data.function.params && node->data.function.params->type == AST_EXPRESSION_LIST) {
                 for (int i = 0; i < node->data.function.params->data.expression_list.expression_count; i++) {
                     ASTNode* param = node->data.function.params->data.expression_list.expressions[i];
+                    const char* param_name = NULL;
+                    int is_mut = 0;
                     if (param->type == AST_IDENTIFIER) {
-                        add_symbol(func_scope, param->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN);
+                        param_name = param->data.identifier.name;
                     }
                     else if (param->type == AST_ASSIGN && param->data.assign.left->type == AST_IDENTIFIER) {
-                        int is_mut = 0;
+                        param_name = param->data.assign.left->data.identifier.name;
                         if (param->mutability == MUTABILITY_MUTABLE) is_mut = 1;
-                        add_symbol_with_mutability(func_scope, param->data.assign.left->data.identifier.name, SYMBOL_VARIABLE, TYPE_UNKNOWN, is_mut);
+                    }
+                    if (param_name) {
+                        /* check param name vs function name */
+                        if (node->data.function.name && strcmp(param_name, node->data.function.name) == 0) {
+                            const char* filename = node_source_filename(param);
+                            int line = (param->location.first_line > 0) ? param->location.first_line : 1;
+                            char buf[256];
+                            snprintf(buf, sizeof(buf),
+                                "parameter '%s' shadows the function name", param_name);
+                            report_semantic_error_with_location(buf, filename, line);
+                            errors_found++;
+                            continue;
+                        }
+                        /* check param name vs outer scope variable */
+                        Symbol* outer = lookup_symbol(table, param_name);
+                        if (outer) {
+                            const char* filename = node_source_filename(param);
+                            int line = (param->location.first_line > 0) ? param->location.first_line : 1;
+                            char buf[256];
+                            snprintf(buf, sizeof(buf),
+                                "parameter '%s' shadows outer variable", param_name);
+                            report_semantic_error_with_location(buf, filename, line);
+                            errors_found++;
+                            continue;
+                        }
+                        if (param->type == AST_IDENTIFIER) {
+                            add_symbol(func_scope, param_name, SYMBOL_VARIABLE, TYPE_UNKNOWN);
+                        } else {
+                            add_symbol_with_mutability(func_scope, param_name, SYMBOL_VARIABLE, TYPE_UNKNOWN, is_mut);
+                        }
                     }
                 }
             }
@@ -945,6 +977,21 @@ int check_undefined_symbols(ASTNode* node) {
     if (!global_table) return 1;
     int result = check_undefined_symbols_in_node_with_visited(node, global_table, NULL);
     destroy_symbol_table(global_table);
+
+    // Clean up global data accumulated during this analysis pass
+    {
+        StructDef* cur = g_struct_definitions;
+        while (cur) {
+            StructDef* next = cur->next;
+            free(cur->name);
+            free(cur);
+            cur = next;
+        }
+        g_struct_definitions = NULL;
+    }
+    clear_var_struct_map();
+    clear_var_init_map();
+
     return result;
 }
 
@@ -1119,7 +1166,12 @@ typedef struct VariableUsage {
 } VariableUsage;
 VariableUsage* add_variable_to_usage_with_column(VariableUsage* list, const char* name, int line, int column) {
     VariableUsage* new_var = malloc(sizeof(VariableUsage));
+    if (!new_var) return list;
     new_var->name = malloc(strlen(name) + 1);
+    if (!new_var->name) {
+        free(new_var);
+        return list;
+    }
     strcpy(new_var->name, name);
     new_var->used = 0;
     new_var->line = line;
