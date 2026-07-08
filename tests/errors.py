@@ -120,6 +120,65 @@ class TestDiagnosticsQuality:
 
 
 @pytest.mark.error
+class TestErrorCodes:
+    def test_error_code_in_output(self, compiler, tmp_path):
+        src = 'fn foo(): i32 { return "hello" } fn main(): i32 { return 0 }'
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "E00" in res.stderr
+
+    def test_semantic_error_has_e006(self, compiler, tmp_path):
+        src = 'fn main(): i32 { let x = [1, 2]; let y = x; print(x[0]); return 0 }'
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "E006" in res.stderr
+
+    def test_type_error_has_e003(self, compiler, tmp_path):
+        src = 'fn foo(): i32 { return "hello" } fn main(): i32 { return 0 }'
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "E003" in res.stderr
+
+
+@pytest.mark.error
+class TestUseAfterMove:
+    def test_use_after_move_has_note(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let buf = [1, 2, 3]
+    let t = buf
+    print(buf[0])
+    return 0
+}'''
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "note:" in res.stderr.lower() or "was moved" in res.stderr.lower()
+
+    def test_use_after_move_shows_location(self, compiler, tmp_path):
+        src = '''fn main(): i32 {
+    let buf = [1, 2, 3]
+    let t = buf
+    print(buf[0])
+    return 0
+}'''
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        # Should show the line where the move happened
+        assert "let t = buf" in res.stderr or "moved at" in res.stderr
+
+
+@pytest.mark.error
+class TestOwnershipErrors:
+    def test_use_after_move_reported(self, compiler, tmp_path):
+        src = 'fn main(): i32 { let x = [1, 2]; let y = x; print(x[0]); return 0 }'
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "use of moved value" in res.stderr
+
+    def test_mut_borrow_twice(self, compiler, tmp_path):
+        src = 'fn main(): i32 { let mut x = 10; let r1 = mut ref x; let r2 = mut ref x; print(@r1); return 0 }'
+        res, _ = compile_and_run(compiler, src, tmp_path)
+        assert res.returncode != 0
+        assert "borrow" in res.stderr.lower()
 class TestEdgeCaseErrors:
     def test_empty_source(self, compiler, tmp_path):
         src = ''
