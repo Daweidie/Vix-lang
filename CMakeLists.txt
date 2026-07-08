@@ -190,22 +190,22 @@ if(WIN32)
             message(FATAL_ERROR "Static libxml2 not found. Run: vcpkg install libxml2:x64-windows-static, or install libxml2 via MSYS2.")
         endif()
     else()
-
-    target_link_libraries(vixc PRIVATE
-        "${_libxml2_static}"
-        "${_zlib_static}"
-        "${_iconv_static}"
-    )
-    target_include_directories(vixc PRIVATE
-        "${_vcpkg_static}/include/libxml2"
-    )
+        target_link_libraries(vixc PRIVATE
+            "${_libxml2_static}"
+            "${_zlib_static}"
+            "${_iconv_static}"
+        )
+        target_include_directories(vixc PRIVATE
+            "${_vcpkg_static}/include/libxml2"
+        )
+        message(STATUS "Linked static libxml2: ${_libxml2_static}")
+        message(STATUS "Linked static zlib:    ${_zlib_static}")
+        message(STATUS "Linked static iconv:   ${_iconv_static}")
+    endif()
 
     # libxml2 的 dict.c 需要 BCryptGenRandom
     target_link_libraries(vixc PRIVATE bcrypt.lib)
 
-    message(STATUS "Linked static libxml2: ${_libxml2_static}")
-    message(STATUS "Linked static zlib:    ${_zlib_static}")
-    message(STATUS "Linked static iconv:   ${_iconv_static}")
 endif()
 if(TARGET LLVM)
     target_link_libraries(vixc PRIVATE LLVM)
