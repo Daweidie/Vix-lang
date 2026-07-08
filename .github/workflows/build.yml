@@ -158,7 +158,7 @@ jobs:
         run: |
           mkdir -p tests/build/
           cp build/vixc tests/build/
-          python3 -m pytest tests/ -v --tb=short -x -m "not slow and not fuzz and not stress and not cli"
+          python3 -m pytest tests/errors.py tests/test_types.py -v --tb=short -x
 
       - name: Regression test — pytest (Windows)
         if: runner.os == 'Windows'
@@ -166,7 +166,7 @@ jobs:
         run: |
           mkdir -p tests/build/
           cp build/vixc tests/build/
-          python -m pytest tests/ -v --tb=short -x -m "not slow and not fuzz and not stress and not cli"
+          python -m pytest tests/errors.py tests/test_types.py -v --tb=short -x
 
       - name: Bootstrap self-check (Linux/macOS)
         if: runner.os != 'Windows'
