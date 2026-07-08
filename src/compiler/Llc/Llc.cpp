@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "Llc.h"
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -113,14 +114,22 @@ bool Llc::compile(const std::string &llvm_ir_path,
 
 	std::string tripleStr = triple;
 	if (tripleStr.empty()) {
+#if LLVM_VERSION_MAJOR >= 22
+		tripleStr = module->getTargetTriple().str();
+#else
 		tripleStr = module->getTargetTriple();
+#endif
 	}
 	if (tripleStr.empty()) {
 		tripleStr = sys::getDefaultTargetTriple();
 	}
 
 	Triple effectiveTriple(tripleStr);
+#if LLVM_VERSION_MAJOR >= 22
+	module->setTargetTriple(effectiveTriple);
+#else
 	module->setTargetTriple(effectiveTriple.str());
+#endif
 	std::string targetError;
 	const Target *target = TargetRegistry::lookupTarget(effectiveTriple.str(), targetError);
 	if (!target) {
@@ -136,8 +145,13 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	auto codeModel = std::optional<CodeModel::Model>(CodeModel::Small);
 	CodeGenOptLevel cgOpt = toCodeGenOpt(optLevel);
 	std::unique_ptr<TargetMachine> targetMachine(
+#if LLVM_VERSION_MAJOR >= 22
+	 target->createTargetMachine(effectiveTriple, cpu, features, options,
+	        relocationModel, codeModel, cgOpt));
+#else
 	 target->createTargetMachine(effectiveTriple.str(), cpu, features, options,
-									relocationModel, codeModel, cgOpt));
+	        relocationModel, codeModel, cgOpt));
+#endif
 	if (!targetMachine) {
 		errMsg = "failed to create target machine for triple '" + tripleStr + "'";
 		return false;

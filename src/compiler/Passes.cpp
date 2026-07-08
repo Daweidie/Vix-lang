@@ -1,3 +1,4 @@
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Transforms/Scalar.h>
@@ -46,9 +47,15 @@ static std::unique_ptr<TargetMachine> createHostTM(OptimizationLevel OL) {
 
     TargetOptions opts;
     CodeGenOptLevel cgOpt = toCodeGenOptLevel(OL);
+#if LLVM_VERSION_MAJOR >= 22
+    return std::unique_ptr<TargetMachine>(
+        target->createTargetMachine(triple, "generic", "", opts,
+                                    Reloc::Static, CodeModel::Small, cgOpt));
+#else
     return std::unique_ptr<TargetMachine>(
         target->createTargetMachine(triple.str(), "generic", "", opts,
                                     Reloc::Static, CodeModel::Small, cgOpt));
+#endif
 }
 
 extern "C" void vix_optimize_module(void* llvm_module, int level) {
@@ -61,7 +68,11 @@ extern "C" void vix_optimize_module(void* llvm_module, int level) {
     if (!TM) return;
 
     M->setDataLayout(TM->createDataLayout());
+#if LLVM_VERSION_MAJOR >= 22
+    M->setTargetTriple(TM->getTargetTriple());
+#else
     M->setTargetTriple(TM->getTargetTriple().str());
+#endif
 
     PassBuilder PB(TM.get());
 
