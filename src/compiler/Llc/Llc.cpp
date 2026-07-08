@@ -120,7 +120,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	}
 
 	Triple effectiveTriple(tripleStr);
-	module->setTargetTriple(effectiveTriple);
+	module->setTargetTriple(effectiveTriple.str());
 	std::string targetError;
 	const Target *target = TargetRegistry::lookupTarget(effectiveTriple.str(), targetError);
 	if (!target) {
@@ -136,7 +136,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 	auto codeModel = std::optional<CodeModel::Model>(CodeModel::Small);
 	CodeGenOptLevel cgOpt = toCodeGenOpt(optLevel);
 	std::unique_ptr<TargetMachine> targetMachine(
-		target->createTargetMachine(effectiveTriple, cpu, features, options,
+	 target->createTargetMachine(effectiveTriple.str(), cpu, features, options,
 									relocationModel, codeModel, cgOpt));
 	if (!targetMachine) {
 		errMsg = "failed to create target machine for triple '" + tripleStr + "'";

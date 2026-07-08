@@ -6,7 +6,7 @@ LLVMCodeGenerator::LLVMCodeGenerator() : builder(context), typeHelper(context) {
     module = std::make_unique<Module>("VixModule", context);
     std::string Triple = g_vix_target_triple.empty() ? sys::getProcessTriple() : g_vix_target_triple;
     llvm::Triple targetTriple(Triple);
-    module->setTargetTriple(targetTriple);
+    module->setTargetTriple(targetTriple.str());
     printfFunction = nullptr;
     strlenFunction = nullptr;
     strcpyFunction = nullptr;
