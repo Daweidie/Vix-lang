@@ -1,13 +1,15 @@
-//1. 取地址：ref
+// 指针示例：取地址 + 解引用 + 数组指针运算
 fn main(): i32 {
+    // 取地址 + 解引用读
     let x = 10
-    let mut  ptr = ref x //获取 x 的地址 赋值需要加上mut修饰符
-    //2. 解引用：@
-    let value = @ptr//获取 ptr 指向的值
-    @ptr = 20//修改 ptr 指向的值
+    let ptr = ref x
+    let value = @ptr
+    print(value)
+
+    // 数组指针 + 偏移
     let arr = [1, 2, 3, 4, 5]
     let p = ref arr[0]
-    let second = @(p + 1) //获取 arr[1] = 2
+    let second = @(p + 1)
     print(second)
     return 0
 }
