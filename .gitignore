@@ -37,6 +37,7 @@ venv
 # Debug symbols
 *.d
 *.pdb
+*.elf
 
 # Rubbish Vix File
 ./*.vix
