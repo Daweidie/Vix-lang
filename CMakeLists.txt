@@ -152,7 +152,7 @@ target_compile_options(vixc PRIVATE
     $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall -Wextra -fstack-protector-strong -fexceptions>
 )
 
-if(NOT WIN32)
+if(NOT MSVC)
     target_compile_definitions(vixc PRIVATE
         _POSIX_C_SOURCE=200809L
         _XOPEN_SOURCE=700
