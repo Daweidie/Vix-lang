@@ -41,7 +41,13 @@ static inline bool isRegisteredUnionCtorName(const std::string& name) {
 }
 
 static inline int32_t ctorTagValue(const std::string& name) {
-    return static_cast<int32_t>(std::hash<std::string>{}(name) & 0x7fffffff);
+    // FNV-1a 32-bit — stable across platforms and runs
+    uint32_t hash = 2166136261u;
+    for (char c : name) {
+        hash ^= static_cast<uint8_t>(c);
+        hash *= 16777619u;
+    }
+    return static_cast<int32_t>(hash & 0x7fffffff);
 }
 
 static inline void initTarget() {
