@@ -168,9 +168,6 @@ jobs:
           cp build/vixc tests/build/
           python -m pytest tests/errors.py -v --tb=short -x
 
-      - name: Bootstrap self-check (Linux/macOS) — skip, bootstrap has its own AST
-        if: false
-
       # ===================== Package =====================
       - name: Package (Linux)
         if: runner.os == 'Linux'
