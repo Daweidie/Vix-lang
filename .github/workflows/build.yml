@@ -2,10 +2,10 @@ name: Build & Release
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, stage2]
     tags: ["v*"]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, stage2]
 
 permissions:
   contents: write
@@ -49,26 +49,28 @@ jobs:
           fi
 
       # ===================== Linux =====================
-      - name: Install LLVM 20 and dependencies (Linux)
+      - name: Install LLVM 18 and dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 22
-          sudo apt-get install -y llvm-22-dev lld-22 liblld-22-dev clang-22 flex bison patchelf
+          sudo ./llvm.sh 18
+          sudo apt-get install -y llvm-18-dev lld-18 liblld-18-dev clang-18 flex bison patchelf python3-pip
+          sudo pip3 install pytest
 
       # ===================== macOS =====================
       - name: Install LLVM and dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install llvm@22 lld@22 flex bison
-          LLVM_PREFIX="$(brew --prefix llvm@22)"
+          brew install llvm@18 lld@18 flex bison
+          LLVM_PREFIX="$(brew --prefix llvm@18)"
           echo "${LLVM_PREFIX}/bin" >> $GITHUB_PATH
-          echo "$(brew --prefix lld@22)/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix lld@18)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
-          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:$(brew --prefix lld@22)" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:$(brew --prefix lld@18)" >> $GITHUB_ENV
+          pip3 install pytest
 
       # ===================== Windows =====================
       - name: Setup MSYS2 (Windows)
@@ -83,6 +85,7 @@ jobs:
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python-pytest
             zip
             flex
             bison
@@ -90,7 +93,7 @@ jobs:
       # ===================== Configure =====================
       - name: Configure (Linux)
         if: runner.os == 'Linux'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/lib/llvm-22
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/lib/llvm-18
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'
@@ -119,6 +122,52 @@ jobs:
         shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
+      # ===================== Test =====================
+      - name: Smoke test — compile and run hello.vix (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          ./build/vixc examples/hello.vix -o /tmp/hello-test
+          /tmp/hello-test
+
+      - name: Smoke test — compile and run hello.vix (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          ./build/vixc examples/hello.vix -o /tmp/hello-test
+          /tmp/hello-test
+
+      - name: Check — compile examples with ownership (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          ./build/vixc examples/owner.vix --check
+          ./build/vixc examples/pointer.vix --check
+          ./build/vixc examples/fib.vix --check
+
+      - name: Check — compile examples with ownership (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          ./build/vixc examples/owner.vix --check
+          ./build/vixc examples/pointer.vix --check
+          ./build/vixc examples/fib.vix --check
+
+      - name: Regression test — pytest (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cp build/vixc tests/build/
+          python3 -m pytest tests/ -v --tb=short -x -m "not slow and not fuzz and not stress"
+
+      - name: Regression test — pytest (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cp build/vixc tests/build/
+          python -m pytest tests/ -v --tb=short -x -m "not slow and not fuzz and not stress"
+
+      - name: Bootstrap self-check (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./build/vixc bootstrap/src/main.vix --check
+
       # ===================== Package =====================
       - name: Package (Linux)
         if: runner.os == 'Linux'
@@ -127,7 +176,6 @@ jobs:
           mkdir -p dist
           cp build/vixc dist/vixc
 
-          # 复制非系统共享库并设置 RPATH 为 $ORIGIN
           ldd dist/vixc | awk '/=>/ { print $3 }' | while read lib; do
             case "$lib" in
               /lib/*|/usr/lib/x86_64-linux-gnu/libc.*|/lib64/*|/usr/lib/x86_64-linux-gnu/libm.*|/usr/lib/x86_64-linux-gnu/libpthread.*|/usr/lib/x86_64-linux-gnu/libdl.*|/usr/lib/x86_64-linux-gnu/librt.*|/usr/lib/x86_64-linux-gnu/ld-*) continue ;;
@@ -135,7 +183,6 @@ jobs:
             cp -L "$lib" dist/ 2>/dev/null || true
           done
 
-          # 设置 RPATH 使得 vixc 从同目录加载 .so
           patchelf --set-rpath '$ORIGIN' dist/vixc
           chmod +x dist/vixc
 
@@ -149,13 +196,12 @@ jobs:
           cp build/vixc dist/vixc
           chmod +x dist/vixc
 
-          # 复制非系统 dylib
-          LLVM_PREFIX="$(brew --prefix llvm@20)"
-          LLD_PREFIX="$(brew --prefix lld@20)"
+          LLVM_PREFIX="$(brew --prefix llvm@18)"
+          LLD_PREFIX="$(brew --prefix lld@18)"
 
           for dylib in \
             "${LLVM_PREFIX}/lib/libLLVM.dylib" \
-            "${LLVM_PREFIX}/lib/libLLVM-20.dylib" \
+            "${LLVM_PREFIX}/lib/libLLVM-18.dylib" \
             "${LLD_PREFIX}/lib/liblldCommon.dylib" \
             "${LLD_PREFIX}/lib/liblldELF.dylib" \
             "${LLD_PREFIX}/lib/liblldMachO.dylib" \
@@ -167,7 +213,6 @@ jobs:
             fi
           done
 
-          # 用 otool 检查并复制其他缺失的 Homebrew dylib
           otool -L dist/vixc | awk 'NR>1 { print $1 }' | while read lib; do
             case "$lib" in
               /usr/lib/*|/System/*) continue ;;
@@ -180,7 +225,6 @@ jobs:
             fi
           done
 
-          # 修复 dylib 的 install name 指向 @executable_path/
           for f in dist/*.dylib; do
             [ -f "$f" ] || continue
             chmod +w "$f"
@@ -196,7 +240,6 @@ jobs:
             install_name_tool -id "@executable_path/${depname}" "$f" 2>/dev/null || true
           done
 
-          # 修复 vixc 本身的 dylib 引用
           otool -L dist/vixc | awk 'NR>1 { print $1 }' | while read dep; do
             case "$dep" in
               /usr/lib/*|/System/*) continue ;;
@@ -217,12 +260,10 @@ jobs:
           mkdir -p dist/bin dist/libc
           cp build/vixc.exe dist/bin/vixc.exe
 
-          # ── 复制 vixc.exe 自身依赖的运行时 DLL ──
           ldd dist/bin/vixc.exe | grep -vi '/c/WINDOWS/' | awk '{ print $3 }' | while read dll; do
             [ -f "$dll" ] && cp "$dll" dist/bin/ 2>/dev/null || true
           done
 
-          # ── 检测 MSYS2 环境（优先使用当前 msystem，其次目录检测）──
           MSYS_PREFIX=""
           case "${MSYSTEM:-}" in
             UCRT64)  MSYS_PREFIX="/ucrt64" ;;
@@ -238,18 +279,16 @@ jobs:
           esac
 
           if [ -z "$MSYS_PREFIX" ]; then
-            echo "WARNING: No MSYS2 environment found (neither /ucrt64 nor /mingw64), skipping libc extraction"
+            echo "WARNING: No MSYS2 environment found, skipping libc extraction"
           else
             echo "Using MSYS2 prefix: $MSYS_PREFIX"
 
-            # 查找 GCC 版本目录（用于 libgcc.a 等）
             GCC_VER=""
             for d in "$MSYS_PREFIX"/lib/gcc/x86_64-w64-mingw32/*/; do
               [ -d "$d" ] && GCC_VER="$d"
             done
             echo "GCC version dir: ${GCC_VER:-<not found>}"
 
-            # 通用查找并复制函数：在 GCC_VER、lib/、bin/ 中搜索
             copy_if_found() {
               local name="$1"
               for dir in "$GCC_VER" "$MSYS_PREFIX/lib" "$MSYS_PREFIX/bin"; do
@@ -263,17 +302,14 @@ jobs:
               return 0
             }
 
-            # 动态库（供编译后的程序运行时使用）
             for dll in ucrtbase.dll vcruntime140.dll vcruntime140_1.dll; do
               copy_if_found "$dll"
             done
 
-            # 静态库
             for lib in libucrt.a libvcruntime.a libmingw32.a libgcc.a libgcc_eh.a libmingwex.a libmsvcrt.a libkernel32.a; do
               copy_if_found "$lib"
             done
 
-            # CRT 对象文件
             for obj in crt2.o crtbegin.o crtend.o crtbeginS.o crtendS.o; do
               copy_if_found "$obj"
             done
