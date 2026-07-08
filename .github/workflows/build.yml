@@ -154,6 +154,7 @@ jobs:
       - name: Regression test — pytest (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
+          mkdir -p tests/build/
           cp build/vixc tests/build/
           python3 -m pytest tests/ -v --tb=short -x -m "not slow and not fuzz and not stress"
 
@@ -161,6 +162,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
+          mkdir -p tests/build/
           cp build/vixc tests/build/
           python -m pytest tests/ -v --tb=short -x -m "not slow and not fuzz and not stress"
 
