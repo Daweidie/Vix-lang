@@ -497,11 +497,11 @@ static void print_diagnostic_header(ErrorLevel level, ErrorType error_type, cons
     fprintf(stderr, "%s%s%s%s", colorize(level_col), colorize(ANSI_BOLD), level_text, reset);
     if (type_text && error_type != ERROR_WARNING) {
         fprintf(stderr, " %s[%s%s %s%s]%s",
-                colorize(ANSI_DIM),
+                colorize(error_type_color(error_type)),
                 colorize(error_type_color(error_type)),
                 type_text,
                 err_code ? err_code : "",
-                colorize(ANSI_DIM),
+                colorize(error_type_color(error_type)),
                 reset);
     }
     fprintf(stderr, ": %s\n", msg_buf[0] ? msg_buf : "");
