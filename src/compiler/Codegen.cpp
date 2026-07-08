@@ -1,4 +1,5 @@
 #include "Codegen.h"
+#include <llvm/Config/llvm-config.h>
 
 using namespace llvm;
 
@@ -6,7 +7,11 @@ LLVMCodeGenerator::LLVMCodeGenerator() : builder(context), typeHelper(context) {
     module = std::make_unique<Module>("VixModule", context);
     std::string Triple = g_vix_target_triple.empty() ? sys::getProcessTriple() : g_vix_target_triple;
     llvm::Triple targetTriple(Triple);
+#if LLVM_VERSION_MAJOR >= 22
     module->setTargetTriple(targetTriple);
+#else
+    module->setTargetTriple(targetTriple.str());
+#endif
     printfFunction = nullptr;
     strlenFunction = nullptr;
     strcpyFunction = nullptr;

@@ -90,7 +90,7 @@ if(NOT _lld_found)
     endif()
 endif()
 
-include_directories(${LLVM_INCLUDE_DIRS} ${LLD_INCLUDE_DIRS})
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS} ${LLD_INCLUDE_DIRS})
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/parser)
@@ -133,7 +133,8 @@ set(CXX_SOURCES
     src/Ownership/Ownership.cpp
 )
 
-if(WIN32)
+if(MSVC)
+    # MSVC on Windows doesn't have unistd.h
     set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/parser/lex.yy.c
         PROPERTIES COMPILE_DEFINITIONS "YY_NO_UNISTD_H")
 endif()
@@ -152,7 +153,7 @@ target_compile_options(vixc PRIVATE
     $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall -Wextra -fstack-protector-strong -fexceptions>
 )
 
-if(NOT WIN32)
+if(NOT MSVC)
     target_compile_definitions(vixc PRIVATE
         _POSIX_C_SOURCE=200809L
         _XOPEN_SOURCE=700
@@ -181,24 +182,31 @@ if(WIN32)
     set(_iconv_static   "${_vcpkg_static}/lib/iconv.lib")
 
     if(NOT EXISTS "${_libxml2_static}")
-        message(FATAL_ERROR "Static libxml2 not found. Run: vcpkg install libxml2:x64-windows-static")
+        find_package(LibXml2 QUIET)
+        if(LibXml2_FOUND)
+            message(STATUS "Found system libxml2: ${LIBXML2_LIBRARIES}")
+            target_link_libraries(vixc PRIVATE ${LIBXML2_LIBRARIES})
+            target_include_directories(vixc PRIVATE ${LIBXML2_INCLUDE_DIRS})
+        else()
+            message(FATAL_ERROR "Static libxml2 not found. Run: vcpkg install libxml2:x64-windows-static, or install libxml2 via MSYS2.")
+        endif()
+    else()
+        target_link_libraries(vixc PRIVATE
+            "${_libxml2_static}"
+            "${_zlib_static}"
+            "${_iconv_static}"
+        )
+        target_include_directories(vixc PRIVATE
+            "${_vcpkg_static}/include/libxml2"
+        )
+        message(STATUS "Linked static libxml2: ${_libxml2_static}")
+        message(STATUS "Linked static zlib:    ${_zlib_static}")
+        message(STATUS "Linked static iconv:   ${_iconv_static}")
     endif()
-
-    target_link_libraries(vixc PRIVATE
-        "${_libxml2_static}"
-        "${_zlib_static}"
-        "${_iconv_static}"
-    )
-    target_include_directories(vixc PRIVATE
-        "${_vcpkg_static}/include/libxml2"
-    )
 
     # libxml2 的 dict.c 需要 BCryptGenRandom
     target_link_libraries(vixc PRIVATE bcrypt.lib)
 
-    message(STATUS "Linked static libxml2: ${_libxml2_static}")
-    message(STATUS "Linked static zlib:    ${_zlib_static}")
-    message(STATUS "Linked static iconv:   ${_iconv_static}")
 endif()
 if(TARGET LLVM)
     target_link_libraries(vixc PRIVATE LLVM)

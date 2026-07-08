@@ -588,7 +588,7 @@ static void check_match_exhaustiveness(ASTNode* scrutinee, ASTNode* arms) {
         int line = scrutinee ? scrutinee->location.first_line : yylineno;
         int col = scrutinee ? scrutinee->location.first_column : 1;
         set_location_with_column(current_input_filename ? current_input_filename : "unknown", line, col);
-        report_simple_error(ERROR_LEVEL_WARNING, ERROR_SEMANTIC, msg);
+        report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, msg);
     }
 }
 
