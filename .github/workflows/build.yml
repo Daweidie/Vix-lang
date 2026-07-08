@@ -63,14 +63,14 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install llvm@18 lld@18 flex bison
+          brew install llvm@18 flex bison
           LLVM_PREFIX="$(brew --prefix llvm@18)"
           echo "${LLVM_PREFIX}/bin" >> $GITHUB_PATH
-          echo "$(brew --prefix lld@18)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
           echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
-          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:$(brew --prefix lld@18)" >> $GITHUB_ENV
-          pip3 install pytest
+          # LLD is bundled with llvm@18; LLDConfig.cmake is under LLVM's lib/cmake/lld
+          echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}" >> $GITHUB_ENV
+          echo "LLD_DIR=${LLVM_PREFIX}/lib/cmake/lld" >> $GITHUB_ENV
 
       # ===================== Windows =====================
       - name: Setup MSYS2 (Windows)
@@ -197,17 +197,16 @@ jobs:
           chmod +x dist/vixc
 
           LLVM_PREFIX="$(brew --prefix llvm@18)"
-          LLD_PREFIX="$(brew --prefix lld@18)"
 
           for dylib in \
             "${LLVM_PREFIX}/lib/libLLVM.dylib" \
             "${LLVM_PREFIX}/lib/libLLVM-18.dylib" \
-            "${LLD_PREFIX}/lib/liblldCommon.dylib" \
-            "${LLD_PREFIX}/lib/liblldELF.dylib" \
-            "${LLD_PREFIX}/lib/liblldMachO.dylib" \
-            "${LLD_PREFIX}/lib/liblldCOFF.dylib" \
-            "${LLD_PREFIX}/lib/liblldWasm.dylib" \
-            "${LLD_PREFIX}/lib/liblldMinGW.dylib"; do
+            "${LLVM_PREFIX}/lib/liblldCommon.dylib" \
+            "${LLVM_PREFIX}/lib/liblldELF.dylib" \
+            "${LLVM_PREFIX}/lib/liblldMachO.dylib" \
+            "${LLVM_PREFIX}/lib/liblldCOFF.dylib" \
+            "${LLVM_PREFIX}/lib/liblldWasm.dylib" \
+            "${LLVM_PREFIX}/lib/liblldMinGW.dylib"; do
             if [ -f "$dylib" ]; then
               cp -L "$dylib" dist/ 2>/dev/null || true
             fi
