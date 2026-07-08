@@ -59,6 +59,7 @@ void report_warning_with_location_and_snippet(const char* msg, const char* filen
 void report_unused_variable_warning(const char* variable_name, const char* filename, int line);
 void report_unused_variable_warning_with_location(const char* variable_name, const char* filename, int line, int column);
 void report_struct_field_missing_with_location_and_suggestion(const char* struct_name, const char* field_name, const char* suggestion, const char* filename, int line, int column);
+void adjust_column_to_identifier(const char* name);
 #ifdef __cplusplus
 }
 #endif

@@ -42,6 +42,7 @@ struct VarState {
   const TypeInfo *type = nullptr; ///< Type information
   bool is_mutable = false;        ///< Whether mutable
   bool moved = false;             ///< Whether moved (ownership transferred)
+  ASTNode *moved_at = nullptr;    ///< AST node where the move occurred (for error reporting)
   bool is_global = false;         ///< Whether a global variable
   bool borrowed_shared =
       false;                 ///< Whether there is a shared (immutable) borrow
@@ -194,7 +195,16 @@ private:
    */
   void report(ASTNode *node, const std::string &message) {
     set_location_with_column(node_file(node), node_line(node), node_col(node));
-    report_simple_error(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, message.c_str());
+    int length = 1;
+    // Extract variable name from messages like "use of moved value 'buf'"
+    auto start = message.find('\'');
+    auto end = message.find('\'', start + 1);
+    if (start != std::string::npos && end != std::string::npos && end > start) {
+      std::string vname = message.substr(start + 1, end - start - 1);
+      adjust_column_to_identifier(vname.c_str());
+      length = (int)vname.size();
+    }
+    report_simple_error_with_length(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, message.c_str(), length);
     errors++;
   }
 
@@ -832,7 +842,15 @@ ExprInfo OwnershipChecker::check_identifier(ASTNode *node, ExprUse use) {
 
   // Check if using a moved value (unless as assignment target)
   if (use != ExprUse::AssignTarget && state->moved) {
-    report(node, std::string("use of moved value '") + cname + "'");
+    std::string msg = std::string("use of moved value '") + cname + "'";
+    if (state->moved_at) {
+      msg += "\n  note: '" + std::string(cname) + "' was moved here by passing to " +
+             std::string(node_file(state->moved_at)) + ":" +
+             std::to_string(node_line(state->moved_at));
+    }
+    adjust_column_to_identifier(cname);
+    adjust_column_to_identifier(cname);
+    report(node, msg);
     return info;
   }
   // Move semantics: if non-Copy type used with Move, mark as moved
@@ -843,6 +861,7 @@ ExprInfo OwnershipChecker::check_identifier(ASTNode *node, ExprUse use) {
              std::string("cannot move '") + cname + "' while it is borrowed");
     } else {
       state->moved = true;
+      state->moved_at = node;
       state->borrow_sources
           .clear(); // After move borrow relationships disappear
     }
