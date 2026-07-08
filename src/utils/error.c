@@ -91,8 +91,9 @@ void load_source_file(const char* filename) {
 
     source_content = (char*)malloc(file_size + 1);
     if (source_content) {
-        fread(source_content, 1, file_size, file);
-        source_content[file_size] = '\0';
+        size_t bytes_read = fread(source_content, 1, file_size, file);
+        size_t actual = (bytes_read < (size_t)file_size) ? bytes_read : (size_t)file_size;
+        source_content[actual] = '\0';
     }
 
     fclose(file);
@@ -152,23 +153,50 @@ static char* get_line_content(int line_number) {
 static void print_highlighted_line(const char* line, int column, int length, const char* color) {
     int col = column > 0 ? column : 1;
     int len = length > 0 ? length : 1;
+
+    // Compute display columns for tab-aware positioning (same as print_caret_line)
     int line_len = (int)strlen(line);
-    if (col > line_len + 1) col = line_len + 1;
-
-    int start = col - 1;
-    int end = start + len;
-    if (end > line_len) end = line_len;
-
-    if (start > 0) {
-        fwrite(line, 1, (size_t)start, stderr);
+    int display_start = 0;
+    int line_chars = 0;
+    for (int i = 0; i < line_len && line[i] != '\0'; i++) {
+        if (line_chars + 1 >= col) {
+            display_start = i;
+            break;
+        }
+        if (line[i] == '\t') {
+            line_chars += 4;
+        } else {
+            line_chars++;
+        }
     }
-    if (start < line_len) {
+    if (line_chars < col - 1) return;
+
+    int display_end = display_start;
+    int target_end = col - 1 + len;
+    for (int i = display_start; i < line_len && line[i] != '\0'; i++) {
+        if (line_chars >= target_end) {
+            display_end = i;
+            break;
+        }
+        if (line[i] == '\t') {
+            line_chars += 4;
+        } else {
+            line_chars++;
+        }
+        display_end = i + 1;
+    }
+    if (display_end > line_len) display_end = line_len;
+
+    if (display_start > 0) {
+        fwrite(line, 1, (size_t)display_start, stderr);
+    }
+    if (display_start < line_len) {
         fprintf(stderr, "%s%s", colorize(color), colorize(ANSI_BOLD));
-        fwrite(line + start, 1, (size_t)(end - start), stderr);
+        fwrite(line + display_start, 1, (size_t)(display_end - display_start), stderr);
         fprintf(stderr, "%s", colorize(ANSI_RESET));
     }
-    if (end < line_len) {
-        fwrite(line + end, 1, (size_t)(line_len - end), stderr);
+    if (display_end < line_len) {
+        fwrite(line + display_end, 1, (size_t)(line_len - display_end), stderr);
     }
 }
 
@@ -496,12 +524,11 @@ static void print_diagnostic_header(ErrorLevel level, ErrorType error_type, cons
 
     fprintf(stderr, "%s%s%s%s", colorize(level_col), colorize(ANSI_BOLD), level_text, reset);
     if (type_text && error_type != ERROR_WARNING) {
-        fprintf(stderr, " %s[%s%s %s%s]%s",
-                colorize(error_type_color(error_type)),
-                colorize(error_type_color(error_type)),
+        const char* type_col = error_type_color(error_type);
+        fprintf(stderr, " %s[%s %s]%s",
+                colorize(type_col),
                 type_text,
                 err_code ? err_code : "",
-                colorize(error_type_color(error_type)),
                 reset);
     }
     fprintf(stderr, ": %s\n", msg_buf[0] ? msg_buf : "");
@@ -540,10 +567,26 @@ static void emit_diagnostic(ErrorLevel level, ErrorType error_type, const char* 
         error_count++;
     }
 
+    // Auto-detect a single-quoted identifier (e.g. 'buf') in the message
+    // and use its string length as the caret span, so ^^^ covers the identifier.
+    int caret_length = length;
+    if (message && (length <= 1 || length == 0)) {
+        const char* q = strchr(message, '\'');
+        if (q) {
+            const char* q2 = strchr(q + 1, '\'');
+            if (q2 && q2 > q + 1) {
+                int ident_len = (int)(q2 - q - 1);
+                if (ident_len > 0 && ident_len < 256) {
+                    caret_length = ident_len;
+                }
+            }
+        }
+    }
+
     print_diagnostic_header(level, error_type, message);
 
     if (source_content && current_line > 0) {
-        show_source_context(level, error_type, current_line, current_column, length);
+        show_source_context(level, error_type, current_line, current_column, caret_length);
     }
 
     print_message_notes(message);
