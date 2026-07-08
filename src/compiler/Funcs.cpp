@@ -249,10 +249,9 @@ using namespace llvm;
         typeHelper.setGenericTypeBindings(activeGenericTypeBindings);
 
         Type* logicalReturnType = Type::getVoidTy(context);
-        ValueType returnValueType = ValueType::VOID;
         if (node->data.function.return_type) {
             logicalReturnType = typeHelper.getTypeFromTypeNode(node->data.function.return_type);
-            returnValueType = typeHelper.getValueTypeFromType(logicalReturnType);
+            typeHelper.getValueTypeFromType(logicalReturnType);
         }
 
         StructType* logicalReturnStructType = nullptr;
@@ -515,11 +514,9 @@ using namespace llvm;
                             FunctionType* fnTy = implFunc->getFunctionType();
                             unsigned paramIdx = 0;
                             /* Check if the function has a 'self' parameter */
-                            bool hasSelf = false;
                             if (implFunc->arg_begin() != implFunc->arg_end()) {
                                 auto firstArg = implFunc->arg_begin();
                                 if (firstArg->hasName() && firstArg->getName() == "self") {
-                                    hasSelf = true;
                                 }
                             }
                             /* If not static call, first arg is the object */

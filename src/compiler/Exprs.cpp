@@ -34,7 +34,7 @@ using namespace llvm;
         // At module level (no active insert block), create global string directly
         if (!builder.GetInsertBlock()) {
             Constant* strConst = ConstantDataArray::getString(context, str, true);
-            GlobalVariable* gv = new GlobalVariable(
+            new GlobalVariable(
                 *module, strConst->getType(), true,
                 GlobalValue::PrivateLinkage, strConst, ".str");
             // Create a pointer to the first element (i8*)

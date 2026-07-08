@@ -47,7 +47,7 @@ static std::unique_ptr<TargetMachine> createHostTM(OptimizationLevel OL) {
     TargetOptions opts;
     CodeGenOptLevel cgOpt = toCodeGenOptLevel(OL);
     return std::unique_ptr<TargetMachine>(
-        target->createTargetMachine(triple, "generic", "", opts,
+        target->createTargetMachine(triple.str(), "generic", "", opts,
                                     Reloc::Static, CodeModel::Small, cgOpt));
 }
 
@@ -61,7 +61,7 @@ extern "C" void vix_optimize_module(void* llvm_module, int level) {
     if (!TM) return;
 
     M->setDataLayout(TM->createDataLayout());
-    M->setTargetTriple(TM->getTargetTriple());
+    M->setTargetTriple(TM->getTargetTriple().str());
 
     PassBuilder PB(TM.get());
 
