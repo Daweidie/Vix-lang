@@ -73,6 +73,7 @@ jobs:
           # LLD is bundled with llvm@18; LLDConfig.cmake is under LLVM's lib/cmake/lld
           echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}" >> $GITHUB_ENV
           echo "LLD_DIR=${LLVM_PREFIX}/lib/cmake/lld" >> $GITHUB_ENV
+          pip3 install pytest
 
       # ===================== Windows =====================
       - name: Setup MSYS2 (Windows)
@@ -82,8 +83,9 @@ jobs:
           msystem: MINGW64
           update: true
           install: >-
-            mingw-w64-x86_64-llvm
-            mingw-w64-x86_64-lld
+            mingw-w64-x86_64-llvm18
+            mingw-w64-x86_64-lld18
+            mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-ninja

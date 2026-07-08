@@ -181,8 +181,15 @@ if(WIN32)
     set(_iconv_static   "${_vcpkg_static}/lib/iconv.lib")
 
     if(NOT EXISTS "${_libxml2_static}")
-        message(FATAL_ERROR "Static libxml2 not found. Run: vcpkg install libxml2:x64-windows-static")
-    endif()
+        find_package(LibXml2 QUIET)
+        if(LibXml2_FOUND)
+            message(STATUS "Found system libxml2: ${LIBXML2_LIBRARIES}")
+            target_link_libraries(vixc PRIVATE ${LIBXML2_LIBRARIES})
+            target_include_directories(vixc PRIVATE ${LIBXML2_INCLUDE_DIRS})
+        else()
+            message(FATAL_ERROR "Static libxml2 not found. Run: vcpkg install libxml2:x64-windows-static, or install libxml2 via MSYS2.")
+        endif()
+    else()
 
     target_link_libraries(vixc PRIVATE
         "${_libxml2_static}"
