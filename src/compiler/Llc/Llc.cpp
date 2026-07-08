@@ -113,7 +113,7 @@ bool Llc::compile(const std::string &llvm_ir_path,
 
 	std::string tripleStr = triple;
 	if (tripleStr.empty()) {
-		tripleStr = module->getTargetTriple().str();
+		tripleStr = module->getTargetTriple();
 	}
 	if (tripleStr.empty()) {
 		tripleStr = sys::getDefaultTargetTriple();
