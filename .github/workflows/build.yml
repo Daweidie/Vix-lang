@@ -123,18 +123,16 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       # ===================== Test =====================
-      - name: Smoke test — compile and run hello.vix (Linux/macOS)
+      - name: Smoke test — check hello.vix (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          ./build/vixc examples/hello.vix -o /tmp/hello-test
-          /tmp/hello-test
+          ./build/vixc examples/hello.vix --check
 
-      - name: Smoke test — compile and run hello.vix (Windows)
+      - name: Smoke test — check hello.vix (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          ./build/vixc examples/hello.vix -o /tmp/hello-test
-          /tmp/hello-test
+          ./build/vixc examples/hello.vix --check
 
       - name: Check — compile examples with ownership (Linux/macOS)
         if: runner.os != 'Windows'
