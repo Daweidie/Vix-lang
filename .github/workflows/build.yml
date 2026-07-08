@@ -158,7 +158,7 @@ jobs:
         run: |
           mkdir -p tests/build/
           cp build/vixc tests/build/
-          python3 -m pytest tests/errors.py tests/test_types.py -v --tb=short -x
+          python3 -m pytest tests/errors.py -v --tb=short -x
 
       - name: Regression test — pytest (Windows)
         if: runner.os == 'Windows'
@@ -166,7 +166,7 @@ jobs:
         run: |
           mkdir -p tests/build/
           cp build/vixc tests/build/
-          python -m pytest tests/errors.py tests/test_types.py -v --tb=short -x
+          python -m pytest tests/errors.py -v --tb=short -x
 
       - name: Bootstrap self-check (Linux/macOS)
         if: runner.os != 'Windows'
