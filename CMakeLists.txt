@@ -133,7 +133,8 @@ set(CXX_SOURCES
     src/Ownership/Ownership.cpp
 )
 
-if(WIN32)
+if(MSVC)
+    # MSVC on Windows doesn't have unistd.h
     set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/parser/lex.yy.c
         PROPERTIES COMPILE_DEFINITIONS "YY_NO_UNISTD_H")
 endif()
