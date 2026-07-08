@@ -320,6 +320,30 @@ static const char* error_type_to_string(ErrorType error_type) {
     }
 }
 
+static const char* error_type_code(ErrorType error_type) {
+    switch (error_type) {
+        case ERROR_SYNTAX:
+            return "E001";
+        case ERROR_LEXICAL:
+            return "E002";
+        case ERROR_TYPE:
+            return "E003";
+        case ERROR_UNDEFINED:
+        case ERROR_UNDEFINED_FUNC:
+            return "E004";
+        case ERROR_REDEFINITION:
+            return "E005";
+        case ERROR_SEMANTIC:
+            return "E006";
+        case ERROR_RUNTIME:
+            return "E007";
+        case ERROR_ARRAY_OUT_OF_BOUNDS:
+            return "E008";
+        default:
+            return "E099";
+    }
+}
+
 static const char* error_type_color(ErrorType error_type) {
     switch (error_type) {
         case ERROR_SYNTAX:
@@ -468,13 +492,15 @@ static void print_diagnostic_header(ErrorLevel level, ErrorType error_type, cons
     const char* level_text = level_label(level);
     const char* level_col = level_color(level);
     const char* type_text = error_type_to_string(error_type);
+    const char* err_code = error_type_code(error_type);
 
     fprintf(stderr, "%s%s%s%s", colorize(level_col), colorize(ANSI_BOLD), level_text, reset);
     if (type_text && error_type != ERROR_WARNING) {
-        fprintf(stderr, " %s[%s%s%s]%s",
+        fprintf(stderr, " %s[%s%s %s%s]%s",
                 colorize(ANSI_DIM),
                 colorize(error_type_color(error_type)),
                 type_text,
+                err_code ? err_code : "",
                 colorize(ANSI_DIM),
                 reset);
     }
@@ -541,6 +567,31 @@ void report_simple_error_with_length(ErrorLevel level, ErrorType error_type, con
 
 void report_simple_error(ErrorLevel level, ErrorType error_type, const char* msg) {
     report_simple_error_with_length(level, error_type, msg, 1);
+}
+
+void adjust_column_to_identifier(const char* name) {
+    if (!name || current_line <= 0) return;
+    char* line = get_line_content(current_line);
+    if (!line && current_filename && current_filename[0]) {
+        // Fallback: read file directly if source_content is not loaded
+        FILE* f = fopen(current_filename, "r");
+        if (f) {
+            char buf[4096];
+            for (int i = 1; i <= current_line && fgets(buf, sizeof(buf), f); i++) {
+                if (i == current_line) {
+                    line = strdup(buf);
+                    break;
+                }
+            }
+            fclose(f);
+        }
+    }
+    if (!line) return;
+    char* found = strstr(line, name);
+    if (found) {
+        current_column = (int)(found - line) + 1;
+    }
+    free(line);
 }
 
 void report_warning(const char* format, ...) {

@@ -194,7 +194,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
         } \
     } while(0)
 
-#define GET_FIRST_COLUMN() (yycolumn - yyleng + 1)
+#define GET_FIRST_COLUMN() (yycolumn - yyleng)
 
 #define SET_TOKEN_LOCATION() \
     do { \
@@ -327,7 +327,8 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "?"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(QUESTION); }
 
 [a-zA-Z_][a-zA-Z0-9_]*!?  {
-                        int col = GET_FIRST_COLUMN();
+     UPDATE_COLUMN();
+     int col = GET_FIRST_COLUMN();
                         yylval.str = strdup(yytext);
                         yylloc.first_line = yylineno;
                         yylloc.first_column = col;
