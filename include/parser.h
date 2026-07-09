@@ -16,6 +16,7 @@ ASTNode* vix_adt_ctor_payload_type_node(const char* ctor_name);
 ASTNode* vix_adt_payload_type_for_base(const char* base_name);
 int vix_adt_ctor_index(const char* ctor_name);
 const char* vix_lookup_impl_method(const char* type_name, const char* method_name);
+void vix_reset_parser_state(void);
 #ifdef __cplusplus
 }
 #endif

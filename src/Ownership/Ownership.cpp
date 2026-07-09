@@ -1027,39 +1027,55 @@ void OwnershipChecker::check_assign(ASTNode *node) {
     if (target_state) {
       log_var_modification(target_state);
 
+      // --- Determine field-level vs whole-variable write ---
+      // Strip leading deref nodes to check if the lvalue is a member access
+      // (this is hoisted before the is_indirect fork so BOTH paths can use it)
+      ASTNode *lv = left;
+      while (lv && lv->type == AST_UNARYOP &&
+             lv->data.unaryop.op == OP_DEREF) {
+        lv = lv->data.unaryop.expr;
+      }
+      bool is_field_assign = (lv && lv->type == AST_MEMBER_ACCESS);
+      std::string assign_field = field_name(lv);
+
       // --- Distinguish direct assignment from indirect (dereference)
       // --- assignment ---
       bool is_indirect = (deref_count > 0);
 
       if (is_indirect) {
-        // Indirect assignment: *ptr = expr, etc.
-        // The pointer itself is only read; its ownership must NOT change, but
-        // we must ensure it is still alive and not borrowed.
+        // Indirect assignment: *ptr = expr, or @ptr.field = expr.
+        // The pointer itself is only read; its ownership must NOT change.
+        //
+        // CRITICAL: whole_borrowed_mut is set BY the mutable borrow we are
+        // now exercising — it is the grant of exclusive access, not a
+        // prohibition.  Only whole_borrowed_shared blocks indirect writes
+        // (writing through a shared borrow is illegal).
         if (target_state->moved) {
           report(left, "use of moved value '" + target + "'");
           return;
         }
-        if (target_state->whole_borrowed_shared ||
-            target_state->whole_borrowed_mut ||
-            has_active_field_borrows(*target_state)) {
+        if (target_state->whole_borrowed_shared) {
           report(left, "cannot assign through '" + target +
-                           "' while it is borrowed");
+                           "' while it is immutably borrowed");
           return;
+        }
+        // Field-level borrow check for writes through a pointer.
+        if (is_field_assign && !assign_field.empty()) {
+          auto fit = target_state->field_borrows.find(assign_field);
+          if (fit != target_state->field_borrows.end()) {
+            if (fit->second.borrowed_mut ||
+                fit->second.borrowed_shared) {
+              report(left, "cannot assign to '" + target + "." +
+                               assign_field +
+                               "' through pointer while it is borrowed");
+              return;
+            }
+          }
         }
         // No state mutation for the pointer.
       } else {
         // Direct assignment to a variable or its field (e.g. x = ...,
         // x.field = ...)
-
-        // Determine if this is a field assignment
-        ASTNode *lv = left;
-        while (lv && lv->type == AST_UNARYOP &&
-               lv->data.unaryop.op == OP_DEREF) {
-          lv = lv->data.unaryop.expr;
-        }
-        bool is_field_assign =
-            (lv && lv->type == AST_MEMBER_ACCESS);
-        std::string assign_field = field_name(lv);
 
         // --- Borrow conflict check ---
         if (is_field_assign && !assign_field.empty()) {
@@ -1564,8 +1580,16 @@ void OwnershipChecker::check_node(ASTNode *node) {
     return;
   switch (node->type) {
   case AST_PROGRAM:
+    // NLL pre-scan for top-level statements (globals, top-level expressions)
+    last_use_seq.clear();
+    current_seq = 0;
+    {
+      int seq = 0;
+      scan_last_use_seq(node, seq, last_use_seq);
+    }
     check_block(node, false);
     cleanup_borrows();
+    last_use_seq.clear();
     break;
   case AST_FUNCTION:
     check_function(node);
