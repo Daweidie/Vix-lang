@@ -42,8 +42,9 @@ struct VarState {
   const TypeInfo *type = nullptr; ///< Type information
   bool is_mutable = false;        ///< Whether mutable
   bool moved = false;             ///< Whether moved (ownership transferred)
-  ASTNode *moved_at = nullptr;    ///< AST node where the move occurred (for error reporting)
-  bool is_global = false;         ///< Whether a global variable
+  ASTNode *moved_at =
+      nullptr; ///< AST node where the move occurred (for error reporting)
+  bool is_global = false; ///< Whether a global variable
   bool borrowed_shared =
       false;                 ///< Whether there is a shared (immutable) borrow
   bool borrowed_mut = false; ///< Whether there is an exclusive (mutable) borrow
@@ -204,7 +205,8 @@ private:
       adjust_column_to_identifier(vname.c_str());
       length = (int)vname.size();
     }
-    report_simple_error_with_length(ERROR_LEVEL_ERROR, ERROR_SEMANTIC, message.c_str(), length);
+    report_simple_error_with_length(ERROR_LEVEL_ERROR, ERROR_SEMANTIC,
+                                    message.c_str(), length);
     errors++;
   }
 
@@ -431,12 +433,15 @@ private:
   static int count_derefs(ASTNode *node);
 
   /**
-   * @brief Trace the borrow source through multiple pointer levels
-   * @param base base variable name
-   * @param levels dereference count
-   * @return the variable name finally pointed to after levels dereferences
+   * @brief Expand a variable name through pointer borrow_sources.
+   *
+   * @param name The variable name to start from.
+   * @param max_levels Number of pointer dereferences to expand; -1 means
+   * unlimited (until fixed point).
+   * @return Set of all ultimate variable names after `max_levels` dereferences.
    */
-  std::string trace_borrow_levels(const std::string &base, int levels);
+  std::unordered_set<std::string>
+  resolve_pointer_targets(const std::string &name, int max_levels = -1);
 
   /**
    * @brief Get the underlying variable name of an expression (stripping member
@@ -447,6 +452,46 @@ private:
 
   void check_node(ASTNode *node);
 };
+
+/**
+ * @brief Expand a variable name through pointer borrow_sources.
+ *
+ * Starting from `name`, follow `borrow_sources` chains up to `max_levels`
+ * times. If `max_levels` is -1, expand until no further pointer indirection
+ * with known borrow sources is found. Cycles are prevented via a visited set.
+ *
+ * @return The set of all possible final variable names after the expansion.
+ */
+std::unordered_set<std::string>
+OwnershipChecker::resolve_pointer_targets(const std::string &name,
+                                          int max_levels) {
+  std::unordered_set<std::string> current;
+  if (name.empty())
+    return {};
+  current.insert(name);
+  int level = 0;
+  while ((max_levels == -1 || level < max_levels) && !current.empty()) {
+    std::unordered_set<std::string> next;
+    for (const auto &var : current) {
+      VarState *state = lookup(var);
+      if (!state) {
+        next.insert(var);
+        continue;
+      }
+      if (state->type && state->type->kind == TYPEINFO_PTR &&
+          !state->borrow_sources.empty()) {
+        next.insert(state->borrow_sources.begin(), state->borrow_sources.end());
+      } else {
+        next.insert(var);
+      }
+    }
+    if (next == current)
+      break;
+    current = std::move(next);
+    ++level;
+  }
+  return current;
+}
 
 /**
  * @brief Check a single statement
@@ -692,7 +737,14 @@ void OwnershipChecker::check_return(ASTNode *node) {
 
 /**
  * @brief Check an assignment statement (including declarations)
- * @details Handle variable declarations, move semantics, and borrow checking
+ * @details Handle variable declarations, move semantics, and borrow checking.
+ *          **Fixed**:
+ *           - Dereference assignments (*ptr = ...) no longer mutate the
+ * pointer's ownership state (moved flag, borrow_sources). The pointer is only
+ *             checked for liveness and borrow flags.
+ *           - Reading or otherwise using a mutably borrowed variable is now
+ * rejected.
+ *           - Writing through a borrowed pointer is rejected.
  */
 void OwnershipChecker::check_assign(ASTNode *node) {
   ASTNode *left = node->data.assign.left;
@@ -717,38 +769,92 @@ void OwnershipChecker::check_assign(ASTNode *node) {
     return;
   }
 
-  // Assignment to existing variable
+  // Assignment to existing variable (or through a pointer)
   std::string base = lvalue_base(left);
   if (!base.empty()) {
     int deref_count = count_derefs(left);
-    std::string target = trace_borrow_levels(base, deref_count);
+    auto target_set = resolve_pointer_targets(base, deref_count);
+
+    // Ambiguous assignment target (multiple possible lvalues) – always reject.
+    if (target_set.size() > 1) {
+      report(left,
+             "cannot assign through pointer with multiple possible targets");
+      return;
+    }
+
+    std::string target;
+    if (!target_set.empty()) {
+      target = *target_set.begin();
+    } else {
+      target = base;
+    }
+
     VarState *target_state = lookup(target);
     if (target_state) {
       log_var_modification(target_state);
-      if (target_state->moved)
-        report(left, "use of moved value '" + target + "'");
-      if (target_state->borrowed_shared || target_state->borrowed_mut) {
-        report(left, "cannot assign to '" + target + "' while it is borrowed");
-      }
-      target_state->moved = false; // Make available again after reassignment
 
-      // Determine if partial assignment (e.g., struct field, array element)
-      bool is_partial = false;
-      ASTNode *lv = left;
-      while (lv && lv->type == AST_UNARYOP && lv->data.unaryop.op == OP_DEREF) {
-        lv = lv->data.unaryop.expr;
-      }
-      if (lv && (lv->type == AST_MEMBER_ACCESS || lv->type == AST_INDEX)) {
-        is_partial = true;
-      }
-      if (is_partial) {
-        target_state->borrow_sources.insert(rhs.borrow_sources.begin(),
-                                            rhs.borrow_sources.end());
+      // --- Distinguish direct assignment from indirect (dereference)
+      // assignment ---
+      bool is_indirect = (deref_count > 0);
+
+      if (is_indirect) {
+        // Indirect assignment: *ptr = expr, etc.
+        // The pointer itself is only read; its ownership must NOT change, but
+        // we must ensure it is still alive and not borrowed.
+        if (target_state->moved) {
+          report(left, "use of moved value '" + target + "'");
+          return;
+        }
+        if (target_state->borrowed_shared || target_state->borrowed_mut) {
+          report(left,
+                 "cannot assign through '" + target + "' while it is borrowed");
+          return;
+        }
+        // No state mutation for the pointer.
       } else {
-        target_state->borrow_sources = rhs.borrow_sources;
+        // Direct assignment to a variable or its field (e.g. x = ..., x.field =
+        // ...)
+
+        // Borrow conflict: cannot assign to a variable while it is borrowed
+        if (target_state->borrowed_shared || target_state->borrowed_mut) {
+          report(left,
+                 "cannot assign to '" + target + "' while it is borrowed");
+        }
+
+        // Determine if partial assignment (field / element of a struct/array)
+        bool is_partial = false;
+        ASTNode *lv = left;
+        while (lv && lv->type == AST_UNARYOP &&
+               lv->data.unaryop.op == OP_DEREF) {
+          lv = lv->data.unaryop.expr;
+        }
+        if (lv && (lv->type == AST_MEMBER_ACCESS || lv->type == AST_INDEX)) {
+          is_partial = true;
+        }
+
+        // Handle moved state: full rebinding allowed, partial on moved is error
+        if (target_state->moved) {
+          if (is_partial) {
+            report(left, "use of moved value '" + target + "'");
+            return; // Do not modify state
+          }
+          // else: full rebinding of a moved variable is allowed
+          // (reinitialization)
+        }
+
+        // Update ownership: rebinding clears moved, replaces borrow_sources
+        target_state->moved = false;
+        if (is_partial) {
+          target_state->borrow_sources.insert(rhs.borrow_sources.begin(),
+                                              rhs.borrow_sources.end());
+        } else {
+          target_state->borrow_sources = rhs.borrow_sources;
+        }
       }
     }
   }
+
+  // Validate the left-hand side expression path
   check_expr(left, ExprUse::AssignTarget);
 }
 
@@ -820,7 +926,9 @@ ExprInfo OwnershipChecker::check_expr(ASTNode *node, ExprUse use) {
 
 /**
  * @brief Check an identifier expression
- * @details Handle variable read, move, borrow semantics
+ * @details Handle variable read, move, borrow semantics.
+ *          **Fixed**: Using a mutably borrowed variable in any non‑assignment
+ *          context is now forbidden.
  */
 ExprInfo OwnershipChecker::check_identifier(ASTNode *node, ExprUse use) {
   ExprInfo info;
@@ -840,11 +948,20 @@ ExprInfo OwnershipChecker::check_identifier(ASTNode *node, ExprUse use) {
     info.copy = true;
   info.borrow_sources = state->borrow_sources;
 
+  // A mutably borrowed variable cannot be used at all (except as the target of
+  // an assignment, which is handled separately in check_assign)
+  if (use != ExprUse::AssignTarget && state->borrowed_mut) {
+    report(node, "cannot use '" + std::string(cname) +
+                     "' while it is mutably borrowed");
+    return info;
+  }
+
   // Check if using a moved value (unless as assignment target)
   if (use != ExprUse::AssignTarget && state->moved) {
     std::string msg = std::string("use of moved value '") + cname + "'";
     if (state->moved_at) {
-      msg += "\n  note: '" + std::string(cname) + "' was moved here by passing to " +
+      msg += "\n  note: '" + std::string(cname) +
+             "' was moved here by passing to " +
              std::string(node_file(state->moved_at)) + ":" +
              std::to_string(node_line(state->moved_at));
     }
@@ -872,7 +989,8 @@ ExprInfo OwnershipChecker::check_identifier(ASTNode *node, ExprUse use) {
 /**
  * @brief Check a unary operation
  * @details Focus on handling borrow rules for take-address (&) and dereference
- * (*)
+ * (*).  **Fixed**: When taking the address of a dereference, all possible
+ * pointer targets are collected and checked.
  */
 ExprInfo OwnershipChecker::check_unary(ASTNode *node) {
   ExprInfo info;
@@ -883,45 +1001,65 @@ ExprInfo OwnershipChecker::check_unary(ASTNode *node) {
     // Take address operation: check if borrowable
     std::string base = lvalue_base(node->data.unaryop.expr);
     if (!base.empty()) {
-      std::string root = base;
-      // If operand is a dereference (*ptr), trace to the ultimate source
-      // variable
+      std::unordered_set<std::string> roots;
       bool is_deref_operand =
           (node->data.unaryop.expr &&
            node->data.unaryop.expr->type == AST_UNARYOP &&
            node->data.unaryop.expr->data.unaryop.op == OP_DEREF);
       if (is_deref_operand) {
-        std::unordered_set<std::string> visited;
-        VarState *state = lookup(root);
-        while (state && !state->borrow_sources.empty() && state->type &&
-               state->type->kind == TYPEINFO_PTR) {
-          if (!visited.insert(root).second)
-            break;
-          root = *state->borrow_sources.begin();
-          state = lookup(root);
-        }
+        // Expand all pointer levels to get the ultimate set of lvalues
+        roots = resolve_pointer_targets(base, -1);
+      } else {
+        roots = {base};
       }
-      VarState *root_state = lookup(root);
-      if (root_state) {
+
+      // Check every possible root
+      bool error_reported = false;
+      for (const auto &root : roots) {
+        VarState *root_state = lookup(root);
+        if (!root_state)
+          continue;
         log_var_modification(root_state);
-        if (root_state->moved)
-          report(node, "cannot borrow moved value '" + root + "'");
+        if (root_state->moved) {
+          if (!error_reported) {
+            report(node, "cannot borrow moved value '" + root + "'");
+            error_reported = true;
+          }
+        }
         bool wants_mut = node->mutability == MUTABILITY_MUTABLE;
         if (wants_mut) {
-          // Mutable borrow: no other borrows allowed
           if (root_state->borrowed_shared || root_state->borrowed_mut) {
-            report(node, "cannot mutably borrow '" + root + "' more than once");
+            if (!error_reported) {
+              report(node,
+                     "cannot mutably borrow '" + root + "' more than once");
+              error_reported = true;
+            }
           }
-          root_state->borrowed_mut = true;
         } else {
-          // Immutable borrow: no existing mutable borrow allowed
           if (root_state->borrowed_mut) {
-            report(node, "cannot immutably borrow '" + root +
-                             "' while it is mutably borrowed");
+            if (!error_reported) {
+              report(node, "cannot immutably borrow '" + root +
+                               "' while it is mutably borrowed");
+              error_reported = true;
+            }
           }
-          root_state->borrowed_shared = true;
         }
-        info.borrow_sources = {root};
+      }
+
+      // If no error, apply the borrow flags to all roots
+      if (!error_reported) {
+        for (const auto &root : roots) {
+          VarState *root_state = lookup(root);
+          if (!root_state)
+            continue;
+          bool wants_mut = node->mutability == MUTABILITY_MUTABLE;
+          if (wants_mut) {
+            root_state->borrowed_mut = true;
+          } else {
+            root_state->borrowed_shared = true;
+          }
+        }
+        info.borrow_sources = roots;
       }
     }
     check_expr(node->data.unaryop.expr, ExprUse::Address);
@@ -1019,27 +1157,6 @@ int OwnershipChecker::count_derefs(ASTNode *node) {
 }
 
 /**
- * @brief Trace the borrow source through multiple pointer levels
- */
-std::string OwnershipChecker::trace_borrow_levels(const std::string &base,
-                                                  int levels) {
-  if (levels <= 0 || base.empty())
-    return base;
-  std::string current = base;
-  for (int i = 0; i < levels; ++i) {
-    VarState *state = lookup(current);
-    if (!state || state->borrow_sources.empty())
-      break;
-    if (state->type && state->type->kind == TYPEINFO_PTR) {
-      current = *state->borrow_sources.begin();
-    } else {
-      break;
-    }
-  }
-  return current;
-}
-
-/**
  * @brief Extract the underlying variable name of an expression
  */
 std::string OwnershipChecker::lvalue_base(ASTNode *node) {
@@ -1077,7 +1194,6 @@ void OwnershipChecker::check_node(ASTNode *node) {
     break;
   case AST_STRUCT_DEF:
   case AST_IMPORT:
-    // Type definitions and imports do not affect ownership, ignore
     break;
   case AST_GLOBAL:
     check_global(node);
