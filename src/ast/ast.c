@@ -30,6 +30,7 @@ static void* checked_realloc(void* ptr, size_t size) {
     return resized;
 }
 
+
 extern FILE* yyin;
 extern ASTNode* root; //tips : 根节点
 extern const char* current_input_filename;
