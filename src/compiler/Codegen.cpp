@@ -68,6 +68,7 @@ std::unique_ptr<Module> LLVMCodeGenerator::generate(ASTNode* ast_root) {
 
 void LLVMCodeGenerator::initPrintf() {
     if (printfFunction) return;
+    invalidateGlobalVarCache();
     std::vector<Type*> printfArgs;
     printfArgs.push_back(PointerType::get(context, 0));
     FunctionType* printfType = FunctionType::get(Type::getInt32Ty(context), printfArgs, true);
@@ -329,6 +330,7 @@ bool LLVMCodeGenerator::ensureValidInsertPoint() {
 
 Value* LLVMCodeGenerator::safeCreateGlobalString(const std::string& str, const std::string& name) {
     if (!ensureValidInsertPoint()) return nullptr;
+    invalidateGlobalVarCache(); // new global may reuse a previously-cached name
     if (str.empty()) return builder.CreateGlobalString("", name);
     return builder.CreateGlobalString(str, name);
 }
@@ -466,7 +468,27 @@ AllocaInst* LLVMCodeGenerator::findVariableInMain(const std::string& name) {
 }
 
 GlobalVariable* LLVMCodeGenerator::findGlobalVariable(const std::string& name) {
-    return module->getGlobalVariable(name);
+    auto it = global_var_cache.find(name);
+    if (it != global_var_cache.end()) return it->second;
+    GlobalVariable *gv = module->getGlobalVariable(name);
+    global_var_cache[name] = gv;
+    return gv;
+}
+
+void LLVMCodeGenerator::invalidateGlobalVarCache() {
+    global_var_cache.clear();
+}
+
+llvm::GlobalVariable *LLVMCodeGenerator::createGlobalVariable(
+    llvm::Module &M, llvm::Type *Ty, bool isConstant,
+    llvm::GlobalValue::LinkageTypes Linkage, llvm::Constant *InitVal,
+    const std::string &Name, llvm::GlobalVariable *InsertBefore,
+    llvm::GlobalValue::ThreadLocalMode TLMode, unsigned AddressSpace,
+    bool isExternallyInitialized) {
+    invalidateGlobalVarCache();
+    return new GlobalVariable(M, Ty, isConstant, Linkage, InitVal, Name,
+                              InsertBefore, TLMode, AddressSpace,
+                              isExternallyInitialized);
 }
 
 void LLVMCodeGenerator::initStrlen() {

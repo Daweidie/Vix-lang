@@ -30,9 +30,6 @@ static void* checked_realloc(void* ptr, size_t size) {
     return resized;
 }
 
-#ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告
-#include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
-#endif
 extern FILE* yyin;
 extern ASTNode* root; //tips : 根节点
 extern const char* current_input_filename;

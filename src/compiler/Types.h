@@ -6,7 +6,8 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IRBuilder.h>
 #include <map>
-#include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 #include "../../include/ast.h"
@@ -35,7 +36,9 @@ private:
     std::map<std::string, bool> stringVariables;
     std::map<std::string, llvm::Type*> arrayFieldElementTypes;
     std::map<std::string, llvm::Type*> genericTypeBindings;
-    std::set<std::string> instantiating;
+    std::unordered_set<std::string> instantiating;
+    // Field-index cache: structName → { fieldName → index }
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> fieldIndexCache;
 
     int getTypeRank(ValueType type);
 
@@ -74,6 +77,7 @@ public:
     llvm::Type* getLLVMType(ValueType type);
     ValueType fromLLVMType(llvm::Type* type);
     llvm::Type* getTypeFromTypeNode(ASTNode* node);
+    llvm::Type* typeNodeToLLVM(ASTNode* node);  // unified lookup, shared with Funcs.cpp
     ValueType fromTypeNode(ASTNode* node);
     ValueType getValueTypeFromType(llvm::Type* type);
     std::pair<ValueType, ValueType> promoteTypes(ValueType left, ValueType right);

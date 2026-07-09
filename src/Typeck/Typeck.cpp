@@ -64,7 +64,7 @@ struct TypeChecker {
   std::unordered_map<std::string, TypePtr> match_payloads;
   std::unordered_map<std::string, TypePtr> match_payload_field_types;
   std::unordered_map<std::string, TypePtr> generic_bindings;
-  std::set<std::string> making_type_info_for;
+  std::unordered_set<std::string> making_type_info_for;
   int error_count = 0;
 
   TypePtr builtin_void = Type::make(TypeKind::Void);

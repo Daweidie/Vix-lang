@@ -34,7 +34,7 @@ using namespace llvm;
         // At module level (no active insert block), create global string directly
         if (!builder.GetInsertBlock()) {
             Constant* strConst = ConstantDataArray::getString(context, str, true);
-            new GlobalVariable(
+            createGlobalVariable(
                 *module, strConst->getType(), true,
                 GlobalValue::PrivateLinkage, strConst, ".str");
             // Create a pointer to the first element (i8*)
@@ -69,30 +69,31 @@ using namespace llvm;
         return VisitResult(nilValue, ValueType::POINTER);
     }
 
+// Shared helper: heap-allocate an ADT tagged struct (tag + nullable payload pointer)
+LLVMCodeGenerator::VisitResult LLVMCodeGenerator::emitAdtAlloc(int32_t tagVal, StructType *adtStructTy) {
+    Function *reallocFn = getOrCreateReallocFunction();
+    uint64_t allocSize = module->getDataLayout().getTypeAllocSize(adtStructTy);
+    Value *heapBytes = ConstantInt::get(Type::getInt64Ty(context), allocSize);
+    Value *heapI8 = builder.CreateCall(reallocFn,
+        {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
+    Value *adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
+    Value *tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
+    builder.CreateStore(ConstantInt::get(Type::getInt32Ty(context), tagVal), tagPtr);
+    Value *payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
+    builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(Type::getInt8Ty(context)->getPointerTo())), payloadPtr);
+    pointerElementHints[adtPtr] = adtStructTy;
+    return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
+}
+
     LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitIdentifier(ASTNode* node) {
         if (!node || !node->data.identifier.name) return VisitResult();
         
         std::string name(node->data.identifier.name);
+        Type* i32Ty = Type::getInt32Ty(context);
+        StructType* adtStructTy = StructType::get(context, {i32Ty, PointerType::get(context, 0)});
+
         if (name == "None") {
-            // Create tagged struct for None (tag=1, payload=null) on heap
-            Type* i32Ty = Type::getInt32Ty(context);
-            Type* i8PtrTy = PointerType::get(context, 0);
-            StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
-
-            Function* reallocFn = getOrCreateReallocFunction();
-            uint64_t structSize = 16; // i32(4) + padding + ptr(8)
-            Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), structSize);
-            Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
-            Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
-
-            Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
-            builder.CreateStore(ConstantInt::get(i32Ty, 1), tagPtr);
-
-            Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
-            builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
-
-            pointerElementHints[adtPtr] = adtStructTy;
-            return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
+            return emitAdtAlloc(1, adtStructTy);
         }
         if (name == "Some" || name == "Ok" || name == "Err") {
             return VisitResult(getBuiltinUnionCtorTagValue(name), ValueType::INT32);
@@ -109,19 +110,7 @@ using namespace llvm;
                 tagVal = (ctor_idx >= 0) ? static_cast<int32_t>(ctor_idx) : ctorTagValue(name);
             }
             /* Create tagged struct for no-payload constructor */
-            Type* i32Ty = Type::getInt32Ty(context);
-            Type* i8PtrTy = PointerType::get(context, 0);
-            StructType* adtStructTy = StructType::get(context, {i32Ty, i8PtrTy});
-            Function* reallocFn = getOrCreateReallocFunction();
-            Value* heapBytes = ConstantInt::get(Type::getInt64Ty(context), 16);
-            Value* heapI8 = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), heapBytes}, "adt_heap");
-            Value* adtPtr = builder.CreateBitCast(heapI8, PointerType::get(context, 0), "adt_ptr");
-            Value* tagPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 0, "tag_ptr");
-            builder.CreateStore(ConstantInt::get(i32Ty, tagVal), tagPtr);
-            Value* payloadPtr = builder.CreateStructGEP(adtStructTy, adtPtr, 1, "payload_ptr");
-            builder.CreateStore(ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), payloadPtr);
-            pointerElementHints[adtPtr] = adtStructTy;
-            return VisitResult(adtPtr, ValueType::POINTER, adtStructTy);
+            return emitAdtAlloc(tagVal, adtStructTy);
         }
         AllocaInst* alloc = scopeManager.findVariable(name);
         Function* curFnForScope = getCurrentFunction();

@@ -613,7 +613,7 @@ void report_simple_error(ErrorLevel level, ErrorType error_type, const char* msg
 }
 
 void adjust_column_to_identifier(const char* name) {
-    if (!name || current_line <= 0) return;
+    if (!name || !*name || current_line <= 0) return;
     char* line = get_line_content(current_line);
     if (!line && current_filename && current_filename[0]) {
         // Fallback: read file directly if source_content is not loaded
@@ -630,7 +630,46 @@ void adjust_column_to_identifier(const char* name) {
         }
     }
     if (!line) return;
-    char* found = strstr(line, name);
+
+    int name_len = (int)strlen(name);
+
+/* Helper macros: is character part of a Vix identifier token? */
+#define is_id_start(c) (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z') || (c) == '_')
+#define is_id_char(c)  (is_id_start(c) || ((c) >= '0' && (c) <= '9'))
+
+    // Token-aware search: scan for `name` as a complete identifier token.
+    // Start from current_column (if valid), fall back to line start.
+    int scan_start = (current_column > 1) ? (current_column - 1) : 0;
+    if (scan_start >= (int)strlen(line))
+        scan_start = 0;
+
+    for (int pos = scan_start; pos <= (int)strlen(line) - name_len; pos++) {
+        // Does this position match the name?
+        if (strncmp(line + pos, name, (size_t)name_len) != 0)
+            continue;
+
+        // Check left boundary: must be start-of-line or a non-identifier char
+        if (pos > 0 && is_id_char(line[pos - 1]))
+            continue;
+
+        // Check right boundary: must be end-of-line or a non-identifier char
+        int after = pos + name_len;
+        if (line[after] != '\0' && line[after] != '\n' && is_id_char(line[after]))
+            continue;
+
+        // Found a whole-identifier match!
+        current_column = pos + 1;
+        free(line);
+        return;
+    }
+
+#undef is_id_char
+#undef is_id_start
+
+    // Last resort: accept any substring match (better than nothing)
+    char* found = strstr(line + scan_start, name);
+    if (!found && scan_start != 0)
+        found = strstr(line, name);
     if (found) {
         current_column = (int)(found - line) + 1;
     }
