@@ -132,6 +132,16 @@ private:
     // Variable lookup
     llvm::AllocaInst* findVariableInMain(const std::string& name);
     llvm::GlobalVariable* findGlobalVariable(const std::string& name);
+    void invalidateGlobalVarCache();
+    // Wrapper for GlobalVariable creation that auto-invalidates the local cache
+    llvm::GlobalVariable* createGlobalVariable(
+        llvm::Module& M, llvm::Type* Ty, bool isConstant,
+        llvm::GlobalValue::LinkageTypes Linkage, llvm::Constant* InitVal,
+        const std::string& Name,
+        llvm::GlobalVariable* InsertBefore = nullptr,
+        llvm::GlobalValue::ThreadLocalMode TLMode = llvm::GlobalValue::NotThreadLocal,
+        unsigned AddressSpace = 0,
+        bool isExternallyInitialized = false);
 
     // C library init helpers
     void initStrlen();
@@ -160,6 +170,7 @@ private:
 
     // ADT helpers
     llvm::Value* getBuiltinUnionCtorTagValue(const std::string& ctorName);
+    VisitResult emitAdtAlloc(int32_t tagVal, llvm::StructType* adtStructTy);
 
     // Constant expression evaluation
     llvm::Constant* evaluateConstExpr(ASTNode* node, ValueType* outType = nullptr);
@@ -210,6 +221,9 @@ private:
     VisitResult computeIndexPtr(ASTNode* node);
     VisitResult visitArrayLiteral(ASTNode* node);
     VisitResult handleArrayLength(ASTNode* object);
+
+    // Local cache for GlobalVariable lookups (avoids O(n) LLVM linked-list walks)
+    std::unordered_map<std::string, llvm::GlobalVariable*> global_var_cache;
 
 public:
     LLVMCodeGenerator();

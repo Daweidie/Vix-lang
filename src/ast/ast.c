@@ -30,9 +30,7 @@ static void* checked_realloc(void* ptr, size_t size) {
     return resized;
 }
 
-#ifdef HAVE_PARSER_TAB_H//tips : 别删，用来取消警告 <--你确定吗？CMake似乎已经保证了正确的顺序。我没有在本地成功复现你遇到的问题。
-#include "../parser/parser.tab.h"//tips : 这个头文件按编译顺序编译
-#endif
+
 extern FILE* yyin;
 extern ASTNode* root; //tips : 根节点
 extern const char* current_input_filename;

@@ -53,6 +53,62 @@ typedef struct {
 static ImplMethodEntry g_impl_methods[512];
 static int g_impl_method_count = 0;
 
+/* ── Tiny inline hash table: name → index lookup ────────────────── */
+#define ADT_HT_SIZE 256
+static int g_adt_ht[ADT_HT_SIZE]; /* maps name hash → def index, -1 = empty */
+
+static unsigned int str_hash(const char *s) {
+    unsigned int h = 5381;
+    while (*s) h = ((h << 5) + h) + (unsigned char)*s++;
+    return h;
+}
+static void adt_ht_insert(const char *name, int idx) {
+    unsigned int h = str_hash(name) & (ADT_HT_SIZE - 1);
+    for (int i = 0; i < ADT_HT_SIZE; i++) {
+        if (g_adt_ht[h] == -1) { g_adt_ht[h] = idx; return; }
+        h = (h + 1) & (ADT_HT_SIZE - 1);
+    }
+    fprintf(stderr, "internal error: ADT hash table full (%d entries)\n", ADT_HT_SIZE);
+}
+static int adt_ht_lookup(const char *name) {
+    if (!name) return -1;
+    unsigned int h = str_hash(name) & (ADT_HT_SIZE - 1);
+    for (int i = 0; i < ADT_HT_SIZE; i++) {
+        int idx = g_adt_ht[h];
+        if (idx == -1) break; /* empty slot → not found */
+        if (g_adt_defs[idx].name && strcmp(g_adt_defs[idx].name, name) == 0)
+            return idx;
+        h = (h + 1) & (ADT_HT_SIZE - 1);
+    }
+    return -1;
+}
+#define IM_HT_SIZE 1024
+static int g_im_ht[IM_HT_SIZE]; /* maps hash to impl_method index, -1 = empty */
+static void im_ht_insert(const char *type_name, const char *method_name, int idx) {
+    char buf[512]; snprintf(buf, sizeof(buf), "%s::%s", type_name, method_name);
+    unsigned int h = str_hash(buf) & (IM_HT_SIZE - 1);
+    for (int i = 0; i < IM_HT_SIZE; i++) {
+        if (g_im_ht[h] == -1) { g_im_ht[h] = idx; return; }
+        h = (h + 1) & (IM_HT_SIZE - 1);
+    }
+    fprintf(stderr, "internal error: Impl method hash table full (%d entries)\n", IM_HT_SIZE);
+}
+static int im_ht_lookup(const char *type_name, const char *method_name) {
+    if (!type_name || !method_name) return -1;
+    char buf[512]; snprintf(buf, sizeof(buf), "%s::%s", type_name, method_name);
+    unsigned int h = str_hash(buf) & (IM_HT_SIZE - 1);
+    for (int i = 0; i < IM_HT_SIZE; i++) {
+        int idx = g_im_ht[h];
+        if (idx == -1) break;
+        if (g_impl_methods[idx].type_name && g_impl_methods[idx].method_name &&
+            strcmp(g_impl_methods[idx].type_name, type_name) == 0 &&
+            strcmp(g_impl_methods[idx].method_name, method_name) == 0)
+            return idx;
+        h = (h + 1) & (IM_HT_SIZE - 1);
+    }
+    return -1;
+}
+
 static void register_impl_method(const char* type_name, const char* method_name, const char* func_name) {
     if (!type_name || !method_name || !func_name) return;
     /* Check for duplicate method within the same type */
@@ -70,6 +126,7 @@ static void register_impl_method(const char* type_name, const char* method_name,
     g_impl_methods[g_impl_method_count].type_name = strdup(type_name);
     g_impl_methods[g_impl_method_count].method_name = strdup(method_name);
     g_impl_methods[g_impl_method_count].func_name = strdup(func_name);
+    im_ht_insert(type_name, method_name, g_impl_method_count);
     g_impl_method_count++;
 }
 
@@ -83,13 +140,8 @@ const char* vix_lookup_impl_method(const char* type_name, const char* method_nam
         normalized[i] = tolower((unsigned char)type_name[i]);
     }
     normalized[len] = '\0';
-    for (int i = 0; i < g_impl_method_count; i++) {
-        if (g_impl_methods[i].type_name && g_impl_methods[i].method_name &&
-            strcmp(g_impl_methods[i].type_name, normalized) == 0 &&
-            strcmp(g_impl_methods[i].method_name, method_name) == 0) {
-            return g_impl_methods[i].func_name;
-        }
-    }
+    int idx = im_ht_lookup(normalized, method_name);
+    if (idx >= 0) return g_impl_methods[idx].func_name;
     return NULL;
 }
 
@@ -129,14 +181,19 @@ void vix_reset_parser_state(void) {
         g_impl_methods[i].func_name = NULL;
     }
     g_impl_method_count = 0;
+    /* Reset hash tables: explicit -1 initialization (portable, no memset trick) */
+    for (int i = 0; i < ADT_HT_SIZE; i++) g_adt_ht[i] = -1;
+    for (int i = 0; i < IM_HT_SIZE; i++) g_im_ht[i] = -1;
 }
 
 static int find_adt_def_index(const char* name) {
     if (!name) return -1;
+    int idx = adt_ht_lookup(name);
+    if (idx >= 0) return idx;
+    // Fallback: linear scan (for entries added before hash table was populated)
     for (int i = 0; i < g_adt_def_count; i++) {
-        if (g_adt_defs[i].name && strcmp(g_adt_defs[i].name, name) == 0) {
+        if (g_adt_defs[i].name && strcmp(g_adt_defs[i].name, name) == 0)
             return i;
-        }
     }
     return -1;
 }
@@ -160,6 +217,7 @@ static void register_adt_definition(const char* name, int generic_arity, ASTNode
     if (idx < 0) {
         if (g_adt_def_count >= (int)(sizeof(g_adt_defs) / sizeof(g_adt_defs[0]))) { g_adt_payload_type_count = 0; return; }
         idx = g_adt_def_count++;
+        adt_ht_insert(name, idx);
         g_adt_defs[idx].name = strdup(name);
         g_adt_defs[idx].ctor_count = 0;
         g_adt_defs[idx].ctors = NULL;

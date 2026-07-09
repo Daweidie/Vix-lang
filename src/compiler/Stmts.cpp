@@ -5,38 +5,47 @@ using namespace llvm;
 LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitProgram(ASTNode* node) {
     if (!node) return VisitResult();
 
+    // Phase 1: collect function metadata (needed before processing calls)
+    // Must be a separate pass because generic function templates must be
+    // registered before any concrete call tries to instantiate them.
+    VisitResult lastResult;
     for (int i = 0; i < node->data.program.statement_count; i++) {
         ASTNode* stmt = node->data.program.statements[i];
-        if (!stmt || stmt->type != AST_FUNCTION) continue;
-        std::string name(stmt->data.function.name ? stmt->data.function.name : "");
-        if (!name.empty()) {
-            allFunctionNodes[name] = stmt;
-        }
-        ASTNode* gparams = stmt->data.function.generic_params;
-        if (gparams && gparams->type == AST_EXPRESSION_LIST && gparams->data.expression_list.expression_count > 0) {
+        // Collect function node references (before processing, needed for recursive calls)
+        if (stmt && stmt->type == AST_FUNCTION && stmt->data.function.name) {
+            std::string name(stmt->data.function.name);
             if (!name.empty()) {
-                genericFunctionTemplates[name] = stmt;
-                genericFunctionArity[name] = gparams->data.expression_list.expression_count;
+                allFunctionNodes[name] = stmt;
+                ASTNode* gparams = stmt->data.function.generic_params;
+                if (gparams && gparams->type == AST_EXPRESSION_LIST &&
+                    gparams->data.expression_list.expression_count > 0) {
+                    genericFunctionTemplates[name] = stmt;
+                    genericFunctionArity[name] = gparams->data.expression_list.expression_count;
+                }
             }
         }
     }
 
-    VisitResult lastResult;
+    // Second pass: process all statements (keep separate because generic functions
+    // must be registered before any concrete call tries to instantiate them)
     for (int i = 0; i < node->data.program.statement_count; i++) {
         ASTNode* stmt = node->data.program.statements[i];
         if (stmt && stmt->type == AST_FUNCTION) {
             ASTNode* gparams = stmt->data.function.generic_params;
-            if (gparams && gparams->type == AST_EXPRESSION_LIST && gparams->data.expression_list.expression_count > 0) {
-                continue;
+            if (gparams && gparams->type == AST_EXPRESSION_LIST &&
+                gparams->data.expression_list.expression_count > 0) {
+                continue; // generic templates processed by instantiation calls
             }
         }
         lastResult = visit(node->data.program.statements[i]);
         BasicBlock* currentBB = builder.GetInsertBlock();
         if (currentBB && currentBB->getTerminator()) {
+            // Stop processing expression statements after return/break/continue.
+            // Function/global definitions are still visible in the module even
+            // if unreachable, so this early exit is safe.
             break;
         }
     }
-    
     return lastResult;
 }
 
@@ -428,7 +437,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitConst(ASTNode* node) {
         Type* llvmTy = initConst ? initConst->getType() : Type::getInt32Ty(context);
         if (!initConst) initConst = Constant::getNullValue(llvmTy);
 
-        GlobalVariable* gv = new GlobalVariable(
+        GlobalVariable* gv = createGlobalVariable(
             *module,
             llvmTy,
             true,
@@ -522,7 +531,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitGlobal(ASTNode* node) {
         initValue = Constant::getNullValue(globalType);
     }
     
-    GlobalVariable* globalVar = new GlobalVariable(
+    GlobalVariable* globalVar = createGlobalVariable(
         *module,
         globalType,
         false,
@@ -1047,7 +1056,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
             Constant* initVal = nullptr;
             if (isStringAssign && rightVal.value->getType()->isArrayTy()) {
                 // String literal: create a global array and use GEP to get i8*
-                GlobalVariable* strGV = new GlobalVariable(
+                GlobalVariable* strGV = createGlobalVariable(
                     *module, rightVal.value->getType(), true,
                     GlobalValue::PrivateLinkage,
                     cast<Constant>(rightVal.value), name + ".strdata");
@@ -1071,7 +1080,7 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
                 initVal = Constant::getNullValue(globalType);
             }
             bool isConst = (node->data.assign.left->mutability != MUTABILITY_MUTABLE);
-            GlobalVariable* gv = new GlobalVariable(
+            GlobalVariable* gv = createGlobalVariable(
                 *module, globalType, isConst,
                 GlobalValue::ExternalLinkage, initVal, name);
             return VisitResult(gv, rightVal.type);

@@ -24,28 +24,7 @@ using namespace llvm;
                     continue;
                 }
                 if (typeNode) {
-                    if (typeNode->type == AST_TYPE_INT32) paramTypes.push_back(Type::getInt32Ty(context));
-                    else if (typeNode->type == AST_TYPE_INT64) paramTypes.push_back(Type::getInt64Ty(context));
-                    else if (typeNode->type == AST_TYPE_INT8) paramTypes.push_back(Type::getInt8Ty(context));
-                    else if (typeNode->type == AST_TYPE_FLOAT32) paramTypes.push_back(Type::getFloatTy(context));
-                    else if (typeNode->type == AST_TYPE_FLOAT64) paramTypes.push_back(Type::getDoubleTy(context));
-                    else if (typeNode->type == AST_TYPE_STRING) paramTypes.push_back(PointerType::get(context, 0));
-                    else if (typeNode->type == AST_TYPE_VOID) paramTypes.push_back(Type::getVoidTy(context));
-                    else if (typeNode->type == AST_IDENTIFIER) {
-                        std::string typeName(typeNode->data.identifier.name);
-                        if (typeName == "i64") paramTypes.push_back(Type::getInt64Ty(context));
-                        else if (typeName == "f32") paramTypes.push_back(Type::getFloatTy(context));
-                        else if (typeName == "f64") paramTypes.push_back(Type::getDoubleTy(context));
-                        else if (typeName == "str" || typeName == "string") paramTypes.push_back(PointerType::get(context, 0));
-                        else if (typeName == "ptr") paramTypes.push_back(PointerType::get(context, 0));
-                        else if (typeName == "bool") paramTypes.push_back(Type::getInt1Ty(context));
-                        else paramTypes.push_back(Type::getInt32Ty(context));
-                    } else if (typeNode->type == AST_TYPE_POINTER || typeNode->type == AST_TYPE_LIST ||
-                               typeNode->type == AST_TYPE_FIXED_SIZE_LIST) {
-                        paramTypes.push_back(PointerType::get(context, 0));
-                    } else {
-                        paramTypes.push_back(Type::getInt32Ty(context));
-                    }
+                    paramTypes.push_back(typeHelper.typeNodeToLLVM(typeNode));
                 } else {
                     paramTypes.push_back(Type::getInt32Ty(context));
                 }
@@ -54,37 +33,7 @@ using namespace llvm;
 
         Type* returnType = Type::getVoidTy(context);
         if (node->data.function.return_type) {
-            ASTNode* rt = node->data.function.return_type;
-            if (rt->type == AST_TYPE_INT32) {
-                returnType = Type::getInt32Ty(context);
-            } else if (rt->type == AST_TYPE_INT64) {
-                returnType = Type::getInt64Ty(context);
-            } else if (rt->type == AST_TYPE_INT8) {
-                returnType = Type::getInt8Ty(context);
-            } else if (rt->type == AST_TYPE_FLOAT32) {
-                returnType = Type::getFloatTy(context);
-            } else if (rt->type == AST_TYPE_FLOAT64) {
-                returnType = Type::getDoubleTy(context);
-            } else if (rt->type == AST_TYPE_STRING) {
-                returnType = PointerType::get(context, 0);
-            } else if (rt->type == AST_TYPE_VOID) {
-                returnType = Type::getVoidTy(context);
-            } else if (rt->type == AST_TYPE_POINTER || rt->type == AST_TYPE_LIST ||
-                       rt->type == AST_TYPE_FIXED_SIZE_LIST) {
-                returnType = PointerType::get(context, 0);
-            } else if (rt->type == AST_IDENTIFIER) {
-                std::string rtName(rt->data.identifier.name);
-                if (rtName == "i32") returnType = Type::getInt32Ty(context);
-                else if (rtName == "i64") returnType = Type::getInt64Ty(context);
-                else if (rtName == "f32") returnType = Type::getFloatTy(context);
-                else if (rtName == "f64") returnType = Type::getDoubleTy(context);
-                else if (rtName == "str" || rtName == "string") returnType = PointerType::get(context, 0);
-                else if (rtName == "bool") returnType = Type::getInt1Ty(context);
-                else if (rtName == "void") returnType = Type::getVoidTy(context);
-                else returnType = Type::getInt32Ty(context);
-                    } else {
-                        returnType = Type::getInt32Ty(context);
-                    }
+            returnType = typeHelper.typeNodeToLLVM(node->data.function.return_type);
         }
 
         bool isVarArg = node->data.function.vararg == 1;

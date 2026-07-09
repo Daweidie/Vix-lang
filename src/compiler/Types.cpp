@@ -71,6 +71,10 @@ void TypeHelper::registerStructType(const std::string& name, StructType* type,
                                      std::vector<std::pair<std::string, Type*>> fields) {
     structTypes[name] = type;
     structFields[name] = fields;
+    // Pre-build field index cache for O(1) lookups
+    auto &idx_map = fieldIndexCache[name];
+    for (size_t i = 0; i < fields.size(); i++)
+        idx_map[fields[i].first] = static_cast<int>(i);
 }
 
 void TypeHelper::registerStructTemplate(const std::string& name, ASTNode* structDef) {
@@ -93,10 +97,17 @@ std::vector<std::pair<std::string, Type*>>* TypeHelper::getStructFields(const st
 }
 
 int TypeHelper::getFieldIndex(const std::string& structName, const std::string& fieldName) {
+    auto cit = fieldIndexCache.find(structName);
+    if (cit != fieldIndexCache.end()) {
+        auto fit = cit->second.find(fieldName);
+        if (fit != cit->second.end()) return fit->second;
+    }
+    // Fallback: linear scan (handles structs registered before cache existed)
     auto it = structFields.find(structName);
-    if (it == structFields.end()) return -1;
-    for (size_t i = 0; i < it->second.size(); i++) {
-        if (it->second[i].first == fieldName) return i;
+    if (it != structFields.end()) {
+        for (size_t i = 0; i < it->second.size(); i++) {
+            if (it->second[i].first == fieldName) return (int)i;
+        }
     }
     return -1;
 }
@@ -279,6 +290,63 @@ Type* TypeHelper::getLLVMType(ValueType type) {
         case ValueType::ARRAY:   return PointerType::get(context, 0);
         default:                 return Type::getVoidTy(context);
     }
+}
+
+/* Unified AST type-node → LLVM Type lookup, shared by Types.cpp + Funcs.cpp */
+Type *TypeHelper::typeNodeToLLVM(ASTNode *node) {
+    if (!node) return Type::getInt32Ty(context);
+    switch (node->type) {
+    case AST_TYPE_INT32:   return Type::getInt32Ty(context);
+    case AST_TYPE_INT64:   return Type::getInt64Ty(context);
+    case AST_TYPE_INT8:    return Type::getInt8Ty(context);
+    case AST_TYPE_FLOAT32: return Type::getFloatTy(context);
+    case AST_TYPE_FLOAT64: return Type::getDoubleTy(context);
+    case AST_TYPE_STRING:  return PointerType::get(context, 0);
+    case AST_TYPE_VOID:    return Type::getVoidTy(context);
+    case AST_TYPE_POINTER:
+    case AST_TYPE_LIST:
+        return PointerType::get(context, 0);
+    case AST_TYPE_FIXED_SIZE_LIST: {
+        int n = getArrayElementCountFromNode(node);
+        if (n > 0) return createArrayType(getArrayElementTypeFromNode(node), n);
+        return PointerType::get(context, 0);
+    }
+    case AST_TYPE_APP: {
+        std::string baseName;
+        ASTNode *ctor = node->data.type_app.ctor;
+        if (ctor && ctor->type == AST_IDENTIFIER && ctor->data.identifier.name)
+            baseName = ctor->data.identifier.name;
+        if (baseName.empty()) break;
+        if (StructType *st = getStructType(baseName)) return st;
+        if (getStructTemplate(baseName)) {
+            if (Type *inst = instantiateStructType(baseName, node->data.type_app.args))
+                return inst;
+            // instantiation failed (e.g. arity mismatch) — fall through to default
+        }
+        if (vix_is_adt_definition(baseName.c_str()) || baseName == "Option" || baseName == "Result")
+            return PointerType::get(context, 0);
+        break;
+    }
+    case AST_IDENTIFIER: {
+        const char *n = node->data.identifier.name;
+        if (!n) break;
+        std::string s(n);
+        auto git = genericTypeBindings.find(s);
+        if (git != genericTypeBindings.end() && git->second) return git->second;
+        if (s == "ptr")            return PointerType::get(context, 0);
+        if (s == "i8" || s == "u8" || s == "char") return Type::getInt8Ty(context);
+        if (s == "i32")            return Type::getInt32Ty(context);
+        if (s == "i64")            return Type::getInt64Ty(context);
+        if (s == "f32")            return Type::getFloatTy(context);
+        if (s == "f64")            return Type::getDoubleTy(context);
+        if (s == "void")           return Type::getVoidTy(context);
+        if (StructType *st = getStructType(s)) return st;
+        if (getArrayTypeInfo(s))   return PointerType::get(context, 0);
+        break;
+    }
+    default: break;
+    }
+    return Type::getInt32Ty(context);
 }
 
 ValueType TypeHelper::fromLLVMType(Type* type) {
