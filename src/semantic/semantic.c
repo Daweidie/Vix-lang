@@ -388,11 +388,14 @@ static int is_lvalue_mutable(ASTNode* node, SymbolTable* table) {
     
     if (node->type == AST_IDENTIFIER) {
         Symbol* sym = lookup_symbol(table, node->data.identifier.name);
-        if (sym && sym->is_mutable_pointer) {
-            return 1;
+        if (sym) {
+            return sym->is_mutable_pointer;
         }
     } else if (node->type == AST_UNARYOP && node->data.unaryop.op == OP_DEREF) {
         return is_lvalue_mutable(node->data.unaryop.expr, table);
+    } else if (node->type == AST_MEMBER_ACCESS) {
+        /* @ptr.x = val : check if the underlying object ptr is mutable */
+        return is_lvalue_mutable(node->data.member_access.object, table);
     } else if (node->type == AST_INDEX) {
         return is_lvalue_mutable(node->data.index.target, table);
     }

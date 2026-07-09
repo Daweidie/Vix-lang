@@ -99,6 +99,38 @@ static int is_builtin_union_ctor_name(const char* name) {
            strcmp(name, "Ok") == 0 || strcmp(name, "Err") == 0;
 }
 
+/**
+ * @brief Reset all parser global state — must be called before each compilation
+ *        to prevent state leakage across runs (e.g. when the compiler is used
+ *        as a library via VIXC_FRONTEND_ONLY).
+ */
+void vix_reset_parser_state(void) {
+    for (int i = 0; i < g_adt_def_count; i++) {
+        free(g_adt_defs[i].name);
+        g_adt_defs[i].name = NULL;
+        if (g_adt_defs[i].ctors) {
+            for (int j = 0; j < g_adt_defs[i].ctor_count; j++) {
+                free(g_adt_defs[i].ctors[j].name);
+                g_adt_defs[i].ctors[j].name = NULL;
+                /* payload_type_node is owned by AST, not freed here */
+            }
+            free(g_adt_defs[i].ctors);
+            g_adt_defs[i].ctors = NULL;
+        }
+    }
+    g_adt_def_count = 0;
+    g_adt_payload_type_count = 0;
+    for (int i = 0; i < g_impl_method_count; i++) {
+        free(g_impl_methods[i].type_name);
+        g_impl_methods[i].type_name = NULL;
+        free(g_impl_methods[i].method_name);
+        g_impl_methods[i].method_name = NULL;
+        free(g_impl_methods[i].func_name);
+        g_impl_methods[i].func_name = NULL;
+    }
+    g_impl_method_count = 0;
+}
+
 static int find_adt_def_index(const char* name) {
     if (!name) return -1;
     for (int i = 0; i < g_adt_def_count; i++) {

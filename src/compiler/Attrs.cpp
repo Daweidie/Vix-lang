@@ -97,3 +97,20 @@ SourceAttrInfo parseSourceAttributes(const char* filePath) {
 
     return info;
 }
+
+extern "C" int vix_source_has_attr_no_std(const char *filePath) {
+    SourceAttrInfo info = parseSourceAttributes(filePath);
+    return info.noStd ? 1 : 0;
+}
+
+extern "C" int vix_source_has_attr_no_main(const char *filePath) {
+    SourceAttrInfo info = parseSourceAttributes(filePath);
+    return info.noMain ? 1 : 0;
+}
+
+extern "C" int vix_source_get_attrs(const char *filePath, int *out_no_std, int *out_no_main) {
+    SourceAttrInfo info = parseSourceAttributes(filePath);
+    if (out_no_std)  *out_no_std  = info.noStd  ? 1 : 0;
+    if (out_no_main) *out_no_main = info.noMain ? 1 : 0;
+    return 0;
+}
