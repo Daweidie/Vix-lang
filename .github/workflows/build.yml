@@ -97,8 +97,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Install flex, bison, ninja via Chocolatey
-          choco install winflexbison3 ninja -y --no-progress
+          # Install flex, bison via Chocolatey (provides win_flex.exe, win_bison.exe)
+          choco install winflexbison3 -y --no-progress
 
           # Install libxml2 + zlib via vcpkg (static triple for MSVC)
           # vcpkg is pre-installed on GitHub hosted runners
@@ -127,10 +127,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
-            -DFLEX_EXECUTABLE="$((Get-Command flex).Source)" `
-            -DBISON_EXECUTABLE="$((Get-Command bison).Source)"
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="C:\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            -DFLEX_EXECUTABLE="$((Get-Command win_flex).Source)" `
+            -DBISON_EXECUTABLE="$((Get-Command win_bison).Source)"
 
       # ===================== Build =====================
       - name: Build (Linux/macOS)
@@ -152,7 +152,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./build/vixc examples/hello.vix --check
+          ./build/Release/vixc examples/hello.vix --check
 
       - name: Check — compile examples with ownership (Linux/macOS)
         if: runner.os != 'Windows'
@@ -166,10 +166,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./build/vixc examples/pointer.vix --check
-          ./build/vixc examples/fib.vix --check
-          ./build/vixc examples/struct2.vix --check
-          ! ./build/vixc examples/owner.vix --check
+          ./build/Release/vixc examples/pointer.vix --check
+          ./build/Release/vixc examples/fib.vix --check
+          ./build/Release/vixc examples/struct2.vix --check
+          ! ./build/Release/vixc examples/owner.vix --check
 
       - name: Regression test — pytest (Linux/macOS)
         if: runner.os != 'Windows'
@@ -183,7 +183,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path tests/build/
-          Copy-Item build/vixc.exe tests/build/
+          Copy-Item build/Release/vixc.exe tests/build/
           python -m pytest tests/errors.py -v --tb=short -x
 
       # ===================== Package =====================
@@ -275,7 +275,7 @@ jobs:
         run: |
           $pkgName = "vixc-${{ steps.version.outputs.ver }}-${{ matrix.arch }}-${{ matrix.pkgos }}"
           New-Item -ItemType Directory -Force -Path dist/bin | Out-Null
-          Copy-Item build/vixc.exe dist/bin/vixc.exe
+          Copy-Item build/Release/vixc.exe dist/bin/vixc.exe
 
           # Find and bundle non-system DLL dependencies via dumpbin
           $processed = [System.Collections.Generic.HashSet[string]]::new()
