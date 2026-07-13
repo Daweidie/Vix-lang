@@ -243,6 +243,7 @@ jobs:
           ./build/Release/vixc examples/owner.vix --check
           if ($LASTEXITCODE -eq 0) { Write-Host "::error::owner.vix should have failed"; $failed = $true }
           if ($failed) { throw "One or more checks failed" }
+          exit 0
 
       - name: Regression test — pytest (Linux/macOS)
         if: runner.os != 'Windows'
