@@ -151,14 +151,20 @@ jobs:
       - name: Install vcpkg deps and tools (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          # 覆盖 GitHub runner 预设的 VS 内置 vcpkg 路径
+          VCPKG_ROOT: C:\vcpkg
         run: |
+          # 设 VCPKG_ROOT 供后续步骤使用
+          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
           # Install flex, bison via Chocolatey (provides win_flex.exe, win_bison.exe)
           choco install winflexbison3 -y --no-progress
 
           # Install libxml2 + zlib via vcpkg
           & "C:\vcpkg\vcpkg.exe" install libxml2:x64-windows-static zlib:x64-windows-static
 
-          # 诊断：列出安装的库文件
+          # 诊断：列出安装的库文件（CMakeLists.txt 已兼容 zlib.lib/zs.lib）
           Write-Output "--- Installed vcpkg lib files ---"
           $vcpkgLib = "C:\vcpkg\installed\x64-windows-static\lib"
           if (Test-Path $vcpkgLib) {
@@ -167,22 +173,8 @@ jobs:
             Write-Output "  (lib dir not found at $vcpkgLib)"
           }
 
-          # 如果 zlib.lib 缺失，单独安装 zlib
-          if (-not (Test-Path "$vcpkgLib\zlib.lib")) {
-            Write-Output "zlib.lib missing, retrying zlib:x64-windows-static ..."
-            & "C:\vcpkg\vcpkg.exe" install zlib:x64-windows-static --recurse
-            if (Test-Path "$vcpkgLib\zlib.lib") {
-              Write-Output "zlib.lib now available"
-            } else {
-              throw "zlib.lib still not found after retry"
-            }
-          }
-
           # Install pytest for regression tests
           pip install pytest
-
-          # 设 VCPKG_ROOT 供 CMakeLists.txt 里的硬编码路径使用
-          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # ===================== Configure =====================
       - name: Configure (Linux)
