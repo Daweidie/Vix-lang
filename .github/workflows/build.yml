@@ -85,14 +85,23 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm -y --no-progress
-          # 确认 CMake config 存在
-          if (-not (Test-Path "C:\Program Files\LLVM\lib\cmake\llvm\LLVMConfig.cmake")) {
-            Write-Error "LLVMConfig.cmake not found after installation"
+          # 官方 LLVM Windows 二进制安装包（包含 CMake config 和开发文件）
+          $version = "18.1.6"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/LLVM-$version-win64.exe"
+          $installer = "$env:TEMP\LLVM-$version-win64.exe"
+          Write-Output "Downloading LLVM $version from $url ..."
+          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+          Write-Output "Installing LLVM $version ..."
+          Start-Process -Wait -FilePath $installer -ArgumentList "/S"
+          $llvmDir = "C:\Program Files\LLVM"
+          if (-not (Test-Path "$llvmDir\lib\cmake\llvm\LLVMConfig.cmake")) {
+            Write-Error "LLVMConfig.cmake not found at $llvmDir\lib\cmake\llvm"
+            Get-ChildItem "C:\Program Files" -Filter "LLVM*" -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "Found: $($_.FullName)" }
             exit 1
           }
-          echo "LLVM_DIR=C:\Program Files\LLVM\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Output "LLVM installed to $llvmDir"
+          echo "LLVM_DIR=$llvmDir\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install dependencies via vcpkg and Chocolatey (Windows)
         if: runner.os == 'Windows'
