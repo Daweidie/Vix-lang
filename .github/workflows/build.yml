@@ -75,24 +75,33 @@ jobs:
           echo "LLD_DIR=${LLVM_PREFIX}/lib/cmake/lld" >> $GITHUB_ENV
           pip3 install --break-system-packages pytest
 
-      # ===================== Windows =====================
-      - name: Setup MSYS2 (Windows)
+      # ===================== Windows (MSVC + vcpkg) =====================
+      - name: Setup MSVC developer command prompt (Windows)
         if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        uses: llvm/install-llvm-action@v3
         with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-llvm
-            mingw-w64-x86_64-lld
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-python-pytest
-            zip
-            flex
-            bison
+          version: 18
+
+      - name: Install dependencies via vcpkg and Chocolatey (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Install flex, bison, ninja via Chocolatey
+          choco install winflexbison3 ninja -y --no-progress
+
+          # Install libxml2 + zlib via vcpkg (static triple for MSVC)
+          # vcpkg is pre-installed on GitHub hosted runners
+          vcpkg install libxml2:x64-windows-static zlib:x64-windows-static
+          
+          # Install pytest for regression tests
+          pip install pytest
+
+          # Add vcpkg to system-level PATH for CMake integration
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # ===================== Configure =====================
       - name: Configure (Linux)
@@ -109,12 +118,12 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH=/mingw64 \
-            -DCMAKE_C_COMPILER=gcc \
-            -DCMAKE_CXX_COMPILER=g++
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+            -DFLEX_EXECUTABLE="$((Get-Command flex).Source)" `
+            -DBISON_EXECUTABLE="$((Get-Command bison).Source)"
 
       # ===================== Build =====================
       - name: Build (Linux/macOS)
@@ -123,7 +132,7 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: cmake --build build --config Release --parallel
 
       # ===================== Test =====================
@@ -134,7 +143,7 @@ jobs:
 
       - name: Smoke test — check hello.vix (Windows)
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
           ./build/vixc examples/hello.vix --check
 
@@ -148,7 +157,7 @@ jobs:
 
       - name: Check — compile examples with ownership (Windows)
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
           ./build/vixc examples/pointer.vix --check
           ./build/vixc examples/fib.vix --check
@@ -164,10 +173,10 @@ jobs:
 
       - name: Regression test — pytest (Windows)
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          mkdir -p tests/build/
-          cp build/vixc tests/build/
+          New-Item -ItemType Directory -Force -Path tests/build/
+          Copy-Item build/vixc.exe tests/build/
           python -m pytest tests/errors.py -v --tb=short -x
 
       # ===================== Package =====================
@@ -255,69 +264,62 @@ jobs:
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          PKG_NAME="vixc-${{ steps.version.outputs.ver }}-${{ matrix.arch }}-${{ matrix.pkgos }}"
-          mkdir -p dist/bin dist/libc
-          cp build/vixc.exe dist/bin/vixc.exe
+          $pkgName = "vixc-${{ steps.version.outputs.ver }}-${{ matrix.arch }}-${{ matrix.pkgos }}"
+          New-Item -ItemType Directory -Force -Path dist/bin | Out-Null
+          Copy-Item build/vixc.exe dist/bin/vixc.exe
 
-          ldd dist/bin/vixc.exe | grep -vi '/c/WINDOWS/' | awk '{ print $3 }' | while read dll; do
-            [ -f "$dll" ] && cp "$dll" dist/bin/ 2>/dev/null || true
-          done
+          # Find and bundle non-system DLL dependencies via dumpbin
+          $processed = [System.Collections.Generic.HashSet[string]]::new()
+          $queue = [System.Collections.Queue]::new()
+          $queue.Enqueue((Resolve-Path "dist/bin/vixc.exe"))
 
-          MSYS_PREFIX=""
-          case "${MSYSTEM:-}" in
-            UCRT64)  MSYS_PREFIX="/ucrt64" ;;
-            MINGW64) MSYS_PREFIX="/mingw64" ;;
-            CLANG64) MSYS_PREFIX="/clang64" ;;
-            *)
-              if [ -d "/mingw64" ]; then
-                MSYS_PREFIX="/mingw64"
-              elif [ -d "/ucrt64" ]; then
-                MSYS_PREFIX="/ucrt64"
-              fi
-              ;;
-          esac
-
-          if [ -z "$MSYS_PREFIX" ]; then
-            echo "WARNING: No MSYS2 environment found, skipping libc extraction"
-          else
-            echo "Using MSYS2 prefix: $MSYS_PREFIX"
-
-            GCC_VER=""
-            for d in "$MSYS_PREFIX"/lib/gcc/x86_64-w64-mingw32/*/; do
-              [ -d "$d" ] && GCC_VER="$d"
-            done
-            echo "GCC version dir: ${GCC_VER:-<not found>}"
-
-            copy_if_found() {
-              local name="$1"
-              for dir in "$GCC_VER" "$MSYS_PREFIX/lib" "$MSYS_PREFIX/bin"; do
-                if [ -f "$dir/$name" ]; then
-                  cp "$dir/$name" dist/libc/
-                  echo "  Copied: $name (from $dir)"
-                  return 0
-                fi
-              done
-              echo "  WARNING: $name not found, skipping"
-              return 0
+          while ($queue.Count -gt 0) {
+            $binary = $queue.Dequeue()
+            # Use dumpbin to list DLL dependencies (extract leading DLL names with whitespace prefix)
+            $rawDeps = & dumpbin /dependents $binary 2>$null
+            $dllNames = $rawDeps | Select-String '^\s+([a-zA-Z].+\.dll)$' | ForEach-Object {
+              $_.Matches.Groups[1].Value.ToLower()
             }
+            foreach ($dllName in $dllNames) {
+              if (-not $processed.Add($dllName)) { continue }
 
-            for dll in ucrtbase.dll vcruntime140.dll vcruntime140_1.dll; do
-              copy_if_found "$dll"
-            done
+              # Skip well-known system DLLs
+              if ($dllName -in @('kernel32.dll', 'ntdll.dll', 'user32.dll', 'gdi32.dll',
+                  'advapi32.dll', 'shell32.dll', 'ole32.dll', 'oleaut32.dll',
+                  'comdlg32.dll', 'comctl32.dll', 'ws2_32.dll', 'bcrypt.dll',
+                  'msvcrt.dll', 'shlwapi.dll', 'secur32.dll', 'crypt32.dll',
+                  'winmm.dll', 'iphlpapi.dll', 'rpcrt4.dll', 'setupapi.dll',
+                  'version.dll', 'winhttp.dll', 'wtsapi32.dll', 'dnsapi.dll',
+                  'dbghelp.dll', 'psapi.dll', 'userenv.dll', 'netapi32.dll')) { continue }
 
-            for lib in libucrt.a libvcruntime.a libmingw32.a libgcc.a libgcc_eh.a libmingwex.a libmsvcrt.a libkernel32.a; do
-              copy_if_found "$lib"
-            done
+              # Search for the DLL in PATH and adjacent directories
+              $found = $false
+              $searchDirs = @(
+                (Split-Path $binary -Parent)
+                "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\bin"
+              ) + ($env:PATH -split ';')
+              foreach ($dir in $searchDirs) {
+                $dllPath = Join-Path $dir $dllName
+                if (Test-Path $dllPath) {
+                  $dest = Join-Path "dist/bin" $dllName
+                  Copy-Item $dllPath $dest -Force
+                  Write-Output "  Bundled: $dllName"
+                  $queue.Enqueue((Resolve-Path $dest))
+                  $found = $true
+                  break
+                }
+              }
+              if (-not $found) {
+                Write-Output "  Skipped (not found): $dllName"
+              }
+            }
+          }
 
-            for obj in crt2.o crtbegin.o crtend.o crtbeginS.o crtendS.o; do
-              copy_if_found "$obj"
-            done
-          fi
-
+          # Create zip (7z is available on GitHub runners)
           cd dist
-          zip -r "../${PKG_NAME}.zip" .
+          & 7z a -tzip "../${pkgName}.zip" *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
