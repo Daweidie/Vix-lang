@@ -85,21 +85,26 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # 官方 LLVM Windows 二进制安装包（包含 CMake config 和开发文件）
+          # 移除 Chocolatey 预装的不完整版（只有工具没有 CMake config）
+          Remove-Item -Recurse -Force "C:\Program Files\LLVM" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\Program Files (x86)\LLVM" -ErrorAction SilentlyContinue
+
+          # 下载并安装官方 LLVM 二进制包（含 CMake config 和开发文件）
           $version = "18.1.6"
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/LLVM-$version-win64.exe"
           $installer = "$env:TEMP\LLVM-$version-win64.exe"
-          Write-Output "Downloading LLVM $version from $url ..."
+          Write-Output "Downloading LLVM $version ..."
           Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
           Write-Output "Installing LLVM $version ..."
           Start-Process -Wait -FilePath $installer -ArgumentList "/S"
           $llvmDir = "C:\Program Files\LLVM"
           if (-not (Test-Path "$llvmDir\lib\cmake\llvm\LLVMConfig.cmake")) {
-            Write-Error "LLVMConfig.cmake not found at $llvmDir\lib\cmake\llvm"
-            Get-ChildItem "C:\Program Files" -Filter "LLVM*" -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "Found: $($_.FullName)" }
-            exit 1
+            Write-Output "Verifying LLVM installation..."
+            Get-ChildItem "C:\Program Files" -Filter "LLVM*" -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "Found dir: $($_.FullName)" }
+            Get-ChildItem -Recurse -Filter "LLVMConfig.cmake" -Path "C:\Program Files" -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "Found config: $($_.FullName)" }
+            throw "LLVMConfig.cmake not found"
           }
-          Write-Output "LLVM installed to $llvmDir"
+          Write-Output "LLVM installed: $llvmDir"
           echo "LLVM_DIR=$llvmDir\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
