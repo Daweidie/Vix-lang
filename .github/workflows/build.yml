@@ -81,33 +81,6 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # 移除 Chocolatey 预装的不完整版（只有工具没有 CMake config）
-          Remove-Item -Recurse -Force "C:\Program Files\LLVM" -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force "C:\Program Files (x86)\LLVM" -ErrorAction SilentlyContinue
-
-          # 下载并安装官方 LLVM 二进制包（含 CMake config 和开发文件）
-          $version = "18.1.6"
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/LLVM-$version-win64.exe"
-          $installer = "$env:TEMP\LLVM-$version-win64.exe"
-          Write-Output "Downloading LLVM $version ..."
-          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-          Write-Output "Installing LLVM $version ..."
-          Start-Process -Wait -FilePath $installer -ArgumentList "/S"
-          $llvmDir = "C:\Program Files\LLVM"
-          if (-not (Test-Path "$llvmDir\lib\cmake\llvm\LLVMConfig.cmake")) {
-            Write-Output "Verifying LLVM installation..."
-            Get-ChildItem "C:\Program Files" -Filter "LLVM*" -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "Found dir: $($_.FullName)" }
-            Get-ChildItem -Recurse -Filter "LLVMConfig.cmake" -Path "C:\Program Files" -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "Found config: $($_.FullName)" }
-            throw "LLVMConfig.cmake not found"
-          }
-          Write-Output "LLVM installed: $llvmDir"
-          echo "LLVM_DIR=$llvmDir\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
       - name: Install dependencies via vcpkg and Chocolatey (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -115,15 +88,17 @@ jobs:
           # Install flex, bison via Chocolatey (provides win_flex.exe, win_bison.exe)
           choco install winflexbison3 -y --no-progress
 
-          # Install libxml2 + zlib via vcpkg (static triple for MSVC)
-          # vcpkg is pre-installed on GitHub hosted runners
-          vcpkg install libxml2:x64-windows-static zlib:x64-windows-static
+          # Install LLVM, libxml2 + zlib via vcpkg
+          # 注意：LLVM 用 x64-windows（动态），libxml2 用 x64-windows-static
+          # CMakeLists.txt 手动从 x64-windows-static 路径链接 libxml2，
+          # vcpkg toolchain 通过 find_package 找到 x64-windows 下的 LLVM
+          & "C:\vcpkg\vcpkg.exe" install llvm:x64-windows libxml2:x64-windows-static zlib:x64-windows-static
           
           # Install pytest for regression tests
           pip install pytest
 
-          # Add vcpkg to system-level PATH for CMake integration
-          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # 确保 VCPKG_ROOT 指向系统 vcpkg（VS dev cmd 会把它改成 VS 内部 vcpkg）
+          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # ===================== Configure =====================
       - name: Configure (Linux)
@@ -144,7 +119,7 @@ jobs:
         run: |
           cmake -B build -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="C:\vcpkg\scripts\buildsystems\vcpkg.cmake" `
-            -DLLVM_DIR="C:\Program Files\LLVM\lib\cmake\llvm" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DFLEX_EXECUTABLE="$((Get-Command win_flex).Source)" `
             -DBISON_EXECUTABLE="$((Get-Command win_bison).Source)"
 
