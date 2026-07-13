@@ -236,7 +236,7 @@ jobs:
           ./build/Release/vixc examples/pointer.vix --check
           ./build/Release/vixc examples/fib.vix --check
           ./build/Release/vixc examples/struct2.vix --check
-          ! ./build/Release/vixc examples/owner.vix --check
+          ./build/Release/vixc examples/owner.vix --check; if ($LASTEXITCODE -eq 0) { throw "owner.vix should have failed" }
 
       - name: Regression test — pytest (Linux/macOS)
         if: runner.os != 'Windows'
