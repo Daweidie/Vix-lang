@@ -81,11 +81,17 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install LLVM (Windows)
+      - name: Install LLVM 18 (Windows)
         if: runner.os == 'Windows'
-        uses: llvm/install-llvm-action@v3
+        uses: KyleMayes/install-llvm-action@v2
         with:
-          version: 18
+          version: "18"
+
+      - name: Set LLVM_DIR for CMake (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "LLVM_DIR=$env:LLVM_PATH\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install dependencies via vcpkg and Chocolatey (Windows)
         if: runner.os == 'Windows'
