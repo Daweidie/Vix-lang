@@ -90,24 +90,50 @@ jobs:
           $installer = "$env:TEMP\LLVM-$version-win64.exe"
           Write-Output "Downloading LLVM $version ..."
           Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-          # 清除 Chocolatey 预装版（只有工具没有 CMake config）
+          # 清除 Chocolatey 预装版
           Remove-Item -Recurse -Force "C:\Program Files\LLVM" -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force "C:\Program Files (x86)\LLVM" -ErrorAction SilentlyContinue
-          # 用 7-Zip 解压安装包（Inno Setup 格式，7z 可直接解压）
-          Write-Output "Extracting LLVM with 7-Zip ..."
-          & "C:\Program Files\7-Zip\7z.exe" x $installer -o"C:\Program Files\LLVM" -y -bso0 | Out-Null
+          # 尝试用 7-Zip 解压安装包
+          Write-Output "Extracting LLVM ..."
+          & "C:\Program Files\7-Zip\7z.exe" x $installer -o"C:\Program Files\LLVM" -y -bso1 2>&1 | Write-Output
+          # 诊断：列出解压后的目录结构
           $llvmDir = "C:\Program Files\LLVM"
-          if (-not (Test-Path "$llvmDir\lib\cmake\llvm\LLVMConfig.cmake")) {
-            # 可能解压到子目录了
-            $sub = Get-ChildItem "$llvmDir" -Directory -ErrorAction SilentlyContinue | Where-Object {
-              Test-Path "$($_.FullName)\lib\cmake\llvm\LLVMConfig.cmake"
-            } | Select-Object -First 1
-            if ($sub) { $llvmDir = $sub.FullName }
-            else { throw "LLVMConfig.cmake not found after extraction" }
+          Write-Output "--- Directory listing of $llvmDir ---"
+          if (Test-Path $llvmDir) {
+            Get-ChildItem -Recurse -Depth 1 -Path $llvmDir -ErrorAction SilentlyContinue | Select-Object Mode, FullName
+          } else {
+            Write-Output "(directory does not exist)"
           }
-          Write-Output "LLVM ready at $llvmDir"
-          echo "LLVM_DIR=$llvmDir\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # 递归搜索 LLVMConfig.cmake
+          $found = Get-ChildItem -Recurse -Filter "LLVMConfig.cmake" -Path "C:\Program Files" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($found) {
+            $configDir = $found.DirectoryName
+            Write-Output "Found LLVMConfig.cmake at $configDir"
+            echo "LLVM_DIR=$configDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            # 向上找 bin 目录
+            $binDir = $configDir
+            while ($binDir -and (-not (Test-Path "$binDir\bin\clang.exe"))) {
+              $binDir = Split-Path $binDir -Parent
+            }
+            if (Test-Path "$binDir\bin\clang.exe") {
+              echo "$binDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            }
+          } else {
+            # 7z 解压失败，改用静默安装
+            Write-Output "7z extraction did not produce config files, trying silent install..."
+            Start-Process -Wait -FilePath $installer -ArgumentList "/S"
+            $found2 = Get-ChildItem -Recurse -Filter "LLVMConfig.cmake" -Path "C:\Program Files" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $found2) { throw "LLVMConfig.cmake not found after either extraction or install" }
+            $configDir2 = $found2.DirectoryName
+            echo "LLVM_DIR=$configDir2" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $binDir2 = $configDir2
+            while ($binDir2 -and (-not (Test-Path "$binDir2\bin\clang.exe"))) {
+              $binDir2 = Split-Path $binDir2 -Parent
+            }
+            if (Test-Path "$binDir2\bin\clang.exe") {
+              echo "$binDir2\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            }
+          }
 
       - name: Install vcpkg deps and tools (Windows)
         if: runner.os == 'Windows'
