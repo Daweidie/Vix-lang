@@ -233,10 +233,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $failed = $false
           ./build/Release/vixc examples/pointer.vix --check
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
           ./build/Release/vixc examples/fib.vix --check
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
           ./build/Release/vixc examples/struct2.vix --check
-          ./build/Release/vixc examples/owner.vix --check; if ($LASTEXITCODE -eq 0) { throw "owner.vix should have failed" }
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
+          ./build/Release/vixc examples/owner.vix --check
+          if ($LASTEXITCODE -eq 0) { Write-Host "::error::owner.vix should have failed"; $failed = $true }
+          if ($failed) { throw "One or more checks failed" }
 
       - name: Regression test — pytest (Linux/macOS)
         if: runner.os != 'Windows'
