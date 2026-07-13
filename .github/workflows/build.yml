@@ -83,9 +83,31 @@ jobs:
 
       - name: Install LLVM 18 (Windows)
         if: runner.os == 'Windows'
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "18"
+        shell: pwsh
+        run: |
+          $version = "18.1.6"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/LLVM-$version-win64.exe"
+          $installer = "$env:TEMP\LLVM-$version-win64.exe"
+          Write-Output "Downloading LLVM $version ..."
+          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+          # 清除 Chocolatey 预装版（只有工具没有 CMake config）
+          Remove-Item -Recurse -Force "C:\Program Files\LLVM" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\Program Files (x86)\LLVM" -ErrorAction SilentlyContinue
+          # 用 7-Zip 解压安装包（Inno Setup 格式，7z 可直接解压）
+          Write-Output "Extracting LLVM with 7-Zip ..."
+          & "C:\Program Files\7-Zip\7z.exe" x $installer -o"C:\Program Files\LLVM" -y -bso0 | Out-Null
+          $llvmDir = "C:\Program Files\LLVM"
+          if (-not (Test-Path "$llvmDir\lib\cmake\llvm\LLVMConfig.cmake")) {
+            # 可能解压到子目录了
+            $sub = Get-ChildItem "$llvmDir" -Directory -ErrorAction SilentlyContinue | Where-Object {
+              Test-Path "$($_.FullName)\lib\cmake\llvm\LLVMConfig.cmake"
+            } | Select-Object -First 1
+            if ($sub) { $llvmDir = $sub.FullName }
+            else { throw "LLVMConfig.cmake not found after extraction" }
+          }
+          Write-Output "LLVM ready at $llvmDir"
+          echo "LLVM_DIR=$llvmDir\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$llvmDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install vcpkg deps and tools (Windows)
         if: runner.os == 'Windows'
