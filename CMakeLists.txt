@@ -178,8 +178,16 @@ if(WIN32)
 
     # 静态库路径
     set(_libxml2_static "${_vcpkg_static}/lib/libxml2.lib")
-    set(_zlib_static    "${_vcpkg_static}/lib/zlib.lib")
     set(_iconv_static   "${_vcpkg_static}/lib/iconv.lib")
+
+    # zlib 在不同 vcpkg 版本中可能叫 zlib.lib 或 zs.lib
+    if(EXISTS "${_vcpkg_static}/lib/zlib.lib")
+        set(_zlib_static "${_vcpkg_static}/lib/zlib.lib")
+    elseif(EXISTS "${_vcpkg_static}/lib/zs.lib")
+        set(_zlib_static "${_vcpkg_static}/lib/zs.lib")
+    else()
+        set(_zlib_static "${_vcpkg_static}/lib/zlib.lib")  # default
+    endif()
 
     if(NOT EXISTS "${_libxml2_static}")
         find_package(LibXml2 QUIET)
