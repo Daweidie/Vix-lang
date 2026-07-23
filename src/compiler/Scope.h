@@ -43,6 +43,17 @@ public:
         return nullptr;
     }
 
+    llvm::AllocaInst* findVariableInCurrentScope(const std::string& name) {
+        if (scopes.empty()) return nullptr;
+        auto found = scopes.back().find(name);
+        if (found == scopes.back().end()) return nullptr;
+        llvm::AllocaInst* alloc = found->second;
+        if (currentFunction && alloc->getFunction() != currentFunction) {
+            return nullptr;
+        }
+        return alloc;
+    }
+
     void clear() { scopes.clear(); enterScope(); }
 };
 

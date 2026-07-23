@@ -22,6 +22,8 @@ static ASTNode* clone_match_scrutinee(ASTNode* scrutinee);
 static ASTNode* clone_lvalue(ASTNode* node);
 static ASTNode* materialize_match_scrutinee(ASTNode* scrutinee, ASTNode** out_ref);
 static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms);
+static ASTNode* build_array_pattern_arm(ASTNode* scrutinee, ASTNode* pattern,
+                                        ASTNode* body, ASTNode* fallback);
 
 typedef struct {
     char* name;
@@ -317,6 +319,26 @@ static ASTNode* prepend_binding_to_match_body(ASTNode* body, const char* bind_na
         add_statement_to_program(wrapped, body);
     }
 
+    return wrapped;
+}
+
+static ASTNode* prepend_bindings_to_match_body(ASTNode* body, ASTNode* bindings) {
+    if (!body || !bindings || bindings->type != AST_PROGRAM ||
+        bindings->data.program.statement_count == 0) {
+        return body;
+    }
+
+    ASTNode* wrapped = create_program_node();
+    for (int i = 0; i < bindings->data.program.statement_count; i++) {
+        add_statement_to_program(wrapped, bindings->data.program.statements[i]);
+    }
+    if (body->type == AST_PROGRAM) {
+        for (int i = 0; i < body->data.program.statement_count; i++) {
+            add_statement_to_program(wrapped, body->data.program.statements[i]);
+        }
+    } else {
+        add_statement_to_program(wrapped, body);
+    }
     return wrapped;
 }
 
@@ -682,6 +704,74 @@ static void check_match_exhaustiveness(ASTNode* scrutinee, ASTNode* arms) {
     }
 }
 
+static ASTNode* create_array_length_expr(ASTNode* scrutinee) {
+    ASTNode* target = clone_match_scrutinee(scrutinee);
+    if (!target) return NULL;
+    return create_member_access_node(target, create_identifier_node("length"));
+}
+
+static ASTNode* create_array_pattern_index(ASTNode* scrutinee, int element_index,
+                                           int element_count, int rest_index) {
+    ASTNode* target = clone_match_scrutinee(scrutinee);
+    if (!target) return NULL;
+
+    ASTNode* index = NULL;
+    if (rest_index >= 0 && element_index >= rest_index) {
+        int suffix_offset = element_count - element_index;
+        index = create_binop_node(OP_SUB, create_array_length_expr(scrutinee),
+                                  create_num_int_node(suffix_offset));
+    } else {
+        index = create_num_int_node(element_index);
+    }
+    if (!index) return NULL;
+    return create_index_node(target, index);
+}
+
+static ASTNode* build_array_pattern_arm(ASTNode* scrutinee, ASTNode* pattern,
+                                        ASTNode* body, ASTNode* fallback) {
+    if (!scrutinee || !pattern || pattern->type != AST_ARRAY_PATTERN || !body) {
+        return fallback;
+    }
+
+    int count = pattern->data.array_pattern.element_count;
+    int rest_index = pattern->data.array_pattern.rest_index;
+    ASTNode* length = create_array_length_expr(scrutinee);
+    ASTNode* condition = create_binop_node(
+        rest_index >= 0 ? OP_GE : OP_EQ,
+        length,
+        create_num_int_node(count)
+    );
+    ASTNode* bindings = create_program_node();
+
+    for (int i = 0; i < count; i++) {
+        ASTNode* element = pattern->data.array_pattern.elements[i];
+        if (!element) continue;
+
+        ASTNode* indexed = create_array_pattern_index(scrutinee, i, count, rest_index);
+        if (!indexed) continue;
+
+        if (element->type == AST_IDENTIFIER && element->data.identifier.name) {
+            if (strcmp(element->data.identifier.name, "_") != 0) {
+                ASTNode* binding = create_assign_node(
+                    create_identifier_node(element->data.identifier.name), indexed);
+                if (binding) {
+                    binding->data.assign.is_declaration = 1;
+                    add_statement_to_program(bindings, binding);
+                }
+            }
+            continue;
+        }
+
+        ASTNode* expected = clone_match_scrutinee(element);
+        if (!expected) continue;
+        ASTNode* element_condition = create_binop_node(OP_EQ, indexed, expected);
+        condition = create_binop_node(OP_AND, condition, element_condition);
+    }
+
+    body = prepend_bindings_to_match_body(body, bindings);
+    return create_if_node(condition, body, fallback);
+}
+
 static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
     if (!scrutinee || !arms || arms->type != AST_EXPRESSION_LIST) return NULL;
 
@@ -701,6 +791,11 @@ static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms) {
         ASTNode* pattern = arm->data.assign.left;
         ASTNode* body = arm->data.assign.right;
         int is_multi = arm->data.assign.is_multi_pattern;
+
+        if (!is_multi && pattern->type == AST_ARRAY_PATTERN) {
+            chain = build_array_pattern_arm(scrutinee_ref, pattern, body, chain);
+            continue;
+        }
 
         // Handle wildcard pattern
         if (!is_multi && pattern && pattern->type == AST_IDENTIFIER && pattern->data.identifier.name &&
@@ -919,6 +1014,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %type <node> block_statement if_rest expression_list
 
 %type <node> type_definition enum_variant_list match_statement match_arms match_arm match_arm_body match_target match_arm_pattern match_arm_patterns
+%type <node> match_scalar_pattern match_array_pattern match_array_pattern_items match_array_pattern_element
 %type <node> generic_param_list generic_type_args enum_variant
 %type <node> type_list
 %type <node> impl_block impl_method_list
@@ -1347,7 +1443,8 @@ match_arm_patterns
 
 match_arm_pattern
     : identifier { $$ = $1; }
-    | literal { $$ = $1; }
+    | match_scalar_pattern { $$ = $1; }
+    | match_array_pattern { $$ = $1; }
     | IDENTIFIER LPAREN IDENTIFIER RPAREN {
         ASTNode* ctor = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
         ASTNode* args = create_expression_list_node_with_yyltype((YYLTYPE*) &@$);
@@ -1355,6 +1452,48 @@ match_arm_pattern
         add_expression_to_list(args, bind_id);
         $$ = create_call_node_with_yyltype(ctor, args, (YYLTYPE*) &@$);
     }
+    ;
+
+match_scalar_pattern
+    : NUMBER_INT { $$ = create_num_int_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | BOOL_LITERAL { $$ = create_bool_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | NUMBER_FLOAT { $$ = create_num_float_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | STRING { $$ = create_string_node_with_yyltype($1, (YYLTYPE*) &@$); }
+    | CHAR_LITERAL { $$ = create_char_node_with_yyltype((char)$1, (YYLTYPE*) &@$); }
+    | NIL { $$ = create_nil_node_with_yyltype((YYLTYPE*) &@$); }
+    ;
+
+match_array_pattern
+    : LBRACKET RBRACKET {
+        $$ = create_array_pattern_node_with_yyltype((YYLTYPE*) &@$);
+    }
+    | LBRACKET match_array_pattern_items RBRACKET { $$ = $2; }
+    ;
+
+match_array_pattern_items
+    : match_array_pattern_element {
+        $$ = create_array_pattern_node_with_yyltype((YYLTYPE*) &@$);
+        add_array_pattern_element($$, $1);
+    }
+    | DOTDOT {
+        $$ = create_array_pattern_node_with_yyltype((YYLTYPE*) &@$);
+        set_array_pattern_rest($$);
+    }
+    | match_array_pattern_items COMMA match_array_pattern_element {
+        add_array_pattern_element($1, $3);
+        $$ = $1;
+    }
+    | match_array_pattern_items COMMA DOTDOT {
+        if (!set_array_pattern_rest($1)) {
+            yyerror("array pattern may contain at most one '..'");
+        }
+        $$ = $1;
+    }
+    ;
+
+match_array_pattern_element
+    : identifier { $$ = $1; }
+    | match_scalar_pattern { $$ = $1; }
     ;
 
 match_arm_body

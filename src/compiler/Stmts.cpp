@@ -921,9 +921,13 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
     VisitResult rightVal = visit(node->data.assign.right);
     if (!rightVal.value) return VisitResult();
 
+    bool isDeclaration = node->data.assign.is_declaration != 0;
+
     if (rightVal.structType && rightVal.value->getType()->isPointerTy()) {
-        AllocaInst* structAlloc = scopeManager.findVariable(name);
-        if (!structAlloc) {
+        AllocaInst* structAlloc = isDeclaration
+            ? scopeManager.findVariableInCurrentScope(name)
+            : scopeManager.findVariable(name);
+        if (!structAlloc && !isDeclaration) {
             structAlloc = findVariableInMain(name);
             if (structAlloc) {
                 scopeManager.defineVariable(name, structAlloc);
@@ -1032,9 +1036,11 @@ LLVMCodeGenerator::VisitResult LLVMCodeGenerator::visitAssign(ASTNode* node) {
     }//如果赋值右侧是字符串字面量 或者是字符串变量 也可以尝试推断元素类型为i8
     bool isStringAssign = (node->data.assign.right->type == AST_STRING);
     
-    AllocaInst* alloc = scopeManager.findVariable(name);
+    AllocaInst* alloc = isDeclaration
+        ? scopeManager.findVariableInCurrentScope(name)
+        : scopeManager.findVariable(name);
     if (!alloc) {
-        GlobalVariable* gvar = findGlobalVariable(name);
+        GlobalVariable* gvar = isDeclaration ? nullptr : findGlobalVariable(name);
         if (gvar) {
             Function* func = getCurrentFunction();
             if (func) {

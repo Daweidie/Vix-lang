@@ -94,7 +94,8 @@ typedef enum {
     AST_CALL,
     AST_STRUCT_DEF,
     AST_STRUCT_LITERAL,
-    AST_NIL
+    AST_NIL,
+    AST_ARRAY_PATTERN
 } NodeType;
 
 typedef enum {
@@ -145,8 +146,13 @@ typedef struct ASTNode {
         struct {
             struct ASTNode** expressions;
             int expression_count;
-            int precomputed_length;/*length长度*/ 
+            int precomputed_length;/*length长度*/
         } expression_list;
+        struct {
+            struct ASTNode** elements;
+            int element_count;
+            int rest_index;
+        } array_pattern;
         struct {
             struct ASTNode* target;
             struct ASTNode* index;
@@ -293,6 +299,10 @@ ASTNode* create_expression_list_node();
 ASTNode* create_expression_list_node_with_location(Location location);
 ASTNode* create_expression_list_node_with_yyltype(void* yylloc);
 void add_expression_to_list(ASTNode* list, ASTNode* expr);
+ASTNode* create_array_pattern_node_with_location(Location location);
+ASTNode* create_array_pattern_node_with_yyltype(void* yylloc);
+void add_array_pattern_element(ASTNode* pattern, ASTNode* element);
+int set_array_pattern_rest(ASTNode* pattern);
 ASTNode* create_assign_node(ASTNode* left, ASTNode* right);
 ASTNode* create_assign_node_with_location(ASTNode* left, ASTNode* right, Location location);
 ASTNode* create_assign_node_with_yyltype(ASTNode* left, ASTNode* right, void* yylloc);

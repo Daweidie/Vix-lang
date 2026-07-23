@@ -393,6 +393,11 @@ static void set_source_file_recursive(ASTNode* node, const char* source_file) {
                 set_source_file_recursive(node->data.expression_list.expressions[i], source_file);
             }
             break;
+        case AST_ARRAY_PATTERN:
+            for (int i = 0; i < node->data.array_pattern.element_count; i++) {
+                set_source_file_recursive(node->data.array_pattern.elements[i], source_file);
+            }
+            break;
         case AST_ASSIGN:
         case AST_CONST:
             set_source_file_recursive(node->data.assign.left, source_file);
@@ -605,6 +610,46 @@ void add_expression_to_list(ASTNode* list, ASTNode* expr) {
         sizeof(ASTNode*) * list->data.expression_list.expression_count
     );
     list->data.expression_list.expressions[list->data.expression_list.expression_count - 1] = expr;
+}
+
+ASTNode* create_array_pattern_node_with_location(Location location) {
+    ASTNode* node = alloc_ast_node();
+    node->type = AST_ARRAY_PATTERN;
+    node->location = location;
+    node->data.array_pattern.elements = NULL;
+    node->data.array_pattern.element_count = 0;
+    node->data.array_pattern.rest_index = -1;
+    return node;
+}
+
+ASTNode* create_array_pattern_node_with_yyltype(void* yylloc) {
+    YYLTYPE* loc = (YYLTYPE*)yylloc;
+    Location location = {
+        loc->first_line,
+        loc->first_column,
+        loc->last_line,
+        loc->last_column
+    };
+    return create_array_pattern_node_with_location(location);
+}
+
+void add_array_pattern_element(ASTNode* pattern, ASTNode* element) {
+    if (!pattern || pattern->type != AST_ARRAY_PATTERN || !element) return;
+    pattern->data.array_pattern.element_count++;
+    pattern->data.array_pattern.elements = checked_realloc(
+        pattern->data.array_pattern.elements,
+        sizeof(ASTNode*) * pattern->data.array_pattern.element_count
+    );
+    pattern->data.array_pattern.elements[pattern->data.array_pattern.element_count - 1] = element;
+}
+
+int set_array_pattern_rest(ASTNode* pattern) {
+    if (!pattern || pattern->type != AST_ARRAY_PATTERN ||
+        pattern->data.array_pattern.rest_index >= 0) {
+        return 0;
+    }
+    pattern->data.array_pattern.rest_index = pattern->data.array_pattern.element_count;
+    return 1;
 }
 
 ASTNode* create_assign_node_with_location(ASTNode* left, ASTNode* right, Location location) {
@@ -1733,6 +1778,13 @@ void free_ast(ASTNode* node) {
             }
             free(node->data.expression_list.expressions);
             break;
+
+        case AST_ARRAY_PATTERN:
+            for (int i = 0; i < node->data.array_pattern.element_count; i++) {
+                free_ast(node->data.array_pattern.elements[i]);
+            }
+            free(node->data.array_pattern.elements);
+            break;
             
         case AST_ASSIGN:
             free_ast(node->data.assign.left);
@@ -2061,6 +2113,18 @@ void print_ast(ASTNode* node, int indent) {
                     }
                 } else {
                     print_ast(node->data.expression_list.expressions[i], indent + 1);
+                }
+            }
+            break;
+        case AST_ARRAY_PATTERN:
+            printf("Array Pattern:\n");
+            for (int i = 0; i <= node->data.array_pattern.element_count; i++) {
+                if (i == node->data.array_pattern.rest_index) {
+                    for (int j = 0; j < indent + 1; j++) printf("  ");
+                    printf("Rest: ..\n");
+                }
+                if (i < node->data.array_pattern.element_count) {
+                    print_ast(node->data.array_pattern.elements[i], indent + 1);
                 }
             }
             break;
