@@ -771,7 +771,8 @@ struct TypeChecker {
       for (const auto &p : a->data.fn.params) {
         params.push_back(freshen_type(p));
       }
-      return Type::make_fn(std::move(params), freshen_type(a->data.fn.ret));
+      return Type::make_fn(std::move(params), freshen_type(a->data.fn.ret),
+                           a->data.fn.generic_param_ids, a->data.fn.vararg);
     }
     case TypeKind::Tuple: {
       std::vector<TypePtr> elems;
@@ -1000,6 +1001,17 @@ struct TypeChecker {
     }
     TypePtr last = builtin_void;
     if (node->type == AST_PROGRAM) {
+      // Function definitions are valid statements, including when a macro
+      // emits one inside a function body.  Make every function in the block
+      // visible before checking calls so forward references work consistently
+      // with top-level programs and semantic analysis.
+      for (int i = 0; i < node->data.program.statement_count; i++) {
+        ASTNode *stmt = node->data.program.statements[i];
+        if (stmt && stmt->type == AST_FUNCTION &&
+            !env.lookup_value(stmt->data.function.name)) {
+          register_function(stmt);
+        }
+      }
       for (int i = 0; i < node->data.program.statement_count; i++) {
         last = check_expr(node->data.program.statements[i]);
       }

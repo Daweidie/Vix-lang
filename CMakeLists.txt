@@ -112,6 +112,7 @@ set(C_SOURCES
     src/ast/typeinfer.c
     src/semantic/semantic.c
     src/utils/error.c
+    src/parser/macro.c
     ${BISON_vix_parser_OUTPUTS}
     ${FLEX_vix_lexer_OUTPUTS}
 )
@@ -293,6 +294,7 @@ if(BUILD_FRONTEND_TEST)
         src/ast/typeinfer.c
         src/semantic/semantic.c
         src/utils/error.c
+        src/parser/macro.c
         ${BISON_vix_parser_OUTPUTS}
         ${FLEX_vix_lexer_OUTPUTS}
         src/Typeck/Typeck.cpp
@@ -335,6 +337,7 @@ if(BUILD_WASM_TEST AND TARGET binaryen)
         src/ast/typeinfer.c
         src/semantic/semantic.c
         src/utils/error.c
+        src/parser/macro.c
         ${BISON_vix_parser_OUTPUTS}
         ${FLEX_vix_lexer_OUTPUTS}
         src/Typeck/Typeck.cpp

@@ -14,6 +14,7 @@ WORKING_EXAMPLES = [
     "global.vix",
     "hello.vix",
     "list.vix",
+    "macro.vix",
     "nullptr.vix",
     "option.vix",
     "result.vix",

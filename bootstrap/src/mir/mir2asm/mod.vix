@@ -1,7 +1,0 @@
-#[no_main]
-import "types.vix"
-import "target.vix"
-import "registers.vix"
-import "stack.vix"
-import "x86_64/mod.vix"
-import "emit.vix"

@@ -18,6 +18,7 @@
 #include "../include/codegen.h"
 #include "../include/compat.h"
 #include "../include/compiler.h"
+#include "../include/macro.h"
 #include "../include/ownership.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
@@ -139,13 +140,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  FILE *preprocessed_file = vix_preprocess_macros(input_file, opts.in_f);
+  if (!preprocessed_file) {
+    fclose(input_file);
+    return 1;
+  }
+
   /* Scan for #[no_std] / #[no_main] attributes via source parser (one file read) */
   vix_source_get_attrs(opts.in_f, &opts.no_std, &opts.no_main);
 
   /* Reset parser global state across compilations, then compile */
   vix_reset_parser_state();
-  int ret = run_compiler_pipeline(&opts, input_file);
+  int ret = run_compiler_pipeline(&opts, preprocessed_file);
 
+  fclose(preprocessed_file);
   fclose(input_file);
   return ret;
 }
@@ -370,8 +378,8 @@ static int run_compiler_pipeline(const VixOptions *opts, FILE *input_file) {
 
   /* ── Phase 1: Parse ── */
   result = yyparse();
-  if (result == 0 && root)
-    inline_imports(root);
+  if (result == 0 && root && !inline_imports(root))
+    result = 1;
 
   if (opts->show_time)
     clock_gettime(CLOCK_MONOTONIC, &t_parse_ts);

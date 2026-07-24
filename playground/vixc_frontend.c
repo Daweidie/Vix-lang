@@ -1,5 +1,6 @@
 #include "../src/libvixc_frontend.h"
 #include "parser.h"
+#include "macro.h"
 #include "semantic.h"
 #include "typeck.h"
 #include "ownership.h"
@@ -10,7 +11,6 @@ extern FILE *yyin;
 extern ASTNode *root;
 extern int yyparse(void);
 extern void load_source_file(const char *name);
-extern void inline_imports(ASTNode *root);
 
 static char error_buf[4096];
 
@@ -30,13 +30,22 @@ CompileResult vixc_compile_string(const char *source) {
         return result;
     }
 
+    char *expanded_source = vix_expand_macros(source, tmp_path);
+    if (!expanded_source) {
+        result.error_count = 1;
+        set_error("macro expansion failed");
+        return result;
+    }
+
     FILE *src_file = fopen(tmp_path, "w");
     if (!src_file) {
+        free(expanded_source);
         result.error_count = 1;
         set_error("failed to open temp file for writing");
         return result;
     }
-    fwrite(source, 1, strlen(source), src_file);
+    fwrite(expanded_source, 1, strlen(expanded_source), src_file);
+    free(expanded_source);
     fclose(src_file);
 
     FILE *parse_file = fopen(tmp_path, "r");
@@ -60,7 +69,12 @@ CompileResult vixc_compile_string(const char *source) {
     fclose(parse_file);
     remove(tmp_path);
 
-    inline_imports(root);
+    if (!inline_imports(root)) {
+        result.error_count = 1;
+        free_ast(root);
+        root = NULL;
+        return result;
+    }
 
     if (check_undefined_symbols(root) > 0) {
         result.error_count = 1;

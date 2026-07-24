@@ -26,10 +26,22 @@ void test_type_error() {
     printf("PASS: test_type_error\n");
 }
 
+void test_compile_macro() {
+    const char *source =
+        "macro $identity(value: expr) { $value }\n"
+        "fn main(): i32 { return $identity(0) }\n";
+    CompileResult r = vixc_compile_string(source);
+    assert(r.error_count == 0);
+    assert(r.root != NULL);
+    vixc_free_result(&r);
+    printf("PASS: test_compile_macro\n");
+}
+
 int main() {
     test_compile_ok();
     test_syntax_error();
     test_type_error();
+    test_compile_macro();
     printf("All frontend tests passed\n");
     return 0;
 }

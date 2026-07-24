@@ -15,6 +15,7 @@
  */
 
 #include "../include/ast.h"
+#include "../include/macro.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -300,6 +301,11 @@ static ASTNode* parse_imported_module_ast(const char* full_module_path) {
 
     FILE* f = fopen(full_module_path, "r");
     if (!f) return NULL;
+
+    FILE* preprocessed = vix_preprocess_macros(f, full_module_path);
+    fclose(f);
+    if (!preprocessed) return NULL;
+    f = preprocessed;
 
     ParserImportState old_state = {
         .yyin = yyin,
@@ -2361,8 +2367,8 @@ static int inline_imports_in_node_impl(ASTNode* node) {
                 import_cache_add(full_module_path);
                 ASTNode* module_root = parse_imported_module_ast(full_module_path);
                 if (!module_root) {
-                    i++;
-                    continue;
+                    free_inserted_externs(inserted_externs, inserted_extern_count);
+                    return 0;
                 }
 
                 char* module_source_file = strdup(full_module_path);
@@ -2614,11 +2620,7 @@ static int inline_imports_in_node_impl(ASTNode* node) {
     return 1;
 }
 
-static void inline_imports_in_node(ASTNode* node) {
-    (void)inline_imports_in_node_impl(node);
-}
-
-void inline_imports(ASTNode* node) {
+int inline_imports(ASTNode* node) {
     clear_import_cache();
     if (current_input_filename) {
         char root_file[1024];
@@ -2626,8 +2628,9 @@ void inline_imports(ASTNode* node) {
             import_cache_add(root_file);
         }
     }
-    inline_imports_in_node(node);
+    int result = inline_imports_in_node_impl(node);
     clear_import_cache();
+    return result;
 }
 
 int get_array_length(ASTNode* node) {
