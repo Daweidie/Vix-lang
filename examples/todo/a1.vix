@@ -1,6 +1,6 @@
 fn find_first_not_of(s: string, chars: string): i32
 {
-    for (i in 0..s.length)
+    for (i in 0 .. s.length)
     {
         if (!(s[i] in chars))
         {
