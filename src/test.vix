@@ -59,8 +59,15 @@ fn trim(s: string): string
     return s[start..end]
 }
 
-fn uppercase(s: string): string
+fn upper(s: string): string
 {
+    for (i in 0 .. s.length)
+    {
+        if (s[i] >= 'a' and s[i] <= 'z')
+        {
+            s[i] = s[i] - 32
+        }
+    }
     return s
 }
 
@@ -90,7 +97,7 @@ fn main(): i32
     let result =
         "  hello vix  "
         |> trim
-        |> uppercase
+        |> upper
         |> split(" ")
 
     for (item in result)

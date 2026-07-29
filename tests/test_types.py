@@ -440,6 +440,22 @@ class TestStringType:
         compile_res, _ = compile_and_run(compiler, src, tmp_path)
         assert compile_res.returncode == 0
 
+    def test_string_index_arithmetic_assignment(self, compiler, tmp_path):
+        src = '''fn upper(s: string): string {
+    for (i in 0 .. s.length) {
+        if (s[i] >= 'a' and s[i] <= 'z') { s[i] = s[i] - 32 }
+    }
+    return s
+}
+fn main(): i32 {
+    let source = " hello "
+    print(upper(source[1..6]))
+    return 0
+}'''
+        _, run = compile_and_run(compiler, src, tmp_path)
+        assert run is not None
+        assert run.stdout.strip() == "HELLO"
+
     def test_string_in_print(self, compiler, tmp_path):
         src = 'fn main(): i32 { let name = "Vix" print("Hello, ", name, "!") return 0 }'
         _, run = compile_and_run(compiler, src, tmp_path)

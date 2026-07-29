@@ -476,7 +476,15 @@ std::pair<ValueType, ValueType> TypeHelper::promoteTypes(ValueType left, ValueTy
 
 ValueType TypeHelper::promoteTo(ValueType from, ValueType to) {
     if (from == to) return from;
-    if (from == ValueType::BOOL || from == ValueType::INT8 || from == ValueType::INT32) {
+    if (from == ValueType::BOOL) {
+        if (to == ValueType::INT8 || to == ValueType::INT32 || to == ValueType::INT64 ||
+            to == ValueType::FLOAT32 || to == ValueType::FLOAT64) return to;
+    }
+    if (from == ValueType::INT8) {
+        if (to == ValueType::INT32 || to == ValueType::INT64 ||
+            to == ValueType::FLOAT32 || to == ValueType::FLOAT64) return to;
+    }
+    if (from == ValueType::INT32) {
         if (to == ValueType::INT64 || to == ValueType::FLOAT32 || to == ValueType::FLOAT64) return to;
     }
     if (from == ValueType::INT64) {
