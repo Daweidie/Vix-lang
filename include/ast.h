@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+
+#define VIX_STRING_SLICE_INTRINSIC "__vix_string_slice"
+
 typedef struct {
     int first_line;
     int first_column;

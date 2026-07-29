@@ -855,6 +855,20 @@ using namespace llvm;
         
         std::string calleeName(node->data.call.func->data.identifier.name);
 
+        if (calleeName == VIX_STRING_SLICE_INTRINSIC) {
+            if (!node->data.call.args || node->data.call.args->type != AST_EXPRESSION_LIST ||
+                node->data.call.args->data.expression_list.expression_count != 3) {
+                llvm::errs() << "Error: string slice expects three arguments\n";
+                return VisitResult();
+            }
+            ASTNode** args = node->data.call.args->data.expression_list.expressions;
+            VisitResult source = visit(args[0]);
+            VisitResult start = visit(args[1]);
+            VisitResult end = visit(args[2]);
+            Value* sliced = emitStringSlice(source.value, start.value, end.value);
+            return VisitResult(sliced, ValueType::STRING);
+        }
+
         if (calleeName == "stdin") {
             int stdinArgCount = node->data.call.args ?
                 node->data.call.args->data.expression_list.expression_count : 0;

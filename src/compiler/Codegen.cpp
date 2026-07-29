@@ -527,6 +527,16 @@ Function* LLVMCodeGenerator::getOrCreateReallocFunction() {
     return reallocFn;
 }
 
+Function* LLVMCodeGenerator::getOrCreateMemcpyFunction() {
+    if (Function* fn = module->getFunction("memcpy")) return fn;
+    Type* i8PtrTy = PointerType::get(context, 0);
+    Type* i64Ty = Type::getInt64Ty(context);
+    FunctionType* memcpyType = FunctionType::get(i8PtrTy, {i8PtrTy, i8PtrTy, i64Ty}, false);
+    Function* memcpyFn = Function::Create(memcpyType, Function::ExternalLinkage, "memcpy", module.get());
+    memcpyFn->setCallingConv(CallingConv::C);
+    return memcpyFn;
+}
+
 Type* LLVMCodeGenerator::getPointerElementTypeSafely(PointerType* ptrType, const std::string& varName) {
     if (!ptrType) return Type::getInt8Ty(context);
     if (varName.empty()) return Type::getInt8Ty(context);
@@ -698,6 +708,46 @@ Value* LLVMCodeGenerator::emitStringConcat(Value* left, Value* right) {
     Value* buf = builder.CreateCall(reallocFn, {ConstantPointerNull::get(PointerType::get(context, 0)), allocSize}, "strcat_buf");
     builder.CreateCall(strcpyFn, {buf, left});
     builder.CreateCall(strcatFn, {buf, right});
+    return buf;
+}
+
+Value* LLVMCodeGenerator::emitStringSlice(Value* source, Value* start, Value* end) {
+    if (!source || !start || !end) return nullptr;
+    Type* i8PtrTy = PointerType::get(context, 0);
+    Type* i64Ty = Type::getInt64Ty(context);
+    if (source->getType() != i8PtrTy) {
+        source = builder.CreateBitCast(source, i8PtrTy, "slice_src_cast");
+    }
+    Value* empty = safeCreateGlobalString("", "slice_empty");
+    source = builder.CreateSelect(builder.CreateIsNull(source, "slice_src_is_null"), empty, source, "slice_src_safe");
+
+    initStrlen();
+    Value* strlenVal = builder.CreateCall(strlenFunction, {source}, "slice_strlen");
+    Value* start64 = start;
+    if (start64->getType()->isFloatingPointTy()) {
+        start64 = builder.CreateFPToSI(start64, i64Ty, "slice_start64");
+    } else if (!start64->getType()->isIntegerTy(64)) {
+        start64 = builder.CreateIntCast(start64, i64Ty, true, "slice_start64");
+    }
+    Value* end64 = end;
+    if (end64->getType()->isFloatingPointTy()) {
+        end64 = builder.CreateFPToSI(end64, i64Ty, "slice_end64");
+    } else if (!end64->getType()->isIntegerTy(64)) {
+        end64 = builder.CreateIntCast(end64, i64Ty, true, "slice_end64");
+    }
+    Value* zero = ConstantInt::get(i64Ty, 0);
+    start64 = builder.CreateSelect(builder.CreateICmpSLT(start64, zero), zero, start64, "slice_start_nonneg");
+    end64 = builder.CreateSelect(builder.CreateICmpSLT(end64, start64), start64, end64, "slice_end_after_start");
+    start64 = builder.CreateSelect(builder.CreateICmpSGT(start64, strlenVal), strlenVal, start64, "slice_start_clamped");
+    end64 = builder.CreateSelect(builder.CreateICmpSGT(end64, strlenVal), strlenVal, end64, "slice_end_clamped");
+
+    Value* len = builder.CreateSub(end64, start64, "slice_len");
+    Value* allocSize = builder.CreateAdd(len, ConstantInt::get(i64Ty, 1), "slice_alloc_size");
+    Value* buf = builder.CreateCall(getOrCreateReallocFunction(), {ConstantPointerNull::get(cast<PointerType>(i8PtrTy)), allocSize}, "slice_buf");
+    Value* srcStart = builder.CreateInBoundsGEP(Type::getInt8Ty(context), source, start64, "slice_src_start");
+    builder.CreateCall(getOrCreateMemcpyFunction(), {buf, srcStart, len});
+    Value* termPtr = builder.CreateInBoundsGEP(Type::getInt8Ty(context), buf, len, "slice_term_ptr");
+    builder.CreateStore(ConstantInt::get(Type::getInt8Ty(context), 0), termPtr);
     return buf;
 }
 

@@ -148,6 +148,7 @@ private:
     llvm::Function* getOrCreateStrcpyFunction();
     llvm::Function* getOrCreateStrcatFunction();
     llvm::Function* getOrCreateReallocFunction();
+    llvm::Function* getOrCreateMemcpyFunction();
 
     // Pointer element type inference
     llvm::Type* getPointerElementTypeSafely(llvm::PointerType* ptrType, const std::string& varName);
@@ -161,6 +162,7 @@ private:
 
     // String concat
     llvm::Value* emitStringConcat(llvm::Value* left, llvm::Value* right);
+    llvm::Value* emitStringSlice(llvm::Value* source, llvm::Value* start, llvm::Value* end);
 
     // Array length loading
     llvm::Value* emitLoadArrayLength(llvm::Value* dataPtr, const llvm::Twine& name = "arr_len");

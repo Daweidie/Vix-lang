@@ -24,6 +24,8 @@ static ASTNode* materialize_match_scrutinee(ASTNode* scrutinee, ASTNode** out_re
 static ASTNode* build_match_desugared(ASTNode* scrutinee, ASTNode* arms);
 static ASTNode* build_array_pattern_arm(ASTNode* scrutinee, ASTNode* pattern,
                                         ASTNode* body, ASTNode* fallback);
+static ASTNode* build_pipe_desugared(ASTNode* value, ASTNode* callee, YYLTYPE* loc);
+static ASTNode* build_string_slice_desugared(ASTNode* target, ASTNode* start, ASTNode* end, YYLTYPE* loc);
 
 typedef struct {
     char* name;
@@ -504,6 +506,42 @@ static ASTNode* build_type_alias_enum(const char* type_name, ASTNode* variants) 
     return program;
 }
 
+static ASTNode* prepend_expression(ASTNode* list, ASTNode* expr, YYLTYPE* loc) {
+    if (list && list->type == AST_EXPRESSION_LIST) {
+        int count = list->data.expression_list.expression_count;
+        ASTNode** resized = (ASTNode**)realloc(
+            list->data.expression_list.expressions,
+            sizeof(ASTNode*) * (size_t)(count + 1));
+        if (!resized) return list;
+        memmove(resized + 1, resized, sizeof(ASTNode*) * (size_t)count);
+        resized[0] = expr;
+        list->data.expression_list.expressions = resized;
+        list->data.expression_list.expression_count = count + 1;
+        return list;
+    }
+    ASTNode* result = create_expression_list_node_with_yyltype((void*)loc);
+    add_expression_to_list(result, expr);
+    return result;
+}
+
+static ASTNode* build_pipe_desugared(ASTNode* value, ASTNode* callee, YYLTYPE* loc) {
+    if (!value || !callee) return callee;
+    if (callee->type == AST_CALL) {
+        callee->data.call.args = prepend_expression(callee->data.call.args, value, loc);
+        return callee;
+    }
+    return create_call_node_with_yyltype(callee, prepend_expression(NULL, value, loc), (void*)loc);
+}
+
+static ASTNode* build_string_slice_desugared(ASTNode* target, ASTNode* start, ASTNode* end, YYLTYPE* loc) {
+    ASTNode* args = create_expression_list_node_with_yyltype((void*)loc);
+    add_expression_to_list(args, target);
+    add_expression_to_list(args, start);
+    add_expression_to_list(args, end);
+    ASTNode* func = create_identifier_node_with_yyltype(VIX_STRING_SLICE_INTRINSIC, (void*)loc);
+    return create_call_node_with_yyltype(func, args, (void*)loc);
+}
+
 static ASTNode* mark_type_alias_public(ASTNode* program) {
     if (!program || program->type != AST_PROGRAM) return program;
     for (int i = 0; i < program->data.program.statement_count; i++) {
@@ -980,7 +1018,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 
 %token <str> IDENTIFIER STRING
 %token STRUCT COLON
-%token TYPE_KW MATCH PIPE
+%token TYPE_KW MATCH PIPE PIPE_GT
 %token QUESTION
 %token LET MUT REF_KW
 %token IMPORT PUB IMPL
@@ -1009,7 +1047,7 @@ build_match_desugared：将 match 表达式转换为嵌套的 ifelse 表达式
 %type <node> type param_list function_definition pub_function_definition function_return_type
 %type <node> print_statement assignment_statement compound_assignment_statement
 %type <node> if_statement while_statement for_statement
-%type <node> expression logical_expression comparison_expression additive_expression term factor power factor_unary
+%type <node> expression pipeline_expression logical_expression comparison_expression additive_expression term factor power factor_unary
 %type <node> literal identifier input_expression
 %type <node> block_statement if_rest expression_list
 
@@ -1989,7 +2027,12 @@ comparison_expression
     ;
 
 expression
+    : pipeline_expression                   { $$ = $1; }
+    ;
+
+pipeline_expression
     : logical_expression                    { $$ = $1; }
+    | pipeline_expression PIPE_GT logical_expression { $$ = build_pipe_desugared($1, $3, (YYLTYPE*) &@$); }
     ;
 
 additive_expression
@@ -2047,6 +2090,10 @@ factor_unary
     | IDENTIFIER LBRACKET expression RBRACKET {
         ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
         $$ = create_index_node_with_yyltype(id, $3, (YYLTYPE*) &@$);
+    }
+    | IDENTIFIER LBRACKET expression DOTDOT expression RBRACKET {
+        ASTNode* id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$);
+        $$ = build_string_slice_desugared(id, $3, $5, (YYLTYPE*) &@$);
     }
     | IDENTIFIER LBRACE RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); ASTNode* list = create_expression_list_node_with_yyltype((YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, list, (YYLTYPE*) &@$); }
     | IDENTIFIER LBRACE struct_init_fields RBRACE { ASTNode* type_id = create_identifier_node_with_yyltype($1, (YYLTYPE*) &@$); $$ = create_struct_literal_node_with_yyltype(type_id, $3, (YYLTYPE*) &@$); }
@@ -2164,6 +2211,7 @@ factor_unary
         ASTNode* mem = create_member_access_node_with_yyltype($1, method, (YYLTYPE*) &@$);
         $$ = create_call_node_with_yyltype(mem, $5, (YYLTYPE*) &@$);
     }
+    | factor_unary LBRACKET expression DOTDOT expression RBRACKET { $$ = build_string_slice_desugared($1, $3, $5, (YYLTYPE*) &@$); }
     | factor_unary LBRACKET expression RBRACKET { $$ = create_index_node_with_yyltype($1, $3, (YYLTYPE*) &@$); }
     ;
 

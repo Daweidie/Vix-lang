@@ -307,6 +307,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
 "<="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(LE); }
 ">"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(GT); }
 ">="                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(GE); }
+"|>"                { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(PIPE_GT); }
 
 "("                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(LPAREN); }
 ")"                 { UPDATE_COLUMN(); SET_TOKEN_LOCATION(); RETURN_TOKEN(RPAREN); }
@@ -357,7 +358,7 @@ static int decode_char_literal(const char* text, size_t len, unsigned char* out)
                         RETURN_TOKEN(NUMBER_INT);
                       }
 
-[0-9]+"."[0-9]*      {
+[0-9]+"."[0-9]+      {
                         int col = GET_FIRST_COLUMN();
                         yylval.num_float = atof(yytext);
                         yylloc.first_line = yylineno;

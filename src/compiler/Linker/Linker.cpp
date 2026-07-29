@@ -62,7 +62,8 @@ struct SysPaths {
 SysPaths probeSysPaths(const Triple &T) {
     SysPaths sp;
 
-    StringRef arch = T.isArch64Bit() ? "x86_64" : (T.getArch() == Triple::aarch64 ? "aarch64" : "x86_64");
+    StringRef arch = T.getArch() == Triple::aarch64 ? "aarch64" :
+                     T.getArch() == Triple::x86 ? "i386" : "x86_64";
     
     // Try multiple GNU tuple variants (e.g. x86_64-linux-gnu, x86_64-pc-linux-gnu)
     std::string gnuTuple = arch.str() + "-linux-gnu";
@@ -104,6 +105,10 @@ SysPaths probeSysPaths(const Triple &T) {
         if (fileExists(alt + "/crt1.o"))
             sp.sysLibDir = alt;
     }
+    if (sp.sysLibDir.empty() && fileExists("/usr/lib/crt1.o"))
+        sp.sysLibDir = "/usr/lib";
+    if (sp.sysLibDir.empty() && fileExists("/lib/crt1.o"))
+        sp.sysLibDir = "/lib";
 
     sp.gccDir = findGccDir(gnuTuple);
     if (sp.gccDir.empty())
@@ -568,13 +573,18 @@ extern "C" int vix_link(const char *obj_file, const char *output_file,
             args.push_back("_DYNAMIC=0");
         }
 
-        if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtbegin.o"))
-            args.push_back(elfSysPaths.gccDir + "/crtbegin.o");
         if (!elfSysPaths.sysLibDir.empty()) {
-            if (!wantStatic && fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
+            if (fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crt1.o");
             if (fileExists(elfSysPaths.sysLibDir + "/crti.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crti.o");
+        }
+        if (!elfSysPaths.gccDir.empty()) {
+            std::string crtbegin = elfSysPaths.gccDir +
+                (wantStatic && fileExists(elfSysPaths.gccDir + "/crtbeginT.o")
+                    ? "/crtbeginT.o" : "/crtbegin.o");
+            if (fileExists(crtbegin))
+                args.push_back(crtbegin);
         }
         if (!wantStatic && !elfSysPaths.dynamicLinker.empty()) {
             args.push_back("--dynamic-linker");
@@ -751,13 +761,18 @@ extern "C" int vix_link_multi(const char **obj_files, int obj_count,
             args.push_back("_DYNAMIC=0");
         }
 
-        if (!elfSysPaths.gccDir.empty() && fileExists(elfSysPaths.gccDir + "/crtbegin.o"))
-            args.push_back(elfSysPaths.gccDir + "/crtbegin.o");
         if (!elfSysPaths.sysLibDir.empty()) {
-            if (!wantStatic && fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
+            if (fileExists(elfSysPaths.sysLibDir + "/crt1.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crt1.o");
             if (fileExists(elfSysPaths.sysLibDir + "/crti.o"))
                 args.push_back(elfSysPaths.sysLibDir + "/crti.o");
+        }
+        if (!elfSysPaths.gccDir.empty()) {
+            std::string crtbegin = elfSysPaths.gccDir +
+                (wantStatic && fileExists(elfSysPaths.gccDir + "/crtbeginT.o")
+                    ? "/crtbeginT.o" : "/crtbegin.o");
+            if (fileExists(crtbegin))
+                args.push_back(crtbegin);
         }
         if (!wantStatic && !elfSysPaths.dynamicLinker.empty()) {
             args.push_back("--dynamic-linker");

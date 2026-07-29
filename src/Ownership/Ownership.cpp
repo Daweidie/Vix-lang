@@ -1480,6 +1480,17 @@ ExprInfo OwnershipChecker::check_call(ASTNode *node) {
   ExprInfo info;
   info.type = node->inferred_type;
   info.copy = is_copy_type(node->inferred_type);
+  if (node->data.call.func && node->data.call.func->type == AST_IDENTIFIER &&
+      node->data.call.func->data.identifier.name &&
+      std::string(node->data.call.func->data.identifier.name) == VIX_STRING_SLICE_INTRINSIC) {
+    ASTNode *args = node->data.call.args;
+    if (args && args->type == AST_EXPRESSION_LIST) {
+      for (int i = 0; i < args->data.expression_list.expression_count; i++) {
+        check_expr(args->data.expression_list.expressions[i], ExprUse::Read);
+      }
+    }
+    return info;
+  }
   check_expr(node->data.call.func, ExprUse::Read);
   ASTNode *args = node->data.call.args;
   bool returns_ref =

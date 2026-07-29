@@ -36,6 +36,10 @@ static int is_builtin_union_ctor_name(const char* name) {
            strcmp(name, "Ok") == 0 || strcmp(name, "Err") == 0;
 }
 
+static int is_builtin_function_name(const char* name) {
+    return name && strcmp(name, VIX_STRING_SLICE_INTRINSIC) == 0;
+}
+
 static const char* node_source_filename(const ASTNode* node) {
     if (node && node->source_file) {
         return node->source_file;
@@ -662,7 +666,8 @@ static int check_undefined_symbols_in_node_with_visited(ASTNode* node, SymbolTab
         
         case AST_CALL: {
             if (node->data.call.func && node->data.call.func->type == AST_IDENTIFIER) {
-                if (is_builtin_union_ctor_name(node->data.call.func->data.identifier.name)) {
+                if (is_builtin_union_ctor_name(node->data.call.func->data.identifier.name) ||
+                    is_builtin_function_name(node->data.call.func->data.identifier.name)) {
                     if (node->data.call.args) {
                         errors_found += check_undefined_symbols_in_node_with_visited(node->data.call.args, table, new_visited_list);
                     }

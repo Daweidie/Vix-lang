@@ -2692,6 +2692,32 @@ struct TypeChecker {
     // Ok, Err)
     if (node->data.call.func && node->data.call.func->type == AST_IDENTIFIER) {
       const char *cname = node->data.call.func->data.identifier.name;
+      if (cname && strcmp(cname, VIX_STRING_SLICE_INTRINSIC) == 0) {
+        size_t actual = node->data.call.args &&
+                                node->data.call.args->type == AST_EXPRESSION_LIST
+                            ? node->data.call.args->data.expression_list.expression_count
+                            : 0;
+        if (actual != 3) {
+          report_semantic_error(node, "string slice expects three arguments");
+          return node_types[node] = builtin_string;
+        }
+        ASTNode **args = node->data.call.args->data.expression_list.expressions;
+        TypePtr source = unify.apply(check_expr(args[0]));
+        TypePtr start = unify.apply(check_expr(args[1]));
+        TypePtr end = unify.apply(check_expr(args[2]));
+        if (source->kind != TypeKind::String) {
+          report_type_error(args[0], "string slice target must be string");
+        }
+        if (start->kind != TypeKind::I8 && start->kind != TypeKind::I32 &&
+            start->kind != TypeKind::I64) {
+          report_type_error(args[1], "string slice start must be integer");
+        }
+        if (end->kind != TypeKind::I8 && end->kind != TypeKind::I32 &&
+            end->kind != TypeKind::I64) {
+          report_type_error(args[2], "string slice end must be integer");
+        }
+        return node_types[node] = builtin_string;
+      }
       if (cname && strcmp(cname, "Some") == 0) {
         TypePtr arg_t = unify.fresh();
         if (node->data.call.args &&
