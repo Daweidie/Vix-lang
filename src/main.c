@@ -352,7 +352,7 @@ static int run_compiler_pipeline(const VixOptions *opts, FILE *input_file) {
   /* LLVM IR output path */
   char llvm_filename[2048];
   const char *llvm_f = opts->llvm_f;
-  if (opts->save_c && !llvm_f) {
+  if ((opts->save_c || opts->gen_obj || opts->gen_asm) && !llvm_f) {
     const char *base = opts->out_f ? opts->out_f : opts->in_f;
     char *dot = strrchr(base, '.');
     if (dot) {
