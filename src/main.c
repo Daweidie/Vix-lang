@@ -206,7 +206,7 @@ static int parse_args(VixOptions *opts, int argc, char **argv) {
       else { fprintf(stderr, "Error: -o requires a filename\n"); return 0; }
     } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0 ||
                strcmp(argv[i], "-ver") == 0) {
-      printf("Vix Compiler 0.4.2 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
+      printf("Vix Compiler 0.5.0 Copyright(c) 2025-2026 LLVM : 22.1.2(8)\n");
       exit(0);
     } else if (strcmp(argv[i], "-llvm") == 0) {
       opts->out_llvm = 1;

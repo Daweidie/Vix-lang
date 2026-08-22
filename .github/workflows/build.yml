@@ -343,6 +343,52 @@ jobs:
 
           tar czf "${PKG_NAME}.tar.gz" -C dist .
 
+      - name: Fetch MinGW runtime libraries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # vixc links against the MinGW runtime (libmingw32.a, libgcc.a, ...).
+          # Install a MinGW-w64 toolchain and bundle the runtime libraries into
+          # dist/libc so the linker can find them on the end-user's machine.
+          choco install mingw -y --no-progress
+
+          # Locate the MinGW-w64 root installed by chocolatey.
+          $candidates = @(
+            "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64",
+            "C:\Program Files\mingw64",
+            "C:\mingw64"
+          )
+          $mingwRoot = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $mingwRoot) {
+            $mingwRoot = (Get-ChildItem "C:\ProgramData\chocolatey\lib\mingw\tools\install" -Directory `
+              -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          }
+          if (-not $mingwRoot -or -not (Test-Path $mingwRoot)) {
+            throw "MinGW-w64 installation not found"
+          }
+          Write-Output "MinGW root: $mingwRoot"
+
+          # MinGW-w64 sysroot libraries (libmingw32.a, libmsvcrt.a, import libs, crt2.o ...)
+          $w64Lib = Join-Path $mingwRoot "x86_64-w64-mingw32\lib"
+          if (-not (Test-Path $w64Lib)) { throw "MinGW sysroot lib dir not found: $w64Lib" }
+
+          # GCC support libraries (libgcc.a, libgcc_eh.a, crtbegin.o, crtend.o ...)
+          $gccVerDir = Get-ChildItem (Join-Path $mingwRoot "lib\gcc\x86_64-w64-mingw32") `
+            -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+
+          $libcDir = "dist/libc"
+          New-Item -ItemType Directory -Force -Path $libcDir | Out-Null
+
+          Copy-Item (Join-Path $w64Lib "*.a") $libcDir -Force
+          Copy-Item (Join-Path $w64Lib "crt*.o") $libcDir -Force -ErrorAction SilentlyContinue
+          if ($gccVerDir) {
+            Copy-Item (Join-Path $gccVerDir.FullName "*.a") $libcDir -Force
+            Copy-Item (Join-Path $gccVerDir.FullName "crt*.o") $libcDir -Force -ErrorAction SilentlyContinue
+          }
+
+          Write-Output "--- Bundled MinGW runtime libraries ---"
+          Get-ChildItem $libcDir | ForEach-Object { Write-Output "  $($_.Name)" }
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
